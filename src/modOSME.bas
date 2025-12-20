@@ -211,7 +211,7 @@ Private Declare Function WritePrivateProfileString Lib "kernel32" Alias "WritePr
         (ByVal sSectionName As String, ByVal sKeyName As String, _
         ByVal sString As String, ByVal sFileName As String) As Long
 
-' ShellExecute
+' shellexecute
 Private Declare Function ShellExecute Lib "shell32.dll" Alias "ShellExecuteA" (ByVal hWnd As Long, _
         ByVal lpOperation As String, ByVal lpFile As String, ByVal lpParameters As String, _
         ByVal lpDirectory As String, ByVal nShowCmd As Long) As Long
@@ -259,7 +259,7 @@ Private Type ImageCodecInfo
     SigMaskPtr As Long
 End Type
 
-' GDI Functions
+' GDI functions
 Private Declare Function CreateCompatibleDC Lib "gdi32" (ByVal hDC As Long) As Long
 Private Declare Function OleCreatePictureIndirect Lib "olepro32.dll" (PicDesc As PICTDESC, RefIID As GUID, ByVal fPictureOwnsHandle As Long, IPic As IPicture) As Long
 Private Declare Function CreateCompatibleBitmap Lib "gdi32" (ByVal hDC As Long, ByVal nWidth As Long, ByVal nHeight As Long) As Long
@@ -293,10 +293,10 @@ Private Declare Function lstrcpyW Lib "kernel32" (lpString1 As Any, lpString2 As
 
 
 ' GDI and GDI+ constants
-Private Const PLANES = 14            ' Number of planes
-Private Const BITSPIXEL = 12         ' Number of bits per pixel
+Private Const PLANES = 14            ' number of planes
+Private Const BITSPIXEL = 12         ' number of bits per pixel
 Private Const PATCOPY = &HF00021     ' (DWORD) dest = pattern
-Private Const PICTYPE_BITMAP = 1     ' Bitmap type
+Private Const PICTYPE_BITMAP = 1     ' bitmap type
 Private Const InterpolationModeHighQualityBicubic = 7
 Private Const GDIP_WMF_PLACEABLEKEY = &H9AC6CDD7
 
@@ -613,9 +613,9 @@ Public Function GetOpenSoldatDir() As String
         End If
     End If
 
-    ' Fix OpenSoldat installer sets invalid OpenSoldat dir path
+    ' fix OpenSoldat installer sets invalid OpenSoldat dir path
     GetOpenSoldatDir = Replace(GetOpenSoldatDir, Chr(34), "")
-    ' Fix other possible paths too
+    ' fix other possible paths too
     GetOpenSoldatDir = Replace(GetOpenSoldatDir, "'", "")
     GetOpenSoldatDir = Replace(GetOpenSoldatDir, "/", "\")
 
@@ -882,7 +882,7 @@ Public Sub SetColors()
 
 End Sub
 
-' Initializes GDI+
+' initializes GDI+
 Public Function InitGDIPlus() As Long
 
     Dim token    As Long
@@ -894,14 +894,14 @@ Public Function InitGDIPlus() As Long
 
 End Function
 
-' Frees GDI Plus
+' frees GDI Plus
 Public Sub FreeGDIPlus(token As Long)
 
     GdiplusShutdown token
 
 End Sub
 
-' Loads the picture (optionally resized)
+' loads the picture (optionally resized)
 Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -1, Optional Height As Long = -1, _
         Optional ByVal BackColor As Long = vbWhite) As IPicture
 
@@ -911,27 +911,27 @@ Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -
     Dim hBitmap As Long
     Dim Img     As Long
     Dim hBrush As Long
-    Dim Graphics   As Long  ' Graphics Object Pointer
+    Dim Graphics   As Long  ' graphics object pointer
 
     Dim IID_IDispatch As GUID
     Dim pic           As PICTDESC
     Dim IPic          As IPicture
 
-    ' Load the image
+    ' load the image
     If Len(Dir(PicFile)) <> 0 Then
         If GdipLoadImageFromFile(StrPtr(PicFile), Img) <> 0 Then
             Exit Function
         End If
     End If
 
-    ' Calculate picture's width and height if not specified
+    ' calculate picture's width and height if not specified
     If Width = -1 Or Height = -1 Then
         GdipGetImageWidth Img, Width
         GdipGetImageHeight Img, Height
     End If
 
-    ' Initialize the hDC
-    ' Create a memory DC and select a bitmap into it, fill it in with the backcolor
+    ' initialize the hDC
+    ' create a memory DC and select a bitmap into it, fill it in with the backcolor
     hDC = CreateCompatibleDC(ByVal 0&)
     hBitmap = CreateBitmap(Width, Height, GetDeviceCaps(hDC, PLANES), GetDeviceCaps(hDC, BITSPIXEL), ByVal 0&)
     hBitmap = SelectObject(hDC, hBitmap)
@@ -940,28 +940,28 @@ Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -
     PatBlt hDC, 0, 0, Width, Height, PATCOPY
     DeleteObject SelectObject(hDC, hBrush)
 
-    ' Resize the picture
+    ' resize the picture
     GdipCreateFromHDC hDC, Graphics
     GdipDrawImageRectI Graphics, Img, 0, 0, Width, Height
     GdipDeleteGraphics Graphics
     GdipDisposeImage Img
 
-    ' Get the bitmap back
+    ' get the bitmap back
     hBitmap = SelectObject(hDC, hBitmap)
     DeleteDC hDC
 
-    ' Create the picture
-    ' Fill in OLE IDispatch Interface ID
+    ' create the picture
+    ' fill in OLE IDispatch interface id
     IID_IDispatch.Data1 = &H20400
     IID_IDispatch.Data4(0) = &HC0
     IID_IDispatch.Data4(7) = &H46
 
-    ' Fill Pic with necessary parts
-    pic.Size = Len(pic)        ' Length of structure
-    pic.Type = PICTYPE_BITMAP  ' Type of Picture (bitmap)
-    pic.hBmp = hBitmap         ' Handle to bitmap
+    ' fill pic with necessary parts
+    pic.Size = Len(pic)        ' length of structure
+    pic.Type = PICTYPE_BITMAP  ' type of picture (bitmap)
+    pic.hBmp = hBitmap         ' handle to bitmap
 
-    ' Create the picture
+    ' create the picture
     OleCreatePictureIndirect pic, IID_IDispatch, True, IPic
     Set LoadPictureGDIPlus = IPic
 
