@@ -39,7 +39,6 @@ Public Type TLightSource
     Z           As Single
 End Type
 
-
 ' map types
 
 Public Type TCustomVertex

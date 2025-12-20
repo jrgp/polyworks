@@ -63,6 +63,7 @@ Public Declare Function StretchBlt Lib "gdi32" (ByVal hDC As Long, ByVal X As Lo
 Public Declare Function SetCapture Lib "user32" (ByVal hWnd As Long) As Long
 Public Declare Function GetCapture Lib "user32" () As Long
 Public Declare Function ReleaseCapture Lib "user32" () As Long
+
 ' dragging window
 Public Declare Function SendMessage Lib "user32" Alias "SendMessageA" _
         (ByVal hWnd As Long, ByVal wMsg As Long, ByVal wParam As Long, lParam As Any) As Long

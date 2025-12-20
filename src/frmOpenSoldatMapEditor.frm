@@ -1365,6 +1365,7 @@ Public maxUndo As Integer
 
 
 ' vars - private
+
 Private DI As DirectInput8
 Private DIDevice As DirectInputDevice8
 Private DIState As DIKEYBOARDSTATE
