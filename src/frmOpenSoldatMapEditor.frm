@@ -1541,22 +1541,22 @@ Private Const SPI_GETWORKAREA = 48
 ' external functions - private
 
 Private Declare Function MoveWindow Lib "user32" ( _
-    ByVal hWnd As Long, _
-    ByVal X As Long, _
-    ByVal Y As Long, _
-    ByVal nWidth As Long, _
-    ByVal nHeight As Long, _
-    ByVal bRepaint As Long) As Long
+        ByVal hWnd As Long, _
+        ByVal X As Long, _
+        ByVal Y As Long, _
+        ByVal nWidth As Long, _
+        ByVal nHeight As Long, _
+        ByVal bRepaint As Long) As Long
 
 Private Declare Function SystemParametersInfo Lib "user32" Alias "SystemParametersInfoA" ( _
-    ByVal uAction As Long, _
-    ByVal uParam As Long, lpvParam As Any, _
-    ByVal fuWinIni As Long) As Long
+        ByVal uAction As Long, _
+        ByVal uParam As Long, lpvParam As Any, _
+        ByVal fuWinIni As Long) As Long
 
 Private Declare Function SetKeyboardState Lib "user32" _
-    (lppbKeyState As Byte) As Long
+        (lppbKeyState As Byte) As Long
 Private Declare Function GetKeyboardState Lib "user32" _
-    (ByVal nVirtKey As Long) As Integer
+        (ByVal nVirtKey As Long) As Integer
 
 ' functions - public
 

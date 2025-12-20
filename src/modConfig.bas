@@ -261,110 +261,110 @@ Public Sub SaveSettings()
 
     ' preferences
     iniString = _
-        "Dir=" & frmOpenSoldatMapEditor.OpenSoldatDir & sNull & _
-        "Uncompiled=" & frmOpenSoldatMapEditor.uncompDir & sNull & _
-        "Prefabs=" & frmOpenSoldatMapEditor.prefabDir & sNull & _
-        "GridSpacing=" & frmOpenSoldatMapEditor.gridSpacing & sNull & _
-        "GridDiv=" & frmOpenSoldatMapEditor.gridDivisions & sNull & _
-        "GridColor1=" & RGBtoHex(frmOpenSoldatMapEditor.gridColor1) & sNull & _
-        "GridColor2=" & RGBtoHex(frmOpenSoldatMapEditor.gridColor2) & sNull & _
-        "GridAlpha1=" & frmOpenSoldatMapEditor.gridOp1 & sNull & _
-        "GridAlpha2=" & frmOpenSoldatMapEditor.gridOp2 & sNull & _
-        "PolySrc=" & frmOpenSoldatMapEditor.polyBlendSrc & sNull & _
-        "PolyDest=" & frmOpenSoldatMapEditor.polyBlendDest & sNull & _
-        "WireSrc=" & frmOpenSoldatMapEditor.wireBlendSrc & sNull & _
-        "WireDest=" & frmOpenSoldatMapEditor.wireBlendDest & sNull & _
-        "PointColor=" & RGBtoHex(frmOpenSoldatMapEditor.pointColor) & sNull & _
-        "SelectionColor=" & RGBtoHex(frmOpenSoldatMapEditor.selectionColor) & sNull & _
-        "BackColor=" & RGBtoHex(frmOpenSoldatMapEditor.backgroundColor) & sNull & _
-        "MaxUndo=" & frmOpenSoldatMapEditor.maxUndo & sNull & _
-        "SceneryVerts=" & CStr(frmOpenSoldatMapEditor.sceneryVerts) & sNull & _
-        "Topmost=" & CStr(frmOpenSoldatMapEditor.topmost) & sNull & _
-        "MinZoom=" & Trim(Str(frmOpenSoldatMapEditor.gMaxZoom * 100)) & sNull & _
-        "MaxZoom=" & Trim(Str(frmOpenSoldatMapEditor.gMinZoom * 100)) & sNull & _
-        "ResetZoom=" & Trim(Str(frmOpenSoldatMapEditor.gResetZoom * 100)) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Dir=" & frmOpenSoldatMapEditor.OpenSoldatDir & sNull & _
+            "Uncompiled=" & frmOpenSoldatMapEditor.uncompDir & sNull & _
+            "Prefabs=" & frmOpenSoldatMapEditor.prefabDir & sNull & _
+            "GridSpacing=" & frmOpenSoldatMapEditor.gridSpacing & sNull & _
+            "GridDiv=" & frmOpenSoldatMapEditor.gridDivisions & sNull & _
+            "GridColor1=" & RGBtoHex(frmOpenSoldatMapEditor.gridColor1) & sNull & _
+            "GridColor2=" & RGBtoHex(frmOpenSoldatMapEditor.gridColor2) & sNull & _
+            "GridAlpha1=" & frmOpenSoldatMapEditor.gridOp1 & sNull & _
+            "GridAlpha2=" & frmOpenSoldatMapEditor.gridOp2 & sNull & _
+            "PolySrc=" & frmOpenSoldatMapEditor.polyBlendSrc & sNull & _
+            "PolyDest=" & frmOpenSoldatMapEditor.polyBlendDest & sNull & _
+            "WireSrc=" & frmOpenSoldatMapEditor.wireBlendSrc & sNull & _
+            "WireDest=" & frmOpenSoldatMapEditor.wireBlendDest & sNull & _
+            "PointColor=" & RGBtoHex(frmOpenSoldatMapEditor.pointColor) & sNull & _
+            "SelectionColor=" & RGBtoHex(frmOpenSoldatMapEditor.selectionColor) & sNull & _
+            "BackColor=" & RGBtoHex(frmOpenSoldatMapEditor.backgroundColor) & sNull & _
+            "MaxUndo=" & frmOpenSoldatMapEditor.maxUndo & sNull & _
+            "SceneryVerts=" & CStr(frmOpenSoldatMapEditor.sceneryVerts) & sNull & _
+            "Topmost=" & CStr(frmOpenSoldatMapEditor.topmost) & sNull & _
+            "MinZoom=" & Trim(Str(frmOpenSoldatMapEditor.gMaxZoom * 100)) & sNull & _
+            "MaxZoom=" & Trim(Str(frmOpenSoldatMapEditor.gMinZoom * 100)) & sNull & _
+            "ResetZoom=" & Trim(Str(frmOpenSoldatMapEditor.gResetZoom * 100)) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "Preferences", iniString
 
     ' display
     iniString = _
-        "Background=" & CStr(frmOpenSoldatMapEditor.showBG) & sNull & _
-        "Polys=" & CStr(frmOpenSoldatMapEditor.showPolys) & sNull & _
-        "Texture=" & CStr(frmOpenSoldatMapEditor.showTexture) & sNull & _
-        "Wireframe=" & CStr(frmOpenSoldatMapEditor.showWireframe) & sNull & _
-        "Points=" & CStr(frmOpenSoldatMapEditor.showPoints) & sNull & _
-        "Scenery=" & CStr(frmOpenSoldatMapEditor.showScenery) & sNull & _
-        "Objects=" & CStr(frmOpenSoldatMapEditor.showObjects) & sNull & _
-        "Waypoints=" & CStr(frmOpenSoldatMapEditor.showWaypoints) & sNull & _
-        "Grid=" & CStr(frmOpenSoldatMapEditor.showGrid) & sNull & _
-        "Lights=" & CStr(frmOpenSoldatMapEditor.showLights) & sNull & _
-        "Sketch=" & CStr(frmOpenSoldatMapEditor.showSketch) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Background=" & CStr(frmOpenSoldatMapEditor.showBG) & sNull & _
+            "Polys=" & CStr(frmOpenSoldatMapEditor.showPolys) & sNull & _
+            "Texture=" & CStr(frmOpenSoldatMapEditor.showTexture) & sNull & _
+            "Wireframe=" & CStr(frmOpenSoldatMapEditor.showWireframe) & sNull & _
+            "Points=" & CStr(frmOpenSoldatMapEditor.showPoints) & sNull & _
+            "Scenery=" & CStr(frmOpenSoldatMapEditor.showScenery) & sNull & _
+            "Objects=" & CStr(frmOpenSoldatMapEditor.showObjects) & sNull & _
+            "Waypoints=" & CStr(frmOpenSoldatMapEditor.showWaypoints) & sNull & _
+            "Grid=" & CStr(frmOpenSoldatMapEditor.showGrid) & sNull & _
+            "Lights=" & CStr(frmOpenSoldatMapEditor.showLights) & sNull & _
+            "Sketch=" & CStr(frmOpenSoldatMapEditor.showSketch) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "Display", iniString
 
     ' tool settings
     currentColor = RGB(gPolyColor.blue, gPolyColor.green, gPolyColor.red)
     iniString = _
-        "CurrentTool=" & frmOpenSoldatMapEditor.currentTool & sNull & _
-        "SnapVertices=" & CStr(frmOpenSoldatMapEditor.ohSnap) & sNull & _
-        "SnapToGrid=" & CStr(frmOpenSoldatMapEditor.snapToGrid) & sNull & _
-        "FixedTexture=" & CStr(frmOpenSoldatMapEditor.fixedTexture) & sNull & _
-        "Opacity=" & (frmOpenSoldatMapEditor.opacity * 100) & sNull & _
-        "ColorRadius=" & frmOpenSoldatMapEditor.colorRadius & sNull & _
-        "CurrentColor=" & RGBtoHex(currentColor) & sNull & _
-        "ColorMode=" & frmOpenSoldatMapEditor.colorMode & sNull & _
-        "BlendMode=" & frmOpenSoldatMapEditor.blendMode & sNull & _
-        "SnapRadius=" & frmOpenSoldatMapEditor.snapRadius & sNull & _
-        "RotateScenery=" & CStr(frmScenery.rotateScenery) & sNull & _
-        "ScaleScenery=" & CStr(frmScenery.scaleScenery) & sNull & _
-        "TextureWidth=" & frmOpenSoldatMapEditor.xTexture & sNull & _
-        "TextureHeight=" & frmOpenSoldatMapEditor.yTexture & sNull & _
-        "Texture=" & frmOpenSoldatMapEditor.gTextureFile & sNull & _
-        "CustomX=" & CStr(frmOpenSoldatMapEditor.mnuCustomX.Checked) & sNull & _
-        "CustomY=" & CStr(frmOpenSoldatMapEditor.mnuCustomY.Checked) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "CurrentTool=" & frmOpenSoldatMapEditor.currentTool & sNull & _
+            "SnapVertices=" & CStr(frmOpenSoldatMapEditor.ohSnap) & sNull & _
+            "SnapToGrid=" & CStr(frmOpenSoldatMapEditor.snapToGrid) & sNull & _
+            "FixedTexture=" & CStr(frmOpenSoldatMapEditor.fixedTexture) & sNull & _
+            "Opacity=" & (frmOpenSoldatMapEditor.opacity * 100) & sNull & _
+            "ColorRadius=" & frmOpenSoldatMapEditor.colorRadius & sNull & _
+            "CurrentColor=" & RGBtoHex(currentColor) & sNull & _
+            "ColorMode=" & frmOpenSoldatMapEditor.colorMode & sNull & _
+            "BlendMode=" & frmOpenSoldatMapEditor.blendMode & sNull & _
+            "SnapRadius=" & frmOpenSoldatMapEditor.snapRadius & sNull & _
+            "RotateScenery=" & CStr(frmScenery.rotateScenery) & sNull & _
+            "ScaleScenery=" & CStr(frmScenery.scaleScenery) & sNull & _
+            "TextureWidth=" & frmOpenSoldatMapEditor.xTexture & sNull & _
+            "TextureHeight=" & frmOpenSoldatMapEditor.yTexture & sNull & _
+            "Texture=" & frmOpenSoldatMapEditor.gTextureFile & sNull & _
+            "CustomX=" & CStr(frmOpenSoldatMapEditor.mnuCustomX.Checked) & sNull & _
+            "CustomY=" & CStr(frmOpenSoldatMapEditor.mnuCustomY.Checked) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "ToolSettings", iniString
 
     ' hotkeys
     iniString = _
-        "Move=" & frmTools.GetHotKey(0) & sNull & _
-        "Create=" & frmTools.GetHotKey(1) & sNull & _
-        "VertexSelection=" & frmTools.GetHotKey(2) & sNull & _
-        "PolySelection=" & frmTools.GetHotKey(3) & sNull & _
-        "VertexColor=" & frmTools.GetHotKey(4) & sNull & _
-        "PolyColor=" & frmTools.GetHotKey(5) & sNull & _
-        "Texture=" & frmTools.GetHotKey(6) & sNull & _
-        "Scenery=" & frmTools.GetHotKey(7) & sNull & _
-        "Waypoints=" & frmTools.GetHotKey(8) & sNull & _
-        "Objects=" & frmTools.GetHotKey(9) & sNull & _
-        "ColorPicker=" & frmTools.GetHotKey(10) & sNull & _
-        "Sketch=" & frmTools.GetHotKey(11) & sNull & _
-        "Lights=" & frmTools.GetHotKey(12) & sNull & _
-        "Depthmap=" & frmTools.GetHotKey(13) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Move=" & frmTools.GetHotKey(0) & sNull & _
+            "Create=" & frmTools.GetHotKey(1) & sNull & _
+            "VertexSelection=" & frmTools.GetHotKey(2) & sNull & _
+            "PolySelection=" & frmTools.GetHotKey(3) & sNull & _
+            "VertexColor=" & frmTools.GetHotKey(4) & sNull & _
+            "PolyColor=" & frmTools.GetHotKey(5) & sNull & _
+            "Texture=" & frmTools.GetHotKey(6) & sNull & _
+            "Scenery=" & frmTools.GetHotKey(7) & sNull & _
+            "Waypoints=" & frmTools.GetHotKey(8) & sNull & _
+            "Objects=" & frmTools.GetHotKey(9) & sNull & _
+            "ColorPicker=" & frmTools.GetHotKey(10) & sNull & _
+            "Sketch=" & frmTools.GetHotKey(11) & sNull & _
+            "Lights=" & frmTools.GetHotKey(12) & sNull & _
+            "Depthmap=" & frmTools.GetHotKey(13) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "HotKeys", iniString
 
     ' waypoint keys
     iniString = _
-        "Left=" & frmWaypoints.GetWaypointKey(0) & sNull & _
-        "Right=" & frmWaypoints.GetWaypointKey(1) & sNull & _
-        "Up=" & frmWaypoints.GetWaypointKey(2) & sNull & _
-        "Down=" & frmWaypoints.GetWaypointKey(3) & sNull & _
-        "Fly=" & frmWaypoints.GetWaypointKey(4) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Left=" & frmWaypoints.GetWaypointKey(0) & sNull & _
+            "Right=" & frmWaypoints.GetWaypointKey(1) & sNull & _
+            "Up=" & frmWaypoints.GetWaypointKey(2) & sNull & _
+            "Down=" & frmWaypoints.GetWaypointKey(3) & sNull & _
+            "Fly=" & frmWaypoints.GetWaypointKey(4) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "WaypointKeys", iniString
 
     ' layer keys
     iniString = _
-        "Background=" & frmDisplay.GetLayerKey(0) & sNull & _
-        "Polys=" & frmDisplay.GetLayerKey(1) & sNull & _
-        "Texture=" & frmDisplay.GetLayerKey(2) & sNull & _
-        "Wireframe=" & frmDisplay.GetLayerKey(3) & sNull & _
-        "Points=" & frmDisplay.GetLayerKey(4) & sNull & _
-        "Scenery=" & frmDisplay.GetLayerKey(5) & sNull & _
-        "Objects=" & frmDisplay.GetLayerKey(6) & sNull & _
-        "Waypoints=" & frmDisplay.GetLayerKey(7) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Background=" & frmDisplay.GetLayerKey(0) & sNull & _
+            "Polys=" & frmDisplay.GetLayerKey(1) & sNull & _
+            "Texture=" & frmDisplay.GetLayerKey(2) & sNull & _
+            "Wireframe=" & frmDisplay.GetLayerKey(3) & sNull & _
+            "Points=" & frmDisplay.GetLayerKey(4) & sNull & _
+            "Scenery=" & frmDisplay.GetLayerKey(5) & sNull & _
+            "Objects=" & frmDisplay.GetLayerKey(6) & sNull & _
+            "Waypoints=" & frmDisplay.GetLayerKey(7) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "LayerKeys", iniString
 
     ' palette
@@ -372,41 +372,41 @@ Public Sub SaveSettings()
 
     ' recent files
     iniString = _
-        "01=" & frmOpenSoldatMapEditor.mnuRecent(0).Caption & sNull & _
-        "02=" & frmOpenSoldatMapEditor.mnuRecent(1).Caption & sNull & _
-        "03=" & frmOpenSoldatMapEditor.mnuRecent(2).Caption & sNull & _
-        "04=" & frmOpenSoldatMapEditor.mnuRecent(3).Caption & sNull & _
-        "05=" & frmOpenSoldatMapEditor.mnuRecent(4).Caption & sNull & _
-        "06=" & frmOpenSoldatMapEditor.mnuRecent(5).Caption & sNull & _
-        "07=" & frmOpenSoldatMapEditor.mnuRecent(6).Caption & sNull & _
-        "08=" & frmOpenSoldatMapEditor.mnuRecent(7).Caption & sNull & _
-        "09=" & frmOpenSoldatMapEditor.mnuRecent(8).Caption & sNull & _
-        "10=" & frmOpenSoldatMapEditor.mnuRecent(9).Caption & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "01=" & frmOpenSoldatMapEditor.mnuRecent(0).Caption & sNull & _
+            "02=" & frmOpenSoldatMapEditor.mnuRecent(1).Caption & sNull & _
+            "03=" & frmOpenSoldatMapEditor.mnuRecent(2).Caption & sNull & _
+            "04=" & frmOpenSoldatMapEditor.mnuRecent(3).Caption & sNull & _
+            "05=" & frmOpenSoldatMapEditor.mnuRecent(4).Caption & sNull & _
+            "06=" & frmOpenSoldatMapEditor.mnuRecent(5).Caption & sNull & _
+            "07=" & frmOpenSoldatMapEditor.mnuRecent(6).Caption & sNull & _
+            "08=" & frmOpenSoldatMapEditor.mnuRecent(7).Caption & sNull & _
+            "09=" & frmOpenSoldatMapEditor.mnuRecent(8).Caption & sNull & _
+            "10=" & frmOpenSoldatMapEditor.mnuRecent(9).Caption & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "RecentFiles", iniString
 
     ' polytype colors
     iniString = _
-        "OnlyBullets=" & RGBtoHex(gPolyTypeColors(1)) & sNull & _
-        "OnlyPlayer=" & RGBtoHex(gPolyTypeColors(2)) & sNull & _
-        "DoesntCollide=" & RGBtoHex(gPolyTypeColors(3)) & sNull & _
-        "Ice=" & RGBtoHex(gPolyTypeColors(4)) & sNull & _
-        "Deadly=" & RGBtoHex(gPolyTypeColors(5)) & sNull & _
-        "BloodyDeadly=" & RGBtoHex(gPolyTypeColors(6)) & sNull & _
-        "Hurts=" & RGBtoHex(gPolyTypeColors(7)) & sNull & _
-        "Regenerates=" & RGBtoHex(gPolyTypeColors(8)) & sNull & _
-        "Lava=" & RGBtoHex(gPolyTypeColors(9)) & sNull & _
-        "TeamBullets=" & RGBtoHex(gPolyTypeColors(10)) & sNull & _
-        "TeamPlayers=" & RGBtoHex(gPolyTypeColors(11)) & sNull & _
-        "Bouncy=" & RGBtoHex(gPolyTypeColors(18)) & sNull & _
-        "Explosive=" & RGBtoHex(gPolyTypeColors(19)) & sNull & _
-        "HurtFlaggers=" & RGBtoHex(gPolyTypeColors(20)) & sNull & _
-        "OnlyFlagger=" & RGBtoHex(gPolyTypeColors(21)) & sNull & _
-        "NonFlagger=" & RGBtoHex(gPolyTypeColors(22)) & sNull & _
-        "FlagCollides=" & RGBtoHex(gPolyTypeColors(23)) & sNull & _
-        "Back=" & RGBtoHex(gPolyTypeColors(24)) & sNull & _
-        "BackTransition=" & RGBtoHex(gPolyTypeColors(25)) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "OnlyBullets=" & RGBtoHex(gPolyTypeColors(1)) & sNull & _
+            "OnlyPlayer=" & RGBtoHex(gPolyTypeColors(2)) & sNull & _
+            "DoesntCollide=" & RGBtoHex(gPolyTypeColors(3)) & sNull & _
+            "Ice=" & RGBtoHex(gPolyTypeColors(4)) & sNull & _
+            "Deadly=" & RGBtoHex(gPolyTypeColors(5)) & sNull & _
+            "BloodyDeadly=" & RGBtoHex(gPolyTypeColors(6)) & sNull & _
+            "Hurts=" & RGBtoHex(gPolyTypeColors(7)) & sNull & _
+            "Regenerates=" & RGBtoHex(gPolyTypeColors(8)) & sNull & _
+            "Lava=" & RGBtoHex(gPolyTypeColors(9)) & sNull & _
+            "TeamBullets=" & RGBtoHex(gPolyTypeColors(10)) & sNull & _
+            "TeamPlayers=" & RGBtoHex(gPolyTypeColors(11)) & sNull & _
+            "Bouncy=" & RGBtoHex(gPolyTypeColors(18)) & sNull & _
+            "Explosive=" & RGBtoHex(gPolyTypeColors(19)) & sNull & _
+            "HurtFlaggers=" & RGBtoHex(gPolyTypeColors(20)) & sNull & _
+            "OnlyFlagger=" & RGBtoHex(gPolyTypeColors(21)) & sNull & _
+            "NonFlagger=" & RGBtoHex(gPolyTypeColors(22)) & sNull & _
+            "FlagCollides=" & RGBtoHex(gPolyTypeColors(23)) & sNull & _
+            "Back=" & RGBtoHex(gPolyTypeColors(24)) & sNull & _
+            "BackTransition=" & RGBtoHex(gPolyTypeColors(25)) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "PolyTypeColors", iniString
 
     ' gfx dir
@@ -417,12 +417,12 @@ Public Sub SaveSettings()
     isNewFile = Not FileExists(appPath & "\workspace\current.ini")
 
     iniString = _
-        "WindowState=" & frmOpenSoldatMapEditor.Tag & sNull & _
-        "Width=" & frmOpenSoldatMapEditor.formWidth & sNull & _
-        "Height=" & frmOpenSoldatMapEditor.formHeight & sNull & _
-        "Left=" & frmOpenSoldatMapEditor.formLeft & sNull & _
-        "Top=" & frmOpenSoldatMapEditor.formTop & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "WindowState=" & frmOpenSoldatMapEditor.Tag & sNull & _
+            "Width=" & frmOpenSoldatMapEditor.formWidth & sNull & _
+            "Height=" & frmOpenSoldatMapEditor.formHeight & sNull & _
+            "Left=" & frmOpenSoldatMapEditor.formLeft & sNull & _
+            "Top=" & frmOpenSoldatMapEditor.formTop & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
     SaveSection "Main", iniString, appPath & "\workspace\current.ini"
 
     SaveWindow "Tools", frmTools, False, isNewFile
@@ -529,12 +529,12 @@ Public Sub SaveWindow(sectionName As String, window As Form, collapsed As Boolea
     topVal = window.Top / Screen.TwipsPerPixelY
 
     iniString = _
-        "Visible=" & CStr(window.Visible) & sNull & _
-        "Left=" & leftVal & sNull & _
-        "Top=" & topVal & sNull & _
-        "Collapsed=" & CStr(collapsed) & sNull & _
-        "Snapped=" & CStr(Len(window.Tag) > 0) & _
-        IIf(isNewFile, vbNewLine, "") & sNull & sNull
+            "Visible=" & CStr(window.Visible) & sNull & _
+            "Left=" & leftVal & sNull & _
+            "Top=" & topVal & sNull & _
+            "Collapsed=" & CStr(collapsed) & sNull & _
+            "Snapped=" & CStr(Len(window.Tag) > 0) & _
+            IIf(isNewFile, vbNewLine, "") & sNull & sNull
 
     SaveSection sectionName, iniString, appPath & "\workspace\" & theFileName
 
