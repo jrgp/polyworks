@@ -124,8 +124,10 @@ Public Sub InitDX8()
 
     debugVal = "Error creating objects texture"
 
-    Set objectsTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\objects.bmp", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_LINEAR, _
+    Set objectsTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\objects.bmp", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_LINEAR, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
     objectsTexture.GetLevelDesc 0, textureDesc
@@ -136,8 +138,10 @@ Public Sub InitDX8()
 
     debugVal = "Error creating scenery not found texture"
 
-    Set SceneryTextures(0).Texture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\notfound.bmp", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set SceneryTextures(0).Texture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\notfound.bmp", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
     SceneryTextures(0).Texture.GetLevelDesc 0, textureDesc
@@ -156,29 +160,37 @@ Public Sub InitDX8()
 
     debugVal = "Error creating line texture"
 
-    Set lineTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\lines.bmp", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set lineTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\lines.bmp", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
 
     debugVal = "Error creating path texture"
 
-    Set pathTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\path.png", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set pathTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\path.png", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
 
     debugVal = "Error creating rotation center texture"
 
-    Set rCenterTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\rcenter.bmp", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set rCenterTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\rcenter.bmp", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
 
     debugVal = "Error creating sketch texture"
 
-    Set sketchTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\sketch.bmp", D3DX_DEFAULT, D3DX_DEFAULT, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set sketchTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\sketch.bmp", _
+            D3DX_DEFAULT, D3DX_DEFAULT, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
 
@@ -189,8 +201,10 @@ Public Sub InitDX8()
 
     debugVal = "Error creating particle texture"
 
-    Set particleTexture = D3DX.CreateTextureFromFileEx(D3DDevice, appPath & "\skins\" & gfxDir & "\vertex8x8.bmp", 8, 8, _
-            D3DX_DEFAULT, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
+    Set particleTexture = D3DX.CreateTextureFromFileEx(D3DDevice, _
+            appPath & "\skins\" & gfxDir & "\vertex8x8.bmp", _
+            8, 8, D3DX_DEFAULT, _
+            0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, D3DX_FILTER_POINT, _
             D3DX_FILTER_POINT, COLOR_KEY, ByVal 0, ByVal 0)
 
     initialized = True
