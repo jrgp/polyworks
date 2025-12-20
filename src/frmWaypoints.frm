@@ -500,7 +500,7 @@ Option Explicit
 ' waypoints dialog
 
 
-' Fix vb6 ide casing changes
+' fix vb6 ide casing changes
 #If False Then
     Public FileName, color, token, A, R, G, B, commonDialog, value, Val, X, Y, Z, Left, hWnd, Mid, Right, BackColor
     'Public FileName, color, token, A, R, G, B, commonDialog, value, Val, X, Y, Z, Left, hWnd, Mid, Right, BackColor
