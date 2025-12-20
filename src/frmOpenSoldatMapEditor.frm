@@ -3408,14 +3408,17 @@ Public Sub Render()
             sceneryCoords(1) = CreateCustomVertex(0, 0, 1, 1, Scenery(0).color, 0, 0)
             sceneryCoords(2) = CreateCustomVertex(0, 0, 1, 1, Scenery(0).color, 0, 0)
             sceneryCoords(3) = CreateCustomVertex(0, 0, 1, 1, Scenery(0).color, 0, 0)
+
             sceneryCoords(0).X = Scenery(0).screenTr.X
             sceneryCoords(0).Y = Scenery(0).screenTr.Y
             sceneryCoords(1).X = sceneryCoords(0).X + Cos(Scenery(0).rotation) * (SceneryTextures(sVal).Width + 0) * Scenery(0).Scaling.X * zoomFactor
             sceneryCoords(1).Y = sceneryCoords(0).Y - Sin(Scenery(0).rotation) * (SceneryTextures(sVal).Width + 0) * Scenery(0).Scaling.X * zoomFactor
             sceneryCoords(3).X = sceneryCoords(0).X + Sin(Scenery(0).rotation) * (SceneryTextures(sVal).Height + 0) * Scenery(0).Scaling.Y * zoomFactor
             sceneryCoords(3).Y = sceneryCoords(0).Y + Cos(Scenery(0).rotation) * (SceneryTextures(sVal).Height + 0) * Scenery(0).Scaling.Y * zoomFactor
+
             sceneryCoords(2).X = sceneryCoords(3).X + sceneryCoords(1).X - sceneryCoords(0).X
             sceneryCoords(2).Y = sceneryCoords(3).Y + sceneryCoords(1).Y - sceneryCoords(0).Y
+
             sceneryCoords(4) = sceneryCoords(0)
 
             D3DDevice.DrawPrimitiveUP D3DPT_LINESTRIP, 4, sceneryCoords(0), Len(sceneryCoords(0))
@@ -5117,12 +5120,16 @@ End Function
 Private Function GetMapArea() As Long  ' Unused?
 
     Dim i As Integer
+
     Dim area As Double
+
     Dim A As Single
     Dim B As Single
     Dim c As Single
+
     Dim x1 As Single
     Dim y1 As Single
+
     Dim x2 As Single
     Dim y2 As Single
 
@@ -5130,8 +5137,10 @@ Private Function GetMapArea() As Long  ' Unused?
         If vertexList(i).polyType <> 3 Then
             x1 = (PolyCoords(i).vertex(3).X - PolyCoords(i).vertex(2).X)
             y1 = (PolyCoords(i).vertex(3).Y - PolyCoords(i).vertex(2).Y)
+
             x2 = (PolyCoords(i).vertex(1).X - PolyCoords(i).vertex(3).X)
             y2 = (PolyCoords(i).vertex(1).Y - PolyCoords(i).vertex(3).Y)
+
             A = Sqr(x1 ^ 2 + y1 ^ 2)
             B = Sqr(x2 ^ 2 + y2 ^ 2)
             c = GetAngle(x1, y1) - GetAngle(x2, y2)
@@ -5259,17 +5268,25 @@ Private Sub SaveFile(theFileName As String)
 
         For i = 1 To sceneryCount
             Prop.active = True
+
             Prop.alpha = Scenery(i).alpha
+
             tempColor = GetRGB(Scenery(i).color)
             Prop.color = ARGB(255, RGB(tempColor.blue, tempColor.green, tempColor.red))
+
             Prop.Width = SceneryTextures(Scenery(i).Style).Width
             Prop.Height = SceneryTextures(Scenery(i).Style).Height
+
             Prop.level = Scenery(i).level
+
             Prop.rotation = Scenery(i).rotation
+
             Prop.ScaleX = Scenery(i).Scaling.X
             Prop.ScaleY = Scenery(i).Scaling.Y
+    
             Prop.X = Scenery(i).Translation.X - xOffset
             Prop.Y = Scenery(i).Translation.Y - yOffset
+
             Prop.Style = Scenery(i).Style
 
             Put #1, , Prop

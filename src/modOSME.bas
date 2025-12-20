@@ -916,11 +916,13 @@ Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -
             Exit Function
         End If
     End If
+
     ' Calculate picture's width and height if not specified
     If Width = -1 Or Height = -1 Then
         GdipGetImageWidth Img, Width
         GdipGetImageHeight Img, Height
     End If
+
     ' Initialize the hDC
     ' Create a memory DC and select a bitmap into it, fill it in with the backcolor
     hDC = CreateCompatibleDC(ByVal 0&)
@@ -930,23 +932,28 @@ Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -
     hBrush = SelectObject(hDC, hBrush)
     PatBlt hDC, 0, 0, Width, Height, PATCOPY
     DeleteObject SelectObject(hDC, hBrush)
+
     ' Resize the picture
     GdipCreateFromHDC hDC, Graphics
     GdipDrawImageRectI Graphics, Img, 0, 0, Width, Height
     GdipDeleteGraphics Graphics
     GdipDisposeImage Img
+
     ' Get the bitmap back
     hBitmap = SelectObject(hDC, hBitmap)
     DeleteDC hDC
+
     ' Create the picture
     ' Fill in OLE IDispatch Interface ID
     IID_IDispatch.Data1 = &H20400
     IID_IDispatch.Data4(0) = &HC0
     IID_IDispatch.Data4(7) = &H46
+
     ' Fill Pic with necessary parts
     pic.Size = Len(pic)        ' Length of structure
     pic.Type = PICTYPE_BITMAP  ' Type of Picture (bitmap)
     pic.hBmp = hBitmap         ' Handle to bitmap
+
     ' Create the picture
     OleCreatePictureIndirect pic, IID_IDispatch, True, IPic
     Set LoadPictureGDIPlus = IPic
