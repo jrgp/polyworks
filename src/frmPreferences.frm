@@ -2158,7 +2158,7 @@ Private Function applyPreferences() As Boolean
         frmOpenSoldatMapEditor.Width = formWidth * Screen.TwipsPerPixelX
         frmOpenSoldatMapEditor.Height = formHeight * Screen.TwipsPerPixelY
 
-        ' TODO: move to function
+        ' TODO: move into functions
         If Len(frmDisplay.Tag) <> 0 Then
             deltaLeft = frmOpenSoldatMapEditor.getLeftSnapDelta(frmOpenSoldatMapEditor, frmDisplay, mInitialWindowWidth, formWidth)
             deltaTop = frmOpenSoldatMapEditor.getTopSnapDelta(frmOpenSoldatMapEditor, frmDisplay, mInitialWindowHeight, formHeight)
