@@ -715,7 +715,8 @@ Public Sub SaveSection(sectionName As String, sectionData As String, Optional Fi
 
 End Sub
 
-Public Function LoadString(section As String, Entry As String, Optional FileName As String, Optional length As Integer, Optional DefaultValue As String = "") As String
+Public Function LoadString(section As String, Entry As String, Optional FileName As String, Optional length As Integer, _
+        Optional DefaultValue As String = "") As String
 
     Dim sString  As String
     Dim lSize    As Long
@@ -900,7 +901,8 @@ Public Sub FreeGDIPlus(token As Long)
 End Sub
 
 ' Loads the picture (optionally resized)
-Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -1, Optional Height As Long = -1, Optional ByVal BackColor As Long = vbWhite) As IPicture
+Public Function LoadPictureGDIPlus(PicFile As String, Optional Width As Long = -1, Optional Height As Long = -1, _
+        Optional ByVal BackColor As Long = vbWhite) As IPicture
 
     On Error GoTo ErrorHandler
 
