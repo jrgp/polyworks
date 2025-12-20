@@ -1,7 +1,7 @@
 Attribute VB_Name = "modGlobals"
 Option Explicit
 
-' Global variables and constants
+' global variables and constants
 
 
 ' vars - public
