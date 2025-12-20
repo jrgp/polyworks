@@ -393,12 +393,14 @@ End Function
 ' mouse event
 Public Function MouseEvent(ByRef pic As PictureBox, ByVal xVal As Integer, ByVal yVal As Integer, xSrc As Integer, ySrc As Integer, Width As Integer, Height As Integer) As Boolean
 
-    If (xVal < 0) Or (xVal > Width) Or (yVal < 0) Or (yVal > Height) Then  ' the MOUSELEAVE pseudo-event
+    ' the MOUSELEAVE pseudo-event
+    If (xVal < 0) Or (xVal > Width) Or (yVal < 0) Or (yVal > Height) Then
         ReleaseCapture
         BitBlt pic.hDC, 0, 0, Width, Height, frmOpenSoldatMapEditor.picGfx.hDC, xSrc, ySrc, vbSrcCopy
         pic.Refresh
         MouseEvent = True
-    ElseIf GetCapture() <> pic.hWnd Then  ' the MOUSEENTER pseudo-event
+    ' the MOUSEENTER pseudo-event
+    ElseIf GetCapture() <> pic.hWnd Then
         SetCapture pic.hWnd
         BitBlt pic.hDC, 0, 0, Width, Height, frmOpenSoldatMapEditor.picGfx.hDC, xSrc + Width, ySrc, vbSrcCopy
         pic.Refresh
@@ -440,11 +442,13 @@ Public Function MouseEvent2(ByRef pic As PictureBox, ByVal xVal As Integer, ByVa
 
     If action = BUTTON_UP Or action = BUTTON_DOWN Then
         MouseEvent2 = True
-    ElseIf (xVal < 0) Or (xVal > exWidth) Or (yVal < 0) Or (yVal > Height) Then  ' the MOUSELEAVE pseudo-event
+    ' the MOUSELEAVE pseudo-event
+    ElseIf (xVal < 0) Or (xVal > exWidth) Or (yVal < 0) Or (yVal > Height) Then
         ReleaseCapture
         MouseEvent2 = True
         action = BUTTON_UP
-    ElseIf GetCapture() <> pic.hWnd Then  ' the MOUSEENTER pseudo-event
+    ' the MOUSEENTER pseudo-event
+    ElseIf GetCapture() <> pic.hWnd Then
         SetCapture pic.hWnd
         MouseEvent2 = True
         action = BUTTON_MOVE

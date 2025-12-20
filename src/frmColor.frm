@@ -1196,7 +1196,8 @@ Private Sub picSat_MouseMove(Button As Integer, Shift As Integer, X As Single, Y
     If Button = 1 Then
         X = 255 - Clamp(Y, 0, 255)  ' grab y pos as it's a vertical bar
         mSat = X / 255
-        If mColor(R) = mColor(G) And mColor(R) = mColor(B) And mSat > 0 Then ' determine rgb based on hue
+        ' determine rgb based on hue
+        If mColor(R) = mColor(G) And mColor(R) = mColor(B) And mSat > 0 Then
             CalculateHue
         Else
             mColor(mLow) = ((1 - mSat) * 255) * mBright

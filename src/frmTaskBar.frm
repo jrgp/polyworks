@@ -64,7 +64,8 @@ End Sub
 
 Private Sub Form_Resize()
 
-    If Not frmOpenSoldatMapEditor.Visible And Me.WindowState = vbNormal Then  ' show when it gets restored
+    ' show when it gets restored
+    If Not frmOpenSoldatMapEditor.Visible And Me.WindowState = vbNormal Then
         frmOpenSoldatMapEditor.Show
         If frmOpenSoldatMapEditor.mnuDisplay.Checked Then frmDisplay.Show
         If frmOpenSoldatMapEditor.mnuWaypoints.Checked Then frmWaypoints.Show

@@ -2657,7 +2657,8 @@ Public Sub SaveAndCompile(theFileName As String)
             For Y = -SECTOR_NUM To SECTOR_NUM
                 polysInSector = 0
 
-                If X >= -xSecNum And X <= xSecNum And Y >= -ySecNum And Y <= ySecNum Then  ' if sectors within range
+                ' if sectors within range
+                If X >= -xSecNum And X <= xSecNum And Y >= -ySecNum And Y <= ySecNum Then
                     For i = 1 To mPolyCount
                         If vertexList(i).polyType <> 3 Then
                         If IsInSector(i, sectorsDivision * (X - 0.5) + xOffset - 1, sectorsDivision * (Y - 0.5) + yOffset - 1, sectorsDivision + 2) Then
@@ -6723,7 +6724,8 @@ Private Sub SelNearest(X As Single, Y As Single)
     If showPolys Then
     For i = 1 To mPolyCount
         For j = 1 To 3
-            If NearCoord(X, Polys(i).vertex(j).X, 8) And NearCoord(Y, Polys(i).vertex(j).Y, 8) Then  ' move by vertex
+            ' move by vertex
+            If NearCoord(X, Polys(i).vertex(j).X, 8) And NearCoord(Y, Polys(i).vertex(j).Y, 8) Then
                 If addPoly <> i Then
                     numSelectedPolys = numSelectedPolys + 1
                     ReDim Preserve selectedPolys(numSelectedPolys)
@@ -6735,7 +6737,8 @@ Private Sub SelNearest(X As Single, Y As Single)
         Next
         If (PointInPoly(X, Y, i)) And addPoly = 0 Then
             For j = 1 To 3
-                If NearCoord(X, Polys(i).vertex(j).X, 64) And NearCoord(Y, Polys(i).vertex(j).Y, 64) Then  ' move by region
+                ' move by region
+                If NearCoord(X, Polys(i).vertex(j).X, 64) And NearCoord(Y, Polys(i).vertex(j).Y, 64) Then
                     currentDist = (Polys(i).vertex(j).X - X) ^ 2 + (Polys(i).vertex(j).Y - Y) ^ 2
                     If currentDist < shortestDist Then
                         shortestDist = currentDist
@@ -8241,8 +8244,10 @@ Private Sub SnapSelected(X As Single, Y As Single)
     PolyNum = 0
     If numSelectedPolys > 0 Then
         For j = 1 To 3
-            If vertexList(selectedPolys(1)).vertex(j) = 1 Then  ' which vertex in poly is selected
-                If PolyNum > 0 And Not (snapToGrid And showGrid) Then  ' if more than one vertex in poly selected
+            ' which vertex in poly is selected
+            If vertexList(selectedPolys(1)).vertex(j) = 1 Then
+                ' if more than one vertex in poly selected
+                If PolyNum > 0 And Not (snapToGrid And showGrid) Then
                     Render
                     Exit Sub
                 Else
@@ -8337,7 +8342,8 @@ Private Sub SnapSelected(X As Single, Y As Single)
         If numSelectedPolys > 1 Then  ' check if any different coords
             For i = 2 To numSelectedPolys
                 For j = 1 To 3
-                    If vertexList(selectedPolys(i)).vertex(j) = 1 Then  ' if selected and has same coords
+                    ' if selected and has same coords
+                    If vertexList(selectedPolys(i)).vertex(j) = 1 Then
                         If Polys(selectedPolys(i)).vertex(j).X <> xVal Or Polys(selectedPolys(i)).vertex(j).Y <> yVal Then
                             Render
                             Exit Sub
@@ -9398,7 +9404,8 @@ Private Sub PolySelection(X As Single, Y As Single)
         addPoly = 0
         If showPolys Or showWireframe Or showPoints Then
             For i = 1 To mPolyCount
-                If PointInPoly(X, Y, i) And vertexList(i).vertex(1) = 0 And addPoly = 0 Then  ' if in poly and not already selected
+                ' if in poly and not already selected
+                If PointInPoly(X, Y, i) And vertexList(i).vertex(1) = 0 And addPoly = 0 Then
                     numSelectedPolys = numSelectedPolys + 1
                     ReDim Preserve selectedPolys(numSelectedPolys)
                     selectedPolys(numSelectedPolys) = i
@@ -9786,12 +9793,14 @@ Private Sub DeletePolys()
             PolyCoords(offset) = PolyCoords(i)
             vertexList(offset) = vertexList(i)
 
-            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) = 3 Then  ' poly selected
+            ' poly selected
+            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) = 3 Then
                 vertexList(offset).vertex(1) = 0
                 vertexList(offset).vertex(2) = 0
                 vertexList(offset).vertex(3) = 0
                 mPolyCount = mPolyCount - 1
-            ElseIf (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then  ' vertices selected
+            ' vertices selected
+            ElseIf (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then
                 numSelectedPolys = numSelectedPolys + 1
                 ReDim Preserve selectedPolys(numSelectedPolys)
                 selectedPolys(numSelectedPolys) = offset
@@ -10882,12 +10891,15 @@ Private Sub DirectXEvent8_DXCallback(ByVal eventid As Long)
                 AutoTexture
             End If
         Else
-            If hotKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then  ' hotkey
+            ' hotkey
+            If hotKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then
                 SetCurrentTool hotKeyPressed
                 frmTools.picTools_MouseDown hotKeyPressed, 1, 0, 1, 1
-            ElseIf waypointKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then  ' waypoint key
+            ' waypoint key
+            ElseIf waypointKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then
                 frmWaypoints.picType_MouseUp waypointKeyPressed, 1, 0, 0, 0
-            ElseIf layerKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then  ' layer key
+            ' layer key
+            ElseIf layerKeyPressed > -1 And Not (shiftDown Or ctrlDown Or altDown) Then
                 frmDisplay.picLayer_MouseUp layerKeyPressed, 1, 0, 0, 0
             ElseIf DIState.Key(DIK_NUMPADPLUS) = 128 Then  ' +
                 Zoom GetZoomDir(2)
@@ -13366,7 +13378,8 @@ Private Sub mnuBringToFront_Click()
     If numSelectedPolys > 0 Then
         offset = mPolyCount
         For i = mPolyCount To 1 Step -1
-            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then  ' if selected
+            ' if selected
+            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then
                 tempPoly = Polys(i)
                 tempTri = PolyCoords(i)
                 tempVertex = vertexList(i)
@@ -13425,7 +13438,8 @@ Private Sub mnuSendToBack_Click()
     If numSelectedPolys > 0 Then
         offset = 1
         For i = 1 To mPolyCount
-            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then  ' if selected
+            ' if selected
+            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then
                 tempPoly = Polys(i)
                 tempTri = PolyCoords(i)
                 tempVertex = vertexList(i)
@@ -13483,7 +13497,8 @@ Private Sub mnuBringForward_Click()
     If numSelectedPolys > 0 Then
         offset = mPolyCount
         For i = (mPolyCount - 1) To 1 Step -1
-            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then  ' if selected
+            ' if selected
+            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then
                 If (vertexList(i + 1).vertex(1) + vertexList(i + 1).vertex(2) + vertexList(i + 1).vertex(3)) > 0 Then
                     selectedPolys(mPolyCount - offset + 1) = i + 1
                     offset = offset - 1
@@ -13548,7 +13563,8 @@ Private Sub mnuSendBackward_Click()
     If numSelectedPolys > 0 Then
         offset = 1
         For i = 2 To mPolyCount
-            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then  ' if selected
+            ' if selected
+            If (vertexList(i).vertex(1) + vertexList(i).vertex(2) + vertexList(i).vertex(3)) > 0 Then
                 If (vertexList(i - 1).vertex(1) + vertexList(i - 1).vertex(2) + vertexList(i - 1).vertex(3)) > 0 Then
                     selectedPolys(offset) = i - 1
                     offset = offset + 1
