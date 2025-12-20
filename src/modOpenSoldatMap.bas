@@ -63,9 +63,9 @@ Public Type TSketchLine
 End Type
 
 Public Type TVertexHit
-    X As Single ' sin of angle
-    Y As Single ' cos of angle
-    Z As Single ' 0
+    X As Single  ' sin of angle
+    Y As Single  ' cos of angle
+    Z As Single  ' 0
 End Type
 
 Public Type TPolyHit
@@ -109,14 +109,14 @@ Public Type TScenery
 End Type
 
 Public Type TSpawnPoint
-    active  As Long ' Boolean
+    active  As Long    ' Boolean
     X       As Single
     Y       As Single
     Team    As Long
 End Type
 
 Public Type TSaveSpawnPoint
-    active  As Long ' Boolean
+    active  As Long  ' Boolean
     X       As Long
     Y       As Long
     Team    As Long
@@ -130,8 +130,8 @@ Public Type TCollider
 End Type
 
 Public Type TOptions
-    mapName(0 To 38)        As Byte ' String * 39
-    textureName(0 To 24)    As Byte ' String * 25
+    mapName(0 To 38)        As Byte  ' String * 39
+    textureName(0 To 24)    As Byte  ' String * 25
     backgroundColor1        As Long
     backgroundColor2        As Long
     StartJet                As Long
@@ -139,7 +139,7 @@ Public Type TOptions
     Medikits                As Byte
     Weather                 As Byte
     Steps                   As Byte
-    MapRandomID             As Long ' Integer
+    MapRandomID             As Long  ' Integer
 End Type
 
 Public Type TMapFile_Polygon
