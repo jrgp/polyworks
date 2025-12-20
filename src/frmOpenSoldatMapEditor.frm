@@ -2135,8 +2135,8 @@ Public Sub LoadFile(theFileName As String)
                 End If
             Next
         ElseIf sceneryElements <> 0 Then
-            ' if we got to this point it means that scenery were loaded but scenery elements are borked
-            ' or scenery are borked too
+            ' if we got to this point it means that scenery were loaded but
+            ' scenery elements are borked or scenery are borked too
             sceneryElements = 0
             For i = 1 To sceneryCount
                 Scenery(i).Style = 0
