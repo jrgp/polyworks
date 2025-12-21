@@ -13108,9 +13108,11 @@ End Sub
 
 Private Sub mnuRunOpenSoldat_Click()
 
-    SetGameMode lastCompiled
-    SetMapList lastCompiled
-    RunOpenSoldat
+    If FileExists(frmOpenSoldatMapEditor.OpenSoldatDir & "OpenSoldat.exe") Then
+        SetGameMode lastCompiled
+        SetMapList lastCompiled
+        RunOpenSoldat
+    End If
 
 End Sub
 
