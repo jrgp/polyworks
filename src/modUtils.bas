@@ -17,6 +17,11 @@ Option Explicit
 ' consts - private
 
 
+' types - public
+
+
+' types - private
+
 Public Type TColor
     red     As Byte
     green   As Byte

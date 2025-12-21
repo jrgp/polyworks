@@ -17,6 +17,12 @@ Option Explicit
 ' consts - private
 
 
+' types - public
+
+
+' types - private
+
+
 ' types
 
 Public Type TImageInfo

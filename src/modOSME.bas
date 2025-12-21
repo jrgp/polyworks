@@ -17,6 +17,12 @@ Option Explicit
 ' consts - private
 
 
+' types - public
+
+
+' types - private
+
+
 ' vars - public
 
 Public Const PI As Single = 3.14159265358979  ' mmm... PI

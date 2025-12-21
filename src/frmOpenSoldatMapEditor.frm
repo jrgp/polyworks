@@ -1305,6 +1305,12 @@ Implements DirectXEvent8
 ' consts - private
 
 
+' types - public
+
+
+' types - private
+
+
 ' vars - public
 
 Public backgroundColor As Long
