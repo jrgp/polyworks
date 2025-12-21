@@ -622,6 +622,10 @@ Begin VB.Form frmOpenSoldatMapEditor
          Caption         =   "&Run OpenSoldat"
          Shortcut        =   {F8}
       End
+      Begin VB.Menu mnuRunSoldat 
+         Caption         =   "&Run Soldat"
+         Shortcut        =   +{F8}
+      End
       Begin VB.Menu mnuSep1 
          Caption         =   "-"
       End
@@ -10974,6 +10978,8 @@ Private Sub DirectXEvent8_DXCallback(ByVal eventid As Long)
                 mnuRefreshBG_Click
             ElseIf (DIState.Key(DIK_F8) = 128) Then  ' F8
                 mnuRunOpenSoldat_Click
+            ElseIf (DIState.Key(DIK_F8) = 128 And shiftDown) Then  ' shift+F8
+                mnuRunSoldat_Click
             ElseIf (DIState.Key(DIK_F9) = 128) Then  ' F9
                 mnuCompileAs_Click
             ElseIf (DIState.Key(DIK_F4) = 128 And altDown) Then  ' alt+F4
@@ -13112,6 +13118,16 @@ Private Sub mnuRunOpenSoldat_Click()
         SetGameMode lastCompiled
         SetMapList lastCompiled
         RunOpenSoldat
+    End If
+
+End Sub
+
+Private Sub mnuRunSoldat_Click()
+
+    If FileExists(frmOpenSoldatMapEditor.OpenSoldatDir & "Soldat.exe") Then
+        SetGameMode lastCompiled
+        SetMapList lastCompiled
+        RunSoldat
     End If
 
 End Sub

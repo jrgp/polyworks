@@ -859,6 +859,14 @@ Public Sub RunOpenSoldat()
 
 End Sub
 
+Public Sub RunSoldat()
+
+    frmOpenSoldatMapEditor.picMinimize_MouseUp 1, 0, 0, 0
+
+    ShellExecute 0&, vbNullString, frmOpenSoldatMapEditor.OpenSoldatDir & "Soldat.exe", "-start", vbNullString, vbNormalFocus
+
+End Sub
+
 Public Sub RunHelp()
 
     Dim iReturn As Long
