@@ -23,6 +23,12 @@ Option Explicit
 ' types - private
 
 
+' vars - public
+
+
+' vars - private
+
+
 ' types
 
 Public Type TImageInfo

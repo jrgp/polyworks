@@ -15,3 +15,9 @@ Option Explicit
 
 ' types - private
 
+
+' vars - public
+
+
+' vars - private
+

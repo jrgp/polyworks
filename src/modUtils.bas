@@ -22,6 +22,12 @@ Option Explicit
 
 ' types - private
 
+
+' vars - public
+
+
+' vars - private
+
 Public Type TColor
     red     As Byte
     green   As Byte
