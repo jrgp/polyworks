@@ -512,6 +512,8 @@ Option Explicit
 
 ' consts - private
 
+Private Const COLLAPSED_HEIGHT = 19
+
 
 ' types - public
 
@@ -537,8 +539,6 @@ Private formHeight As Integer
 
 Private waypointType(0 To 4) As Boolean
 Private waypointKeys(0 To 4) As Byte
-
-Private Const COLLAPSED_HEIGHT = 19
 
 
 ' external functions - public
