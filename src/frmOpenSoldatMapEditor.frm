@@ -1304,6 +1304,44 @@ Implements DirectXEvent8
 
 ' consts - private
 
+Private Const MAX_POLYS  As Integer = 4000
+
+Private Const TOOL_MOVE As Byte = 0
+Private Const TOOL_CREATE As Byte = 1
+Private Const TOOL_VSELECT As Byte = 2
+Private Const TOOL_PSELECT As Byte = 3
+Private Const TOOL_VCOLOR As Byte = 4
+Private Const TOOL_PCOLOR As Byte = 5
+Private Const TOOL_TEXTURE As Byte = 6
+Private Const TOOL_SCENERY As Byte = 7
+Private Const TOOL_WAYPOINT As Byte = 8
+Private Const TOOL_OBJECTS As Byte = 9
+Private Const TOOL_COLORPICKER As Byte = 10
+Private Const TOOL_SKETCH As Byte = 11
+Private Const TOOL_LIGHTS As Byte = 12
+Private Const TOOL_DEPTHMAP As Byte = 13
+
+Private Const TOOL_HAND As Byte = 14
+Private Const TOOL_VSELADD As Byte = 15
+Private Const TOOL_VSELSUB As Byte = 16
+Private Const TOOL_PSELADD As Byte = 17
+Private Const TOOL_PSELSUB As Byte = 18
+Private Const TOOL_SCALE As Byte = 19
+Private Const TOOL_ROTATE As Byte = 20
+Private Const TOOL_CONNECT As Byte = 21
+Private Const TOOL_QUAD As Byte = 22
+Private Const TOOL_PIXPICKER As Byte = 23
+Private Const TOOL_LITPICKER As Byte = 24
+Private Const TOOL_ERASER As Byte = 25
+Private Const TOOL_SMUDGE As Byte = 26
+Private Const TOOL_NULL As Byte = 255
+
+Private Const KEY_SHIFT As Byte = 1
+Private Const KEY_CTRL As Byte = 2
+Private Const KEY_ALT As Byte = 4
+
+Private Const BUFFER_SIZE As Long = 10
+
 
 ' types - public
 
@@ -1375,14 +1413,16 @@ Public colorMode As Byte
 
 Public maxUndo As Integer
 
+Private Const QUICK_MOVE_DELTA = 90000
+
+Private Const SPI_GETWORKAREA = 48
+
 
 ' vars - private
 
 Private DI As DirectInput8
 Private DIDevice As DirectInputDevice8
 Private DIState As DIKEYBOARDSTATE
-
-Private Const BUFFER_SIZE As Long = 10
 
 Private hEvent As Long
 
@@ -1421,42 +1461,6 @@ Private minY As Single
 Private bgPolys(1 To 4) As TCustomVertex
 Private bgPolyCoords(1 To 4) As D3DVECTOR2
 Private bgColors(1 To 2) As TColor
-
-Private Const MAX_POLYS  As Integer = 4000
-
-Private Const TOOL_MOVE As Byte = 0
-Private Const TOOL_CREATE As Byte = 1
-Private Const TOOL_VSELECT As Byte = 2
-Private Const TOOL_PSELECT As Byte = 3
-Private Const TOOL_VCOLOR As Byte = 4
-Private Const TOOL_PCOLOR As Byte = 5
-Private Const TOOL_TEXTURE As Byte = 6
-Private Const TOOL_SCENERY As Byte = 7
-Private Const TOOL_WAYPOINT As Byte = 8
-Private Const TOOL_OBJECTS As Byte = 9
-Private Const TOOL_COLORPICKER As Byte = 10
-Private Const TOOL_SKETCH As Byte = 11
-Private Const TOOL_LIGHTS As Byte = 12
-Private Const TOOL_DEPTHMAP As Byte = 13
-
-Private Const TOOL_HAND As Byte = 14
-Private Const TOOL_VSELADD As Byte = 15
-Private Const TOOL_VSELSUB As Byte = 16
-Private Const TOOL_PSELADD As Byte = 17
-Private Const TOOL_PSELSUB As Byte = 18
-Private Const TOOL_SCALE As Byte = 19
-Private Const TOOL_ROTATE As Byte = 20
-Private Const TOOL_CONNECT As Byte = 21
-Private Const TOOL_QUAD As Byte = 22
-Private Const TOOL_PIXPICKER As Byte = 23
-Private Const TOOL_LITPICKER As Byte = 24
-Private Const TOOL_ERASER As Byte = 25
-Private Const TOOL_SMUDGE As Byte = 26
-Private Const TOOL_NULL As Byte = 255
-
-Private Const KEY_SHIFT As Byte = 1
-Private Const KEY_CTRL As Byte = 2
-Private Const KEY_ALT As Byte = 4
 
 Private sketch() As TSketchLine
 Private sketchLines As Integer
@@ -1542,10 +1546,6 @@ Private mPrevWidth As Long
 Private mPrevHeight As Long
 Private mPrevLeft As Long
 Private mPrevTop As Long
-
-Private Const QUICK_MOVE_DELTA = 90000
-
-Private Const SPI_GETWORKAREA = 48
 
 
 ' external functions - public
