@@ -19,6 +19,12 @@ Option Explicit
 
 ' types - public
 
+Public Type TColor
+    red     As Byte
+    green   As Byte
+    blue    As Byte
+End Type
+
 
 ' types - private
 
@@ -33,12 +39,6 @@ Option Explicit
 
 
 ' external functions - private
-
-Public Type TColor
-    red     As Byte
-    green   As Byte
-    blue    As Byte
-End Type
 
 Private Declare Function GetFileAttributes Lib "kernel32" Alias "GetFileAttributesA" (ByVal lpFileName As String) As Long
 
