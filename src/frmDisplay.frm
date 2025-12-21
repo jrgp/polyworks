@@ -512,6 +512,16 @@ Option Explicit
 
 ' consts - private
 
+Private Const LAYER_BG As Byte = 0
+Private Const LAYER_POLYS As Byte = 1
+Private Const LAYER_TEXTURE As Byte = 2
+Private Const LAYER_WIREFRAME As Byte = 3
+Private Const LAYER_POINTS As Byte = 4
+Private Const LAYER_SCENERY As Byte = 5
+Private Const LAYER_OBJECTS As Byte = 6
+Private Const LAYER_WAYPOINTS As Byte = 7
+Private Const LAYER_GRID As Byte = 8
+
 
 ' types - public
 
@@ -527,16 +537,6 @@ Public collapsed As Boolean
 
 
 ' vars - private
-
-Private Const LAYER_BG As Byte = 0
-Private Const LAYER_POLYS As Byte = 1
-Private Const LAYER_TEXTURE As Byte = 2
-Private Const LAYER_WIREFRAME As Byte = 3
-Private Const LAYER_POINTS As Byte = 4
-Private Const LAYER_SCENERY As Byte = 5
-Private Const LAYER_OBJECTS As Byte = 6
-Private Const LAYER_WAYPOINTS As Byte = 7
-Private Const LAYER_GRID As Byte = 8
 
 Private layers(0 To 10) As Boolean
 Private layerKeys(0 To 7) As Byte
