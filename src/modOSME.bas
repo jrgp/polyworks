@@ -13,32 +13,7 @@ Option Explicit
 
 ' consts - public
 
-
-' consts - private
-
-
-' types - public
-
-
-' types - private
-
-
-' vars - public
-
 Public Const PI As Single = 3.14159265358979  ' mmm... PI
-
-Public gfxDir As String
-
-Public appPath As String
-Public bgColor As Long
-Public lblBackColor As Long
-Public lblTextColor As Long
-Public txtBackColor As Long
-Public txtTextColor As Long
-Public frameColor As Long
-
-Public font1 As String
-Public font2 As String
 
 Public Const BUTTON_WIDTH = 64
 Public Const BUTTON_HEIGHT = 24
@@ -61,32 +36,6 @@ Public Const BUTTON_UP = 0
 Public Const BUTTON_MOVE = 1
 Public Const BUTTON_DOWN = 2
 
-' bitblt
-Public Declare Function BitBlt Lib "gdi32" (ByVal hDestDC As Long, ByVal X As Long, ByVal Y As Long, _
-        ByVal nWidth As Long, ByVal nHeight As Long, ByVal hSrcDC As Long, _
-        ByVal xSrc As Long, ByVal ySrc As Long, ByVal dwRop As Long) As Long
-' stretchblit
-Public Declare Function StretchBlt Lib "gdi32" (ByVal hDC As Long, ByVal X As Long, ByVal Y As Long, _
-        ByVal nWidth As Long, ByVal nHeight As Long, ByVal hSrcDC As Long, _
-        ByVal xSrc As Long, ByVal ySrc As Long, ByVal nSrcWidth As Long, ByVal nSrcHeight As Long, _
-        ByVal dwRop As Long) As Long
-
-' mouse over
-Public Declare Function SetCapture Lib "user32" (ByVal hWnd As Long) As Long
-Public Declare Function GetCapture Lib "user32" () As Long
-Public Declare Function ReleaseCapture Lib "user32" () As Long
-
-' dragging window
-Public Declare Function SendMessage Lib "user32" Alias "SendMessageA" _
-        (ByVal hWnd As Long, ByVal wMsg As Long, ByVal wParam As Long, lParam As Any) As Long
-
-Public Const WM_NCLBUTTONDOWN = &HA1
-
-' taskbar
-Public Declare Function SetWindowPos Lib "user32" (ByVal hWnd As Long, ByVal hWndInsertAfter As Long, _
-        ByVal X As Long, ByVal Y As Long, ByVal cx As Long, ByVal cy As Long, ByVal wFlags As Long) As Long
-Public Declare Function FindWindow Lib "user32" Alias "FindWindowA" _
-        (ByVal lpClassName As String, ByVal lpWindowName As String) As Long
 Public Const SWP_HIDEWINDOW = &H80
 Public Const SWP_SHOWWINDOW = &H40
 
@@ -96,29 +45,11 @@ Public Const SWP_NOMOVE = &H2
 Public Const HWND_TOPMOST = -1
 Public Const HWND_NOTOPMOST = -2
 
-' get pixel
-Public Declare Function GetPixel Lib "gdi32" (ByVal hDC As Long, ByVal X As Long, ByVal Y As Long) As Long
+Public Const OFS_MAXPATHNAME = 128
+Public Const OF_READWRITE = &H2
 
 
-' vars - private
-
-
-' external functions - public
-
-
-' external functions - private
-
-' browse
-Private Type BROWSEINFO
-    hOwner            As Long
-    pidlRoot          As Long
-    pszDisplayName    As String
-    lpszTitle         As String
-    ulFlags           As Long
-    lpfn              As Long
-    lParam            As Long
-    iImage            As Long
-End Type
+' consts - private
 
 Private Const BIF_RETURNONLYFSDIRS = &H1
 Private Const BIF_DONTGOBELOWDOMAIN = &H2
@@ -128,16 +59,6 @@ Private Const BIF_BROWSEFORCOMPUTER = &H1000
 Private Const BIF_BROWSEFORPRINTER = &H2000
 Private Const MAX_PATH = 260
 
-Private Declare Function SHGetPathFromIDList Lib "shell32" Alias "SHGetPathFromIDListA" _
-        (ByVal pidl As Long, ByVal pszPath As String) As Long
-
-Private Declare Function SHBrowseForFolder Lib "shell32" Alias "SHBrowseForFolderA" _
-        (lpBrowseInfo As BROWSEINFO) As Long
-
-Private Declare Sub CoTaskMemFree Lib "ole32" (ByVal pv As Long)
-
-
-' registry
 Private Const HKEY_CLASSES_ROOT = &H80000000
 Private Const HKEY_LOCAL_MACHINE = &H80000002
 
@@ -147,25 +68,19 @@ Private Const KEY_ENUMERATE_SUB_KEYS As Long = &H8
 Private Const KEY_NOTIFY As Long = &H10
 Private Const SYNCHRONIZE As Long = &H100000
 
+' GDI and GDI+ constants
+Private Const PLANES = 14            ' number of planes
+Private Const BITSPIXEL = 12         ' number of bits per pixel
+Private Const PATCOPY = &HF00021     ' (DWORD) dest = pattern
+Private Const PICTYPE_BITMAP = 1     ' bitmap type
+Private Const InterpolationModeHighQualityBicubic = 7
+Private Const GDIP_WMF_PLACEABLEKEY = &H9AC6CDD7
+
 Private Const KEY_READ As Long = ((STANDARD_RIGHTS_READ Or KEY_QUERY_VALUE Or _
         KEY_ENUMERATE_SUB_KEYS Or KEY_NOTIFY) And (Not SYNCHRONIZE))
 
-Private Declare Function RegOpenKeyEx Lib "advapi32.dll" Alias "RegOpenKeyExA" _
-        (ByVal hKey As Long, ByVal lpSubKey As String, ByVal ulOptions As Long, _
-        ByVal samDesired As Long, phkResult As Long) As Long
 
-Private Declare Function RegQueryValueEx Lib "advapi32.dll" Alias "RegQueryValueExA" _
-        (ByVal hKey As Long, ByVal lpValueName As String, ByVal lpReserved As Long, _
-        lpType As Long, lpData As Any, lpcbData As Long) As Long
-
-Private Declare Function RegCloseKey Lib "advapi32.dll" (ByVal hKey As Long) As Long
-
-Private Declare Function lstrlenW Lib "kernel32" (ByVal lpString As Long) As Long
-
-
-' file time
-Public Const OFS_MAXPATHNAME = 128
-Public Const OF_READWRITE = &H2
+' types - public
 
 Public Type OFSTRUCT
     cBytes      As Byte
@@ -193,50 +108,19 @@ Public Type SYSTEMTIME
 End Type
 
 
-Public Declare Function GetFileTime Lib "kernel32" (ByVal hFile As Long, lpCreationTime As FILETIME, _
-        lpLastAccessTime As FILETIME, lpLastWriteTime As FILETIME) As Long
+' types - private
 
-Public Declare Function OpenFile Lib "kernel32" (ByVal lpFileName As String, _
-        lpReOpenBuff As OFSTRUCT, ByVal wStyle As Long) As Long
-
-Public Declare Function CloseHandle Lib "kernel32" (ByVal hFile As Long) As Long
-
-Public Declare Function FileTimeToDosDateTime Lib "kernel32" (lpFileTime As FILETIME, _
-        ByVal lpFatDate As Long, ByVal lpFatTime As Long) As Long
-
-Public Declare Function FileTimeToLocalFileTime Lib "kernel32" (lpFileTime As FILETIME, _
-        lpLocalFileTime As FILETIME) As Long
-
-Public Declare Function FileTimeToSystemTime Lib "kernel32" (lpFileTime As FILETIME, lpSystemTime As SYSTEMTIME) As Long
-
-' ini file
-Private Declare Function GetPrivateProfileInt Lib "kernel32" Alias "GetPrivateProfileIntA" _
-        (ByVal sSectionName As String, ByVal sKeyName As String, _
-        ByVal lDefault As Long, ByVal sFileName As String) As Long
-
-Private Declare Function GetPrivateProfileSection Lib "kernel32" Alias "GetPrivateProfileSectionA" _
-        (ByVal sSectionName As String, ByVal sReturnedString As String, _
-        ByVal lSize As Long, ByVal sFileName As String) As Long
-
-Private Declare Function GetPrivateProfileString Lib "kernel32" Alias "GetPrivateProfileStringA" _
-        (ByVal sSectionName As String, ByVal sKeyName As String, ByVal sDefault As String, _
-        ByVal sReturnedString As String, ByVal lSize As Long, ByVal sFileName As String) As Long
-
-Private Declare Function WritePrivateProfileSection Lib "kernel32" Alias "WritePrivateProfileSectionA" _
-        (ByVal sSectionName As String, ByVal sString As String, ByVal sFileName As String) As Long
-
-Private Declare Function WritePrivateProfileString Lib "kernel32" Alias "WritePrivateProfileStringA" _
-        (ByVal sSectionName As String, ByVal sKeyName As String, _
-        ByVal sString As String, ByVal sFileName As String) As Long
-
-' shellexecute
-Private Declare Function ShellExecute Lib "shell32.dll" Alias "ShellExecuteA" (ByVal hWnd As Long, _
-        ByVal lpOperation As String, ByVal lpFile As String, ByVal lpParameters As String, _
-        ByVal lpDirectory As String, ByVal nShowCmd As Long) As Long
-
-' key mapping
-Public Declare Function MapVirtualKey Lib "user32" Alias "MapVirtualKeyA" _
-        (ByVal wCode As Long, ByVal wMapType As Long) As Long
+' browse
+Private Type BROWSEINFO
+    hOwner            As Long
+    pidlRoot          As Long
+    pszDisplayName    As String
+    lpszTitle         As String
+    ulFlags           As Long
+    lpfn              As Long
+    lParam            As Long
+    iImage            As Long
+End Type
 
 ' GDI+
 Private Type GUID
@@ -277,6 +161,128 @@ Private Type ImageCodecInfo
     SigMaskPtr As Long
 End Type
 
+
+' vars - public
+
+Public gfxDir As String
+
+Public appPath As String
+Public bgColor As Long
+Public lblBackColor As Long
+Public lblTextColor As Long
+Public txtBackColor As Long
+Public txtTextColor As Long
+Public frameColor As Long
+
+Public font1 As String
+Public font2 As String
+
+
+' vars - private
+
+
+' external functions - public
+
+' bitblt
+Public Declare Function BitBlt Lib "gdi32" (ByVal hDestDC As Long, ByVal X As Long, ByVal Y As Long, _
+        ByVal nWidth As Long, ByVal nHeight As Long, ByVal hSrcDC As Long, _
+        ByVal xSrc As Long, ByVal ySrc As Long, ByVal dwRop As Long) As Long
+' stretchblit
+Public Declare Function StretchBlt Lib "gdi32" (ByVal hDC As Long, ByVal X As Long, ByVal Y As Long, _
+        ByVal nWidth As Long, ByVal nHeight As Long, ByVal hSrcDC As Long, _
+        ByVal xSrc As Long, ByVal ySrc As Long, ByVal nSrcWidth As Long, ByVal nSrcHeight As Long, _
+        ByVal dwRop As Long) As Long
+
+' mouse over
+Public Declare Function SetCapture Lib "user32" (ByVal hWnd As Long) As Long
+Public Declare Function GetCapture Lib "user32" () As Long
+Public Declare Function ReleaseCapture Lib "user32" () As Long
+
+' dragging window
+Public Declare Function SendMessage Lib "user32" Alias "SendMessageA" _
+        (ByVal hWnd As Long, ByVal wMsg As Long, ByVal wParam As Long, lParam As Any) As Long
+
+Public Const WM_NCLBUTTONDOWN = &HA1
+
+' taskbar
+Public Declare Function SetWindowPos Lib "user32" (ByVal hWnd As Long, ByVal hWndInsertAfter As Long, _
+        ByVal X As Long, ByVal Y As Long, ByVal cx As Long, ByVal cy As Long, ByVal wFlags As Long) As Long
+Public Declare Function FindWindow Lib "user32" Alias "FindWindowA" _
+        (ByVal lpClassName As String, ByVal lpWindowName As String) As Long
+
+' get pixel
+Public Declare Function GetPixel Lib "gdi32" (ByVal hDC As Long, ByVal X As Long, ByVal Y As Long) As Long
+
+' file time
+Public Declare Function GetFileTime Lib "kernel32" (ByVal hFile As Long, lpCreationTime As FILETIME, _
+        lpLastAccessTime As FILETIME, lpLastWriteTime As FILETIME) As Long
+
+Public Declare Function OpenFile Lib "kernel32" (ByVal lpFileName As String, _
+        lpReOpenBuff As OFSTRUCT, ByVal wStyle As Long) As Long
+
+Public Declare Function CloseHandle Lib "kernel32" (ByVal hFile As Long) As Long
+
+Public Declare Function FileTimeToDosDateTime Lib "kernel32" (lpFileTime As FILETIME, _
+        ByVal lpFatDate As Long, ByVal lpFatTime As Long) As Long
+
+Public Declare Function FileTimeToLocalFileTime Lib "kernel32" (lpFileTime As FILETIME, _
+        lpLocalFileTime As FILETIME) As Long
+
+Public Declare Function FileTimeToSystemTime Lib "kernel32" (lpFileTime As FILETIME, lpSystemTime As SYSTEMTIME) As Long
+
+' key mapping
+Public Declare Function MapVirtualKey Lib "user32" Alias "MapVirtualKeyA" _
+        (ByVal wCode As Long, ByVal wMapType As Long) As Long
+
+
+' external functions - private
+
+Private Declare Function SHGetPathFromIDList Lib "shell32" Alias "SHGetPathFromIDListA" _
+        (ByVal pidl As Long, ByVal pszPath As String) As Long
+
+Private Declare Function SHBrowseForFolder Lib "shell32" Alias "SHBrowseForFolderA" _
+        (lpBrowseInfo As BROWSEINFO) As Long
+
+Private Declare Sub CoTaskMemFree Lib "ole32" (ByVal pv As Long)
+
+' registry
+Private Declare Function RegOpenKeyEx Lib "advapi32.dll" Alias "RegOpenKeyExA" _
+        (ByVal hKey As Long, ByVal lpSubKey As String, ByVal ulOptions As Long, _
+        ByVal samDesired As Long, phkResult As Long) As Long
+
+Private Declare Function RegQueryValueEx Lib "advapi32.dll" Alias "RegQueryValueExA" _
+        (ByVal hKey As Long, ByVal lpValueName As String, ByVal lpReserved As Long, _
+        lpType As Long, lpData As Any, lpcbData As Long) As Long
+
+Private Declare Function RegCloseKey Lib "advapi32.dll" (ByVal hKey As Long) As Long
+
+Private Declare Function lstrlenW Lib "kernel32" (ByVal lpString As Long) As Long
+
+' ini file
+Private Declare Function GetPrivateProfileInt Lib "kernel32" Alias "GetPrivateProfileIntA" _
+        (ByVal sSectionName As String, ByVal sKeyName As String, _
+        ByVal lDefault As Long, ByVal sFileName As String) As Long
+
+Private Declare Function GetPrivateProfileSection Lib "kernel32" Alias "GetPrivateProfileSectionA" _
+        (ByVal sSectionName As String, ByVal sReturnedString As String, _
+        ByVal lSize As Long, ByVal sFileName As String) As Long
+
+Private Declare Function GetPrivateProfileString Lib "kernel32" Alias "GetPrivateProfileStringA" _
+        (ByVal sSectionName As String, ByVal sKeyName As String, ByVal sDefault As String, _
+        ByVal sReturnedString As String, ByVal lSize As Long, ByVal sFileName As String) As Long
+
+Private Declare Function WritePrivateProfileSection Lib "kernel32" Alias "WritePrivateProfileSectionA" _
+        (ByVal sSectionName As String, ByVal sString As String, ByVal sFileName As String) As Long
+
+Private Declare Function WritePrivateProfileString Lib "kernel32" Alias "WritePrivateProfileStringA" _
+        (ByVal sSectionName As String, ByVal sKeyName As String, _
+        ByVal sString As String, ByVal sFileName As String) As Long
+
+' shellexecute
+Private Declare Function ShellExecute Lib "shell32.dll" Alias "ShellExecuteA" (ByVal hWnd As Long, _
+        ByVal lpOperation As String, ByVal lpFile As String, ByVal lpParameters As String, _
+        ByVal lpDirectory As String, ByVal nShowCmd As Long) As Long
+
 ' GDI functions
 Private Declare Function CreateCompatibleDC Lib "gdi32" (ByVal hDC As Long) As Long
 Private Declare Function OleCreatePictureIndirect Lib "olepro32.dll" (PicDesc As PICTDESC, RefIID As GUID, ByVal fPictureOwnsHandle As Long, IPic As IPicture) As Long
@@ -308,15 +314,6 @@ Private Declare Function GdipCreateHBITMAPFromBitmap Lib "gdiplus.dll" (ByVal Bi
 Private Declare Function GdipGetImageEncodersSize Lib "gdiplus.dll" (ByRef numEncoders As Long, ByRef Size As Long) As Long
 Private Declare Function GdipGetImageEncoders Lib "gdiplus.dll" (ByVal numEncoders As Long, ByVal Size As Long, ByRef Encoders As Any) As Long
 Private Declare Function lstrcpyW Lib "kernel32" (lpString1 As Any, lpString2 As Any) As Long
-
-
-' GDI and GDI+ constants
-Private Const PLANES = 14            ' number of planes
-Private Const BITSPIXEL = 12         ' number of bits per pixel
-Private Const PATCOPY = &HF00021     ' (DWORD) dest = pattern
-Private Const PICTYPE_BITMAP = 1     ' bitmap type
-Private Const InterpolationModeHighQualityBicubic = 7
-Private Const GDIP_WMF_PLACEABLEKEY = &H9AC6CDD7
 
 
 ' functions - public
