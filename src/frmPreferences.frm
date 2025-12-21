@@ -1952,6 +1952,9 @@ Option Explicit
 
 ' consts - private
 
+Private Const MIN_HEIGHT = 440
+Private Const MAX_HEIGHT = 547
+
 
 ' types - public
 
@@ -1963,9 +1966,6 @@ Option Explicit
 
 
 ' vars - private
-
-Private Const MIN_HEIGHT = 440
-Private Const MAX_HEIGHT = 547
 
 Private blendModes(0 To 7) As Integer
 
