@@ -16,6 +16,10 @@ Option Explicit
 
 ' consts - private
 
+Private Const DEFAULT_MAX_ZOOM As Single = 512
+Private Const DEFAULT_MIN_ZOOM As Single = 0.03125
+Private Const DEFAULT_RESET_ZOOM As Single = 1
+
 
 ' types - public
 
@@ -31,10 +35,6 @@ Public gPolyTypeColors(0 To 25) As Long
 
 
 ' vars - private
-
-Private Const DEFAULT_MAX_ZOOM As Single = 512
-Private Const DEFAULT_MIN_ZOOM As Single = 0.03125
-Private Const DEFAULT_RESET_ZOOM As Single = 1
 
 
 ' external functions - public
