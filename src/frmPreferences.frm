@@ -1989,6 +1989,12 @@ Private formMaxZoom As Single
 Private formResetZoom As Single
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub SetColors()

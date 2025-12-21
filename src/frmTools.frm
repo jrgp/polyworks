@@ -346,6 +346,12 @@ Private formHeight As Integer
 Private hotKeys(0 To 13) As Byte
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Function GetHotKey(ByVal Index As Byte) As Byte

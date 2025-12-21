@@ -102,6 +102,12 @@ Public Declare Function GetPixel Lib "gdi32" (ByVal hDC As Long, ByVal X As Long
 
 ' vars - private
 
+
+' external functions - public
+
+
+' external functions - private
+
 ' browse
 Private Type BROWSEINFO
     hOwner            As Long

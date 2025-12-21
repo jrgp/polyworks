@@ -1734,6 +1734,12 @@ Private tempVal As Single
 Private applyChange As Boolean
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub SetForm()

@@ -678,6 +678,12 @@ Private mNonModal As Boolean
 Private mLastTool As Byte
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub InitColor(initRed As Byte, initGreen As Byte, initBlue As Byte)

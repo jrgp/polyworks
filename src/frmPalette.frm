@@ -583,6 +583,12 @@ Private yVal As Integer
 Private tempVal As Integer
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Function GetPalColor(X As Integer, Y As Integer) As Long  ' unused?

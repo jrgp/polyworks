@@ -544,6 +544,12 @@ Private layerKeys(0 To 7) As Byte
 Private formHeight As Integer
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Function GetLayerKey(ByVal Index As Byte) As Byte

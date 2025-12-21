@@ -115,6 +115,12 @@ Public y2tex As Single
 Private formHeight As Integer
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub SetForm()

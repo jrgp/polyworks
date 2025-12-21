@@ -25,3 +25,9 @@ Public Const COLOR_KEY As Long = &HFF00FF00
 
 
 ' vars - private
+
+
+' external functions - public
+
+
+' external functions - private

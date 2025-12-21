@@ -70,6 +70,12 @@ Public Const FVF As Long = D3DFVF_XYZRHW Or D3DFVF_TEX1 Or D3DFVF_DIFFUSE
 ' vars - private
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub InitDX8()

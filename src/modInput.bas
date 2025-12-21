@@ -21,3 +21,9 @@ Option Explicit
 
 ' vars - private
 
+
+' external functions - public
+
+
+' external functions - private
+

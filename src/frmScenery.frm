@@ -373,6 +373,12 @@ Private checkVal As Boolean
 Private selNode As Node
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Sub ListScenery()

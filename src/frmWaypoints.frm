@@ -541,6 +541,12 @@ Private waypointKeys(0 To 4) As Byte
 Private Const COLLAPSED_HEIGHT = 19
 
 
+' external functions - public
+
+
+' external functions - private
+
+
 ' functions - public
 
 Public Function GetWaypointKey(ByVal Index As Byte) As Byte
