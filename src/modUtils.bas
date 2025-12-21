@@ -230,3 +230,6 @@ ErrorHandler:
     AscDef = defaultCode
 
 End Function
+
+
+' functions - private

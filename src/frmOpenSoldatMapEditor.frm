@@ -1571,6 +1571,7 @@ Private Declare Function SetKeyboardState Lib "user32" _
 Private Declare Function GetKeyboardState Lib "user32" _
         (ByVal nVirtKey As Long) As Integer
 
+
 ' functions - public
 
 Public Sub RestoreBorderLessForm()

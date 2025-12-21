@@ -318,12 +318,18 @@ Private Const PICTYPE_BITMAP = 1     ' bitmap type
 Private Const InterpolationModeHighQualityBicubic = 7
 Private Const GDIP_WMF_PLACEABLEKEY = &H9AC6CDD7
 
+
+' functions - public
+
 Public Sub SelectAllText(tb As TextBox)
 
     tb.SelStart = 0
     tb.SelLength = Len(tb.Text)
 
 End Sub
+
+
+' functions - private
 
 Private Function GetEncoderClsid(mimeType As String, pClsid As GUID) As Boolean
 
