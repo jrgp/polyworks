@@ -22,27 +22,6 @@ Option Explicit
 
 ' types - private
 
-
-' vars - public
-
-
-' vars - private
-
-
-' external functions - public
-
-
-' external functions - private
-
-
-' functions - public
-
-
-' functions - private
-
-
-' types
-
 Public Type TImageInfo
     Width       As Integer
     miplevels   As Integer
@@ -221,3 +200,21 @@ Public Type TConnection
     point1 As Integer
     point2 As Integer
 End Type
+
+
+' vars - public
+
+
+' vars - private
+
+
+' external functions - public
+
+
+' external functions - private
+
+
+' functions - public
+
+
+' functions - private
