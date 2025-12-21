@@ -11,6 +11,12 @@ Option Explicit
 #End If
 
 
+' consts - public
+
+
+' consts - private
+
+
 Public Type TColor
     red     As Byte
     green   As Byte

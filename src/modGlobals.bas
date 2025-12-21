@@ -4,6 +4,12 @@ Option Explicit
 ' global variables and constants
 
 
+' consts - public
+
+
+' consts - private
+
+
 ' vars - public
 
 Public Const MAINFORM_MIN_WIDTH As Integer = 300

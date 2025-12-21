@@ -3,3 +3,9 @@ Option Explicit
 
 ' input handling
 
+
+' consts - public
+
+
+' consts - private
+

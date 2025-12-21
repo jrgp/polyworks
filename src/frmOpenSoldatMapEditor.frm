@@ -1299,6 +1299,12 @@ Option Explicit
 Implements DirectXEvent8
 
 
+' consts - public
+
+
+' consts - private
+
+
 ' vars - public
 
 Public backgroundColor As Long

@@ -10,6 +10,13 @@ Option Explicit
     'Public FileName, color, token, A, R, G, B, commonDialog, value, Val, X, Y, Z, Left, hWnd, Mid, Right, BackColor, bottom
 #End If
 
+
+' consts - public
+
+
+' consts - private
+
+
 ' types
 
 Public Type TImageInfo

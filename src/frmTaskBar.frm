@@ -30,6 +30,12 @@ Option Explicit
 #End If
 
 
+' consts - public
+
+
+' consts - private
+
+
 ' vars - public
 
 

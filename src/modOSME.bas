@@ -11,6 +11,12 @@ Option Explicit
 #End If
 
 
+' consts - public
+
+
+' consts - private
+
+
 ' vars - public
 
 Public Const PI As Single = 3.14159265358979  ' mmm... PI
