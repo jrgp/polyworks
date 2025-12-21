@@ -6,6 +6,11 @@ Option Explicit
 
 ' consts - public
 
+Public Const MAINFORM_MIN_WIDTH As Integer = 300
+Public Const MAINFORM_MIN_HEIGHT As Integer = 200
+
+Public Const COLOR_KEY As Long = &HFF00FF00
+
 
 ' consts - private
 
@@ -17,11 +22,6 @@ Option Explicit
 
 
 ' vars - public
-
-Public Const MAINFORM_MIN_WIDTH As Integer = 300
-Public Const MAINFORM_MIN_HEIGHT As Integer = 200
-
-Public Const COLOR_KEY As Long = &HFF00FF00
 
 
 ' vars - private
