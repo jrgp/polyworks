@@ -15,3 +15,6 @@
 
 /installer/skins/
 !/installer/skins/default/
+build/
+*.o
+*.ppu
