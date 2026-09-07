@@ -60,6 +60,7 @@ type
     procedure BuildMenus;
     procedure DisplaySettingsChanged(Sender: TObject);
     procedure FloatingToolSelect(Sender: TObject; ToolID: Integer);
+    procedure ViewportToolSelect(ToolID: Integer);
     procedure InvalidatePanelCaches;
     procedure LoadDocumentTextures;
     procedure PositionFloatingForms;
@@ -183,6 +184,7 @@ begin
   FViewport.SetDocument(FDoc);
   FViewport.UndoStack := FUndo;
   FViewport.OnViewChanged := @ViewportChanged;
+  FViewport.OnToolSelect := @ViewportToolSelect;
 
   FToolsForm := TWToolsForm.Create(Self);
   FToolsForm.OnToolSelect := @FloatingToolSelect;
@@ -354,10 +356,10 @@ begin
   AddMenuItem(FileMenu, '&New', @NewFile, ShortCut(VK_N, [ssCtrl]));
   AddMenuItem(FileMenu, '&Open...', @OpenFile, ShortCut(VK_O, [ssCtrl]));
   AddMenuItem(FileMenu, '&Save', @SaveFile, ShortCut(VK_S, [ssCtrl]));
-  AddMenuItem(FileMenu, 'Save &As...', @SaveFileAs);
-  AddMenuItem(FileMenu, 'Save and &Compile...', @SaveAndCompileFile);
+  AddMenuItem(FileMenu, 'Save &As...', @SaveFileAs, ShortCut(VK_S, [ssCtrl, ssShift]));
+  AddMenuItem(FileMenu, 'Save and &Compile...', @SaveAndCompileFile, ShortCut(VK_F9, []));
   FileMenu.AddSeparator;
-  AddMenuItem(FileMenu, '&Quit', @QuitApp);
+  AddMenuItem(FileMenu, '&Quit', @QuitApp, ShortCut(VK_F4, [ssAlt]));
 
   EditMenu := TMenuItem.Create(Self);
   EditMenu.Caption := '&Edit';
@@ -365,13 +367,13 @@ begin
   AddMenuItem(EditMenu, '&Undo', @UndoAction, ShortCut(VK_Z, [ssCtrl]));
   AddMenuItem(EditMenu, '&Redo', @RedoAction, ShortCut(VK_Y, [ssCtrl]));
   EditMenu.AddSeparator;
-  AddMenuItem(EditMenu, 'Select &All', @SelectAllAction);
-  AddMenuItem(EditMenu, '&Deselect All', @DeselectAllAction);
+  AddMenuItem(EditMenu, 'Select &All', @SelectAllAction, ShortCut(VK_A, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Deselect All', @DeselectAllAction, ShortCut(VK_D, [ssCtrl]));
   EditMenu.AddSeparator;
   AddMenuItem(EditMenu, '&Delete', @DeleteAction, VK_DELETE);
   EditMenu.AddSeparator;
-  AddMenuItem(EditMenu, '&Map Properties...', @MapPropertiesAction);
-  AddMenuItem(EditMenu, 'P&references...', @PreferencesAction);
+  AddMenuItem(EditMenu, '&Map Properties...', @MapPropertiesAction, ShortCut(VK_M, [ssCtrl]));
+  AddMenuItem(EditMenu, 'P&references...', @PreferencesAction, ShortCut(VK_P, [ssCtrl]));
 
   ViewMenu := TMenuItem.Create(Self);
   ViewMenu.Caption := '&View';
@@ -388,9 +390,9 @@ begin
   FShowBackgroundItem := AddMenuItem(ViewMenu, 'Show &Background', @ToggleViewOption, 0, VIEW_SHOW_BACKGROUND, True);
   FShowSceneryItem := AddMenuItem(ViewMenu, 'Show Sc&enery', @ToggleViewOption, 0, VIEW_SHOW_SCENERY, True);
   ViewMenu.AddSeparator;
-  AddMenuItem(ViewMenu, 'Zoom &In', @ZoomInAction);
-  AddMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutAction);
-  AddMenuItem(ViewMenu, '&Reset Zoom', @ResetZoomAction);
+  AddMenuItem(ViewMenu, 'Zoom &In', @ZoomInAction, ShortCut(VK_ADD, []));
+  AddMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutAction, ShortCut(VK_SUBTRACT, []));
+  AddMenuItem(ViewMenu, '&Reset Zoom', @ResetZoomAction, ShortCut(VK_MULTIPLY, []));
 
   ToolsMenu := TMenuItem.Create(Self);
   ToolsMenu.Caption := '&Tools';
@@ -430,6 +432,12 @@ begin
   FViewport.SetActiveTool(ToolID);
   SyncToolUI;
   FViewport.SetFocus;
+end;
+
+procedure TMainForm.ViewportToolSelect(ToolID: Integer);
+begin
+  // Keyboard hotkey changed tool in viewport; sync the tools panel and menu
+  SyncToolUI;
 end;
 
 procedure TMainForm.InvalidatePanelCaches;
@@ -578,6 +586,8 @@ begin
   FSceneryForm.Show;
   FWaypointForm.Show;
   FPanelsPositioned := True;
+  // Load custom cursors from skins directory (Windows: .cur files; others: no-op)
+  LoadAllCursors(PWSkinsDir + 'cursors' + PathDelim);
 end;
 
 procedure TMainForm.NewFile(Sender: TObject);
