@@ -214,6 +214,21 @@ public:
     void duplicateSelected(float offsetX, float offsetY);
     void moveSelected(float dx, float dy);
 
+    /* Clipboard operations */
+    void copySelected();
+    void pasteSelected();
+    bool hasClipboard() const;
+
+    /* Ordering */
+    void bringSelectedToFront();
+    void bringSelectedForward();
+    void sendSelectedBackward();
+    void sendSelectedToBack();
+
+    /* Transform (operates on centroid of selection bounding box) */
+    void rotateSelected(float angleDeg);
+    void flipSelected(bool horizontal, bool vertical);
+
     /* Polygon operations */
     int  addPoly(const EditorPoly& p);
     bool removePoly(int index);
@@ -229,7 +244,7 @@ public:
                   uint8_t b = 255, float intensity = 1.0f, int range = 100);
     void addSketchLine(Vec2 a, Vec2 b);
     /* Add a scenery instance by scenery-name index (1-based) */
-    void addSceneryInstance(int nameIdx, float wx, float wy);
+    void addSceneryInstance(int nameIdx, float wx, float wy, int level = 1);
 
     /* Undo snapshot — returns opaque blob describing current state */
     std::vector<uint8_t> snapshotState() const;
@@ -245,4 +260,8 @@ public:
 private:
     void rebuildPolyScreenCache(EditorPoly& p) const;
     void rebuildSceneryScreenCache(EditorScenery& s) const;
+
+    /* Clipboard for Copy/Paste */
+    std::vector<EditorPoly>    m_clipPolys;
+    bool                        m_hasClipboard = false;
 };

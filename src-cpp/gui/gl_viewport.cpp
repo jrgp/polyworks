@@ -10,6 +10,7 @@
 #include <wx/settings.h>
 #include <wx/filename.h>
 #include <wx/image.h>
+#include <wx/menu.h>
 
 #include <cmath>
 
@@ -293,7 +294,200 @@ void GlViewport::OnRightDown(wxMouseEvent& event) {
     if (m_state == ViewportState::CreatingPoly) {
         CancelCreation();
         Refresh(false);
+        return;
     }
+
+    /* Spawn-type names matching VB6 mnuSpawn index 0-16 */
+    static const char* kSpawnNames[17] = {
+        "Player Spawn",    "Alpha Team",      "Bravo Team",
+        "Charlie Team",    "Delta Team",      "Alpha Flag",
+        "Bravo Flag",      "Grenade Kit",     "Medikit",
+        "Cluster Grenades","Vest",            "Flame Kit",
+        "Berserker",       "Predator",        "Point Match Flag",
+        "Rambo Bow",       "Stat Gun",
+    };
+
+    if (m_activeTool == TOOL_OBJECTS) {
+        /* Objects context menu: choose spawn type, collider, or gostek */
+        wxMenu menu;
+        const int currentTeam = (m_mainFrame != nullptr) ? m_mainFrame->GetCurrentSpawnTeam() : 0;
+
+        for (int i = 0; i < 17; ++i) {
+            wxMenuItem* item = menu.AppendRadioItem(wxID_ANY, kSpawnNames[i]);
+            if (i == currentTeam) item->Check(true);
+            const int team = i;
+            menu.Bind(wxEVT_MENU, [this, team](wxCommandEvent&) {
+                if (m_mainFrame != nullptr)
+                    m_mainFrame->SetCurrentSpawnTeam(team);
+            }, item->GetId());
+        }
+        menu.AppendSeparator();
+        wxMenuItem* colliderItem = menu.AppendRadioItem(wxID_ANY, "Collider");
+        if (currentTeam == -1) colliderItem->Check(true);  /* -1 = collider mode */
+        menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+            if (m_mainFrame != nullptr)
+                m_mainFrame->SetCurrentSpawnTeam(-1);  /* -1 signals collider placement */
+        }, colliderItem->GetId());
+        PopupMenu(&menu);
+        return;
+    }
+
+    if (m_activeTool == TOOL_VSELECT || m_activeTool == TOOL_PSELECT) {
+        /* Vertex/Polygon select context menu */
+        wxMenu menu;
+
+        auto appendCmd = [&](const char* label, std::function<void()> fn) {
+            wxMenuItem* item = menu.Append(wxID_ANY, label);
+            const int id = item->GetId();
+            menu.Bind(wxEVT_MENU, [fn](wxCommandEvent&) { fn(); }, id);
+        };
+
+        appendCmd("Duplicate", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.duplicateSelected(10.0f, 10.0f);
+            m_document.markModified();
+            if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+            Refresh(false);
+        });
+        appendCmd("Copy", [this]() {
+            m_document.copySelected();
+        });
+        appendCmd("Paste", [this]() {
+            if (!m_document.hasClipboard()) return;
+            m_undoStack.push(m_document);
+            m_document.pasteSelected();
+            m_document.markModified();
+            if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+            Refresh(false);
+        });
+        appendCmd("Clear", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.deleteSelected();
+            m_document.markModified();
+            if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+            Refresh(false);
+        });
+
+        menu.AppendSeparator();
+
+        /* Arrange submenu */
+        wxMenu* arrange = new wxMenu();
+        auto appendArrange = [&](const char* label, std::function<void()> fn) {
+            wxMenuItem* item = arrange->Append(wxID_ANY, label);
+            arrange->Bind(wxEVT_MENU, [fn](wxCommandEvent&) { fn(); }, item->GetId());
+        };
+        appendArrange("Bring To Front", [this]() {
+            m_undoStack.push(m_document);
+            m_document.bringSelectedToFront();
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendArrange("Bring Forward", [this]() {
+            m_undoStack.push(m_document);
+            m_document.bringSelectedForward();
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendArrange("Send Backward", [this]() {
+            m_undoStack.push(m_document);
+            m_document.sendSelectedBackward();
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendArrange("Send To Back", [this]() {
+            m_undoStack.push(m_document);
+            m_document.sendSelectedToBack();
+            m_document.markModified();
+            Refresh(false);
+        });
+        menu.AppendSubMenu(arrange, "Arrange");
+
+        /* Transform submenu */
+        wxMenu* transform = new wxMenu();
+        auto appendTransform = [&](const char* label, std::function<void()> fn) {
+            wxMenuItem* item = transform->Append(wxID_ANY, label);
+            transform->Bind(wxEVT_MENU, [fn](wxCommandEvent&) { fn(); }, item->GetId());
+        };
+        appendTransform("Rotate 180\xC2\xB0", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.rotateSelected(180.0f);
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendTransform("Rotate 90\xC2\xB0 CW", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.rotateSelected(90.0f);
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendTransform("Rotate 90\xC2\xB0 CCW", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.rotateSelected(-90.0f);
+            m_document.markModified();
+            Refresh(false);
+        });
+        transform->AppendSeparator();
+        appendTransform("Flip Horizontal", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.flipSelected(true, false);
+            m_document.markModified();
+            Refresh(false);
+        });
+        appendTransform("Flip Vertical", [this]() {
+            if (!m_document.anySelected()) return;
+            m_undoStack.push(m_document);
+            m_document.flipSelected(false, true);
+            m_document.markModified();
+            Refresh(false);
+        });
+        menu.AppendSubMenu(transform, "Transform");
+
+        PopupMenu(&menu);
+        return;
+    }
+
+    if (m_activeTool == TOOL_SCENERY) {
+        /* Scenery context menu: Rotate/Scale toggles + Back/Middle/Front level */
+        wxMenu menu;
+        bool rot   = (m_mainFrame != nullptr) ? m_mainFrame->GetSceneryRotate() : false;
+        bool scale = (m_mainFrame != nullptr) ? m_mainFrame->GetSceneryScale()  : false;
+        int  level = (m_mainFrame != nullptr) ? m_mainFrame->GetSceneryLevel()  : 0;
+
+        wxMenuItem* rotItem   = menu.AppendCheckItem(wxID_ANY, "Rotate");
+        wxMenuItem* scaleItem = menu.AppendCheckItem(wxID_ANY, "Scale");
+        rotItem->Check(rot);
+        scaleItem->Check(scale);
+        menu.Bind(wxEVT_MENU, [this, rotItem](wxCommandEvent&) {
+            if (m_mainFrame != nullptr)
+                m_mainFrame->SetSceneryRotate(rotItem->IsChecked());
+        }, rotItem->GetId());
+        menu.Bind(wxEVT_MENU, [this, scaleItem](wxCommandEvent&) {
+            if (m_mainFrame != nullptr)
+                m_mainFrame->SetSceneryScale(scaleItem->IsChecked());
+        }, scaleItem->GetId());
+
+        menu.AppendSeparator();
+
+        static const char* kLevelNames[3] = {"Back", "Middle", "Front"};
+        for (int i = 0; i < 3; ++i) {
+            wxMenuItem* lvl = menu.AppendRadioItem(wxID_ANY, kLevelNames[i]);
+            if (i == level) lvl->Check(true);
+            const int lv = i;
+            menu.Bind(wxEVT_MENU, [this, lv](wxCommandEvent&) {
+                if (m_mainFrame != nullptr)
+                    m_mainFrame->SetSceneryLevel(lv);
+            }, lvl->GetId());
+        }
+        PopupMenu(&menu);
+        return;
+    }
+
     event.Skip();
 }
 
@@ -364,13 +558,21 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         return;
     }
 
-    case TOOL_OBJECTS:
-        m_undoStack.push(m_document);
-        m_document.addSpawn(world.x, world.y);
+    case TOOL_OBJECTS: {
+        const int team = (m_mainFrame != nullptr) ? m_mainFrame->GetCurrentSpawnTeam() : 0;
+        if (team < 0) {
+            /* Negative team means place collider */
+            m_undoStack.push(m_document);
+            m_document.addCollider(world.x, world.y);
+        } else {
+            m_undoStack.push(m_document);
+            m_document.addSpawn(world.x, world.y, team);
+        }
         m_document.markModified();
         if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
         Refresh(false);
         return;
+    }
 
     case TOOL_LIGHTS:
         m_undoStack.push(m_document);
@@ -393,7 +595,8 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         int idx = m_mainFrame->GetOrAddSelectedSceneryIndex();
         if (idx == 0) return; /* nothing selected in SceneryPanel */
         m_undoStack.push(m_document);
-        m_document.addSceneryInstance(idx, world.x, world.y);
+        const int level = m_mainFrame->GetSceneryLevel();
+        m_document.addSceneryInstance(idx, world.x, world.y, level);
         m_document.markModified();
         m_mainFrame->UpdateStatusBar();
         m_mainFrame->UpdateTitle();

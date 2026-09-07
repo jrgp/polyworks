@@ -16,6 +16,7 @@
 #include <wx/msgdlg.h>
 #include <wx/filename.h>
 #include <wx/sizer.h>
+#include <wx/config.h>
 
 #include <array>
 
@@ -45,7 +46,20 @@ enum MenuId {
     ID_VIEW_ZOOM_RESET,
     ID_VIEW_CENTER_RESET,
     ID_VIEW_PALETTE,
-    ID_POLY_TYPE_BASE
+    ID_POLY_TYPE_BASE,
+    /* Window menu */
+    ID_WINDOW_SHOW_ALL = ID_POLY_TYPE_BASE + 50,
+    ID_WINDOW_HIDE_ALL,
+    ID_WINDOW_LOAD_WORKSPACE,
+    ID_WINDOW_SAVE_WORKSPACE,
+    ID_WINDOW_RESET_LAYOUT,
+    ID_WINDOW_TOOLS,
+    ID_WINDOW_DISPLAY,
+    ID_WINDOW_PALETTE,
+    ID_WINDOW_WAYPOINTS,
+    ID_WINDOW_SCENERY,
+    ID_WINDOW_PROPERTIES,
+    ID_WINDOW_TEXTURE
 };
 
 struct ToolInfo {
@@ -98,14 +112,6 @@ constexpr std::array<const char*, 26> kPolyTypeNames{{
     "Weather",
     "No Footsteps",
 }};
-
-wxMenu* CreatePlaceholderMenu(const wxString& label) {
-    auto* menu = new wxMenu();
-    const int itemId = wxWindow::NewControlId();
-    menu->Append(itemId, label);
-    menu->Enable(itemId, false);
-    return menu;
-}
 
 wxString BaseNameOrUntitled(const wxString& path) {
     if (path.empty()) {
@@ -168,6 +174,19 @@ MainFrame::MainFrame(const wxString& skinsPath)
         if (m_palettePanel != nullptr)
             m_palettePanel->Show(ev.IsChecked());
     }, ID_VIEW_PALETTE);
+    /* Window menu */
+    Bind(wxEVT_MENU, &MainFrame::OnWindowShowAll,       this, ID_WINDOW_SHOW_ALL);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowHideAll,       this, ID_WINDOW_HIDE_ALL);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowLoadWorkspace, this, ID_WINDOW_LOAD_WORKSPACE);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowSaveWorkspace, this, ID_WINDOW_SAVE_WORKSPACE);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowResetLayout,   this, ID_WINDOW_RESET_LAYOUT);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_TOOLS);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_DISPLAY);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_PALETTE);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_WAYPOINTS);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_SCENERY);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_PROPERTIES);
+    Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_TEXTURE);
     Bind(wxEVT_CHAR_HOOK, &MainFrame::OnKeyDown, this);
     Bind(wxEVT_SIZE, &MainFrame::OnSize, this);
 
@@ -307,11 +326,25 @@ void MainFrame::buildMenuBar() {
     menuBar->Append(mapMenu, "&Map");
     menuBar->Append(polygonMenu, "P&olygon");
     menuBar->Append(arrangeMenu, "&Arrange");
-    menuBar->Append(CreatePlaceholderMenu("(coming soon)"), "&Objects");
-    menuBar->Append(CreatePlaceholderMenu("(coming soon)"), "&Waypoints");
-    menuBar->Append(CreatePlaceholderMenu("(coming soon)"), "&Scenery");
-    menuBar->Append(CreatePlaceholderMenu("(coming soon)"), "Scenery&Tree");
-    menuBar->Append(CreatePlaceholderMenu("(coming soon)"), "&VertexSelect");
+
+    /* Window menu — mirrors original VB6 "Window" menu (Index=4) */
+    auto* windowMenu = new wxMenu();
+    auto* workspaceMenu = new wxMenu();
+    workspaceMenu->Append(ID_WINDOW_LOAD_WORKSPACE, "Load Workspace...");
+    workspaceMenu->Append(ID_WINDOW_SAVE_WORKSPACE, "Save Workspace...");
+    workspaceMenu->Append(ID_WINDOW_RESET_LAYOUT,   "Reset Window Locations");
+    windowMenu->AppendSubMenu(workspaceMenu, "&Workspace");
+    windowMenu->Append(ID_WINDOW_SHOW_ALL, "Show &All");
+    windowMenu->Append(ID_WINDOW_HIDE_ALL, "Hide A&ll");
+    windowMenu->AppendSeparator();
+    m_winItemTools      = windowMenu->AppendCheckItem(ID_WINDOW_TOOLS,      "&Tools");
+    m_winItemDisplay    = windowMenu->AppendCheckItem(ID_WINDOW_DISPLAY,    "&Display");
+    m_winItemPalette    = windowMenu->AppendCheckItem(ID_WINDOW_PALETTE,    "P&alette");
+    m_winItemWaypoints  = windowMenu->AppendCheckItem(ID_WINDOW_WAYPOINTS,  "&Waypoints");
+    m_winItemScenery    = windowMenu->AppendCheckItem(ID_WINDOW_SCENERY,    "&Scenery");
+    m_winItemProperties = windowMenu->AppendCheckItem(ID_WINDOW_PROPERTIES, "P&roperties");
+    m_winItemTexture    = windowMenu->AppendCheckItem(ID_WINDOW_TEXTURE,    "&Texture");
+    menuBar->Append(windowMenu, "&Window");
 
     SetMenuBar(menuBar);
 }
@@ -381,7 +414,25 @@ void MainFrame::OnFileOpen(wxCommandEvent& event) {
     m_doc.rebuildScreenCache();
     m_currentFilePath = dialog.GetPath();
     if (m_viewport != nullptr) {
-        m_viewport->addTexturePath(wxFileName(dialog.GetPath()).GetPath().ToStdString());
+        /* PMS-relative asset resolution:
+         * Search paths in priority order (mirrors Soldat directory conventions):
+         *   1. The PMS file's own directory (e.g., Maps/)
+         *   2. Textures/ sibling directory (e.g., ../Textures/)
+         *   3. Scenery-gfx/ sibling directory (e.g., ../Scenery-gfx/)
+         *   4. The parent directory of the PMS (e.g., Soldat install root)
+         */
+        wxFileName fn(dialog.GetPath());
+        fn.Normalize();
+        const wxString pmsDir    = fn.GetPath();
+        const wxFileName parent(pmsDir, wxEmptyString);
+        const wxString parentDir = parent.GetPath();
+
+        m_viewport->addTexturePath(pmsDir.ToStdString());
+        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+        m_viewport->addTexturePath(parentDir.ToStdString());
     }
     m_undoStack.clear();
     UpdateStatusBar();
@@ -511,6 +562,116 @@ void MainFrame::OnExit(wxCommandEvent& event) {
     Close(true);
 }
 
+/* ---- Window menu helpers ----------------------------------------------- */
+
+namespace {
+void SetPanelVisible(wxWindow* panel, wxMenuItem* menuItem, bool visible) {
+    if (panel != nullptr) panel->Show(visible);
+    if (menuItem != nullptr) menuItem->Check(visible);
+}
+bool PanelVisible(wxWindow* panel) {
+    return panel != nullptr && panel->IsShown();
+}
+}  // namespace
+
+void MainFrame::OnWindowShowAll(wxCommandEvent&) {
+    SetPanelVisible(m_toolsPanel,     m_winItemTools,      true);
+    SetPanelVisible(m_displayPanel,   m_winItemDisplay,    true);
+    SetPanelVisible(m_palettePanel,   m_winItemPalette,    true);
+    SetPanelVisible(m_waypointPanel,  m_winItemWaypoints,  true);
+    SetPanelVisible(m_sceneryPanel,   m_winItemScenery,    true);
+    SetPanelVisible(m_infoPanel,      m_winItemProperties, true);
+    /* Texture panel not yet ported — skip silently */
+}
+
+void MainFrame::OnWindowHideAll(wxCommandEvent&) {
+    SetPanelVisible(m_toolsPanel,     m_winItemTools,      false);
+    SetPanelVisible(m_displayPanel,   m_winItemDisplay,    false);
+    SetPanelVisible(m_palettePanel,   m_winItemPalette,    false);
+    SetPanelVisible(m_waypointPanel,  m_winItemWaypoints,  false);
+    SetPanelVisible(m_sceneryPanel,   m_winItemScenery,    false);
+    SetPanelVisible(m_infoPanel,      m_winItemProperties, false);
+}
+
+void MainFrame::OnWindowTogglePanel(wxCommandEvent& event) {
+    const int id = event.GetId();
+    if (id == ID_WINDOW_TOOLS) {
+        bool vis = !PanelVisible(m_toolsPanel);
+        SetPanelVisible(m_toolsPanel, m_winItemTools, vis);
+    } else if (id == ID_WINDOW_DISPLAY) {
+        bool vis = !PanelVisible(m_displayPanel);
+        SetPanelVisible(m_displayPanel, m_winItemDisplay, vis);
+    } else if (id == ID_WINDOW_PALETTE) {
+        bool vis = !PanelVisible(m_palettePanel);
+        SetPanelVisible(m_palettePanel, m_winItemPalette, vis);
+    } else if (id == ID_WINDOW_WAYPOINTS) {
+        bool vis = !PanelVisible(m_waypointPanel);
+        SetPanelVisible(m_waypointPanel, m_winItemWaypoints, vis);
+    } else if (id == ID_WINDOW_SCENERY) {
+        bool vis = !PanelVisible(m_sceneryPanel);
+        SetPanelVisible(m_sceneryPanel, m_winItemScenery, vis);
+    } else if (id == ID_WINDOW_PROPERTIES) {
+        bool vis = !PanelVisible(m_infoPanel);
+        SetPanelVisible(m_infoPanel, m_winItemProperties, vis);
+    } else if (id == ID_WINDOW_TEXTURE) {
+        /* Texture panel not yet ported */
+        if (m_winItemTexture != nullptr)
+            m_winItemTexture->Check(false);
+    }
+}
+
+void MainFrame::OnWindowLoadWorkspace(wxCommandEvent&) {
+    wxFileDialog dlg(this, "Load Workspace", wxEmptyString, wxEmptyString,
+                     "Workspace (*.ini)|*.ini|All files (*)|*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dlg.ShowModal() != wxID_OK) return;
+    wxConfig cfg("PolyWorks", wxEmptyString, dlg.GetPath());
+    if (m_toolsPanel    && cfg.HasEntry("/Tools/x"))
+        m_toolsPanel->Move(cfg.ReadLong("/Tools/x", 0), cfg.ReadLong("/Tools/y", 0));
+    if (m_displayPanel  && cfg.HasEntry("/Display/x"))
+        m_displayPanel->Move(cfg.ReadLong("/Display/x", 0), cfg.ReadLong("/Display/y", 0));
+    if (m_sceneryPanel  && cfg.HasEntry("/Scenery/x"))
+        m_sceneryPanel->Move(cfg.ReadLong("/Scenery/x", 0), cfg.ReadLong("/Scenery/y", 0));
+    if (m_waypointPanel && cfg.HasEntry("/Waypoints/x"))
+        m_waypointPanel->Move(cfg.ReadLong("/Waypoints/x", 0), cfg.ReadLong("/Waypoints/y", 0));
+    if (m_infoPanel     && cfg.HasEntry("/Info/x"))
+        m_infoPanel->Move(cfg.ReadLong("/Info/x", 0), cfg.ReadLong("/Info/y", 0));
+    if (m_palettePanel  && cfg.HasEntry("/Palette/x"))
+        m_palettePanel->Move(cfg.ReadLong("/Palette/x", 0), cfg.ReadLong("/Palette/y", 0));
+}
+
+void MainFrame::OnWindowSaveWorkspace(wxCommandEvent&) {
+    wxFileDialog dlg(this, "Save Workspace", wxEmptyString, "workspace.ini",
+                     "Workspace (*.ini)|*.ini|All files (*)|*",
+                     wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dlg.ShowModal() != wxID_OK) return;
+    wxConfig cfg("PolyWorks", wxEmptyString, dlg.GetPath());
+    auto savePos = [&](const char* group, wxWindow* w) {
+        if (w == nullptr) return;
+        wxPoint p = w->GetPosition();
+        cfg.Write(wxString::Format("/%s/x", group), (long)p.x);
+        cfg.Write(wxString::Format("/%s/y", group), (long)p.y);
+    };
+    savePos("Tools",     m_toolsPanel);
+    savePos("Display",   m_displayPanel);
+    savePos("Scenery",   m_sceneryPanel);
+    savePos("Waypoints", m_waypointPanel);
+    savePos("Info",      m_infoPanel);
+    savePos("Palette",   m_palettePanel);
+    cfg.Flush();
+}
+
+void MainFrame::OnWindowResetLayout(wxCommandEvent&) {
+    /* Reset all panels to their default positions relative to main window */
+    const wxPoint base = GetScreenPosition();
+    const wxSize  size = GetSize();
+    if (m_toolsPanel)    m_toolsPanel->Move(base.x - 75,              base.y + 40);
+    if (m_displayPanel)  m_displayPanel->Move(base.x + size.x + 5,    base.y + 40);
+    if (m_sceneryPanel)  m_sceneryPanel->Move(base.x + size.x + 5,    base.y + 200);
+    if (m_waypointPanel) m_waypointPanel->Move(base.x + size.x + 5,   base.y + 380);
+    if (m_infoPanel)     m_infoPanel->Move(base.x - 75,               base.y + 300);
+    if (m_palettePanel)  m_palettePanel->Move(base.x - 75,            base.y + 200);
+}
+
 void MainFrame::OnMapSettings(wxCommandEvent&) {
     MapSettingsDlg dlg(this, m_doc.options, m_skinsPath.ToStdString());
     if (dlg.ShowModal() == wxID_OK) {
@@ -521,11 +682,17 @@ void MainFrame::OnMapSettings(wxCommandEvent&) {
 }
 
 void MainFrame::OnPreferences(wxCommandEvent&) {
-    /* Preferences dialog — uses a local AppPrefs struct for now; later persisted to ini */
     AppPrefs prefs;
     PreferencesDlg dlg(this, prefs);
-    dlg.ShowModal();
-    /* TODO: apply prefs.undoDepth to m_undoStack, propagate grid settings to renderer */
+    if (dlg.ShowModal() != wxID_OK) return;
+    m_undoStack.setMaxDepth(prefs.undoDepth);
+    m_doc.viewSettings.gridSize = static_cast<float>(prefs.gridSpacing);
+    if (!prefs.soldatDir.empty()) {
+        auto& tm = m_viewport->GetTextureManager();
+        tm.addSearchPath(prefs.soldatDir + "/Textures");
+        tm.addSearchPath(prefs.soldatDir + "/Scenery-gfx");
+    }
+    RefreshViewport();
 }
 
 void MainFrame::OnKeyDown(wxKeyEvent& event) {

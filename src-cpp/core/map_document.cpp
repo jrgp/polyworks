@@ -321,13 +321,13 @@ void MapDocument::addSketchLine(Vec2 a, Vec2 b) {
     markModified();
 }
 
-void MapDocument::addSceneryInstance(int nameIdx, float wx, float wy) {
+void MapDocument::addSceneryInstance(int nameIdx, float wx, float wy, int level) {
     if (nameIdx < 1 || nameIdx > static_cast<int>(sceneryNames.size())) return;
     EditorScenery s;
     s.style = nameIdx;
     s.x = wx; s.y = wy;
     s.rotation = 0.0f; s.scaleX = 1.0f; s.scaleY = 1.0f;
-    s.alpha = 255; s.selected = true;
+    s.alpha = 255; s.level = level; s.selected = true;
     clearSelection();
     scenery.push_back(s);
     rebuildSceneryScreenCache(scenery.back());
@@ -390,4 +390,125 @@ void MapDocument::clear() {
     scrollX = scrollY = 0;
     zoom = 1.0f;
     modified = false;
+}
+
+/* ---- Clipboard --------------------------------------------------------- */
+
+void MapDocument::copySelected() {
+    m_clipPolys.clear();
+    for (const auto& p : polys) {
+        if (p.anySelected())
+            m_clipPolys.push_back(p);
+    }
+    m_hasClipboard = !m_clipPolys.empty();
+}
+
+void MapDocument::pasteSelected() {
+    if (!m_hasClipboard) return;
+    clearSelection();
+    for (auto p : m_clipPolys) {
+        /* offset pasted polys slightly so they are visible */
+        for (int i = 0; i < 3; ++i) {
+            p.v[i].world.x += 10.0f;
+            p.v[i].world.y += 10.0f;
+            p.v[i].selected = true;
+        }
+        addPoly(p);
+    }
+    rebuildScreenCache();
+    markModified();
+}
+
+bool MapDocument::hasClipboard() const {
+    return m_hasClipboard;
+}
+
+/* ---- Ordering ---------------------------------------------------------- */
+
+void MapDocument::bringSelectedToFront() {
+    std::stable_partition(polys.begin(), polys.end(),
+        [](const EditorPoly& p){ return !p.anySelected(); });
+    rebuildScreenCache();
+    markModified();
+}
+
+void MapDocument::bringSelectedForward() {
+    /* Move each selected poly one position toward end */
+    for (int i = static_cast<int>(polys.size()) - 2; i >= 0; --i) {
+        if (polys[i].anySelected() && !polys[i + 1].anySelected()) {
+            std::swap(polys[i], polys[i + 1]);
+        }
+    }
+    markModified();
+}
+
+void MapDocument::sendSelectedBackward() {
+    for (int i = 1; i < static_cast<int>(polys.size()); ++i) {
+        if (polys[i].anySelected() && !polys[i - 1].anySelected()) {
+            std::swap(polys[i], polys[i - 1]);
+        }
+    }
+    markModified();
+}
+
+void MapDocument::sendSelectedToBack() {
+    std::stable_partition(polys.begin(), polys.end(),
+        [](const EditorPoly& p){ return p.anySelected(); });
+    rebuildScreenCache();
+    markModified();
+}
+
+/* ---- Transform --------------------------------------------------------- */
+
+static Vec2 SelectionCenter(const std::vector<EditorPoly>& polys) {
+    float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
+    bool any = false;
+    for (const auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                minX = std::min(minX, p.v[i].world.x);
+                minY = std::min(minY, p.v[i].world.y);
+                maxX = std::max(maxX, p.v[i].world.x);
+                maxY = std::max(maxY, p.v[i].world.y);
+                any = true;
+            }
+        }
+    }
+    if (!any) return Vec2{0, 0};
+    return Vec2{(minX + maxX) * 0.5f, (minY + maxY) * 0.5f};
+}
+
+void MapDocument::rotateSelected(float angleDeg) {
+    const Vec2 center = SelectionCenter(polys);
+    const float rad = angleDeg * (3.14159265358979f / 180.0f);
+    const float c = std::cos(rad);
+    const float s = std::sin(rad);
+    for (auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                float dx = p.v[i].world.x - center.x;
+                float dy = p.v[i].world.y - center.y;
+                p.v[i].world.x = center.x + dx * c - dy * s;
+                p.v[i].world.y = center.y + dx * s + dy * c;
+            }
+        }
+    }
+    rebuildScreenCache();
+    markModified();
+}
+
+void MapDocument::flipSelected(bool horizontal, bool vertical) {
+    const Vec2 center = SelectionCenter(polys);
+    for (auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                if (horizontal)
+                    p.v[i].world.x = center.x - (p.v[i].world.x - center.x);
+                if (vertical)
+                    p.v[i].world.y = center.y - (p.v[i].world.y - center.y);
+            }
+        }
+    }
+    rebuildScreenCache();
+    markModified();
 }

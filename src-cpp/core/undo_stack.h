@@ -43,6 +43,7 @@ public:
 
     int undoDepth() const { return static_cast<int>(m_undoStack.size()); }
     int redoDepth() const { return static_cast<int>(m_redoStack.size()); }
+    void setMaxDepth(int d) { m_maxDepth = (d > 1) ? d : 1; }
 
 private:
     int m_maxDepth;

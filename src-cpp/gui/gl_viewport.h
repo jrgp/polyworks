@@ -62,6 +62,8 @@ public:
     void addTexturePath(const std::string& path);
     void setActiveTool(int tool);
 
+    TextureManager& GetTextureManager() { return m_texMgr; }
+
 private:
     /* Event handlers */
     void OnPaint(wxPaintEvent& event);
