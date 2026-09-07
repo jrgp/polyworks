@@ -13,6 +13,7 @@ class DisplayPanel;
 class InfoPanel;
 class SceneryPanel;
 class WaypointPanel;
+class PalettePanel;
 class wxCommandEvent;
 class wxKeyEvent;
 class wxSizeEvent;
@@ -29,6 +30,7 @@ public:
     void AttachInfoPanel(InfoPanel* infoPanel);
     void AttachSceneryPanel(SceneryPanel* sceneryPanel);
     void AttachWaypointPanel(WaypointPanel* waypointPanel);
+    void AttachPalettePanel(PalettePanel* palettePanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
     void UpdateStatusBar();
@@ -49,6 +51,7 @@ public:
     InfoPanel*     m_infoPanel     = nullptr;
     SceneryPanel*  m_sceneryPanel  = nullptr;
     WaypointPanel* m_waypointPanel = nullptr;
+    PalettePanel*  m_palettePanel  = nullptr;
 
 private:
     void buildMenuBar();

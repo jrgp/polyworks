@@ -6,6 +6,7 @@
 #include "panels/info_panel.h"
 #include "panels/scenery_panel.h"
 #include "panels/waypoint_panel.h"
+#include "panels/palette_panel.h"
 #include "dialogs/map_settings_dlg.h"
 #include "dialogs/preferences_dlg.h"
 #include "pms_io.h"
@@ -43,6 +44,7 @@ enum MenuId {
     ID_VIEW_ZOOM_OUT,
     ID_VIEW_ZOOM_RESET,
     ID_VIEW_CENTER_RESET,
+    ID_VIEW_PALETTE,
     ID_POLY_TYPE_BASE
 };
 
@@ -162,6 +164,10 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnMapSettings, this, ID_MAP_SETTINGS);
     Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_MAP_PREFERENCES);
     Bind(wxEVT_MENU, &MainFrame::OnExit, this, wxID_EXIT);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& ev) {
+        if (m_palettePanel != nullptr)
+            m_palettePanel->Show(ev.IsChecked());
+    }, ID_VIEW_PALETTE);
     Bind(wxEVT_CHAR_HOOK, &MainFrame::OnKeyDown, this);
     Bind(wxEVT_SIZE, &MainFrame::OnSize, this);
 
@@ -191,6 +197,10 @@ void MainFrame::AttachSceneryPanel(SceneryPanel* sceneryPanel) {
 
 void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
     m_waypointPanel = waypointPanel;
+}
+
+void MainFrame::AttachPalettePanel(PalettePanel* palettePanel) {
+    m_palettePanel = palettePanel;
 }
 
 int MainFrame::GetOrAddSelectedSceneryIndex() {
@@ -265,6 +275,8 @@ void MainFrame::buildMenuBar() {
     viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Back")->Check(true);
     viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Middle")->Check(true);
     viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Front")->Check(true);
+    viewMenu->AppendSeparator();
+    viewMenu->AppendCheckItem(ID_VIEW_PALETTE, "Color &Palette");
     viewMenu->AppendSeparator();
     viewMenu->Append(ID_VIEW_ZOOM_IN, "Zoom &In\tCtrl++");
     viewMenu->Append(ID_VIEW_ZOOM_OUT, "Zoom &Out\tCtrl+-");

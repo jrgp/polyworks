@@ -4,6 +4,7 @@
 #include "gui/panels/info_panel.h"
 #include "gui/panels/scenery_panel.h"
 #include "gui/panels/waypoint_panel.h"
+#include "gui/panels/palette_panel.h"
 
 #include <wx/app.h>
 #include <wx/image.h>
@@ -87,6 +88,12 @@ public:
         mainFrame->AttachInfoPanel(infoPanel);
         infoPanel->SetPosition(wxPoint(rightX, framePos.y + 920));
         infoPanel->Show(true);
+
+        /* Palette panel — shown on demand via View menu; initially hidden */
+        auto* palettePanel = new PalettePanel(mainFrame);
+        mainFrame->AttachPalettePanel(palettePanel);
+        palettePanel->SetPosition(wxPoint(rightX + 216, framePos.y));
+        /* Don't show by default — user opens via View > Color Palette */
 
         return true;
     }
