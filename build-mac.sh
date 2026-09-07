@@ -91,6 +91,19 @@ pw_ok "Homebrew: $BREW ($BREW_PREFIX)"
 export PATH="$BREW_PREFIX/bin:$BREW_PREFIX/sbin:$PATH"
 
 # ===========================================================================
+# 3. Xcode Command Line Tools — required for clang and system headers
+# ===========================================================================
+pw_print "Checking Xcode Command Line Tools"
+if ! xcode-select -p &>/dev/null; then
+    pw_warn "Xcode Command Line Tools not found — installing."
+    pw_warn "A system dialog may appear. Accept it to continue, then re-run this script."
+    xcode-select --install
+    pw_die "Xcode Command Line Tools installation started.
+  Wait for it to finish, then re-run: ./build-mac.sh"
+fi
+pw_ok "Xcode CLT: $(xcode-select -p)"
+
+# ===========================================================================
 # 3. FPC — detect or install via Homebrew
 # ===========================================================================
 pw_print "Detecting FPC"
@@ -204,36 +217,58 @@ pw_ok "Will compile with: $FPC  cpu=$FPC_CPU  os=darwin"
 # ===========================================================================
 # 6. Rebuild stale Lazarus packages
 # ===========================================================================
-# Lazarus packages can have stale .ppu files when the FPC version changes.
-# We rebuild LCL and lazopenglcontext before building the project.
-# Failure here is non-fatal (the project build will catch real problems).
+# Lazarus packages can have stale .ppu files (e.g. if previously compiled
+# against wrong CPU target or different FPC version).  Rebuild LCL and
+# lazopenglcontext so they match the current FPC/CPU/OS.
 pw_print "Rebuilding Lazarus packages (LCL + lazopenglcontext)"
 
 _rebuild_package() {
     local lpk="$1"
-    if [[ -f "$lpk" ]]; then
-        pw_print "  Rebuilding: $(basename "$lpk")"
-        "$LAZBUILD" \
-            --compiler="$FPC" \
-            --os=darwin \
-            --cpu="$FPC_CPU" \
-            --build-all \
-            "$lpk" 2>&1 | grep -v "^Hint:" | grep -v "^Note:" | tail -5 || true
+    [[ -f "$lpk" ]] || { pw_warn "  Package not found, skipping: $lpk"; return 0; }
+    pw_print "  Rebuilding: $(basename "$lpk")"
+    local out
+    if out=$("$LAZBUILD" \
+                --compiler="$FPC" \
+                --os=darwin \
+                --cpu="$FPC_CPU" \
+                --build-all \
+                "$lpk" 2>&1); then
+        pw_ok "  $(basename "$lpk") rebuilt successfully"
     else
-        pw_warn "  Package not found, skipping: $lpk"
+        # Non-fatal: show last 20 lines so the user knows what failed,
+        # then let the main project build surface a cleaner error.
+        pw_warn "  Package rebuild had warnings/errors (may be harmless):"
+        echo "$out" | grep -v "^Hint:" | grep -v "^Note:" | tail -20 || true
     fi
 }
 
-# Locate Lazarus component tree relative to lazbuild
+# Locate Lazarus component tree relative to lazbuild binary.
+# The lazbuild binary lives directly in the Lazarus install directory.
 _LCL_PKG="$LAZARUS_DIR/lcl/lcl.lpk"
 _OGL_PKG="$LAZARUS_DIR/components/opengl/lazopenglcontext.lpk"
 
-# Fallback: search from parent of lazbuild directory
+# Fallback: search parent of lazbuild directory (e.g. Lazarus.app/Contents/*)
+_LAZARUS_ROOT="$(dirname "$LAZARUS_DIR")"
 if [[ ! -f "$_LCL_PKG" ]]; then
-    _LCL_PKG="$(find "$(dirname "$LAZARUS_DIR")" -maxdepth 3 -name "lcl.lpk" 2>/dev/null | head -1 || true)"
+    _LCL_PKG="$(find "$_LAZARUS_ROOT" -maxdepth 4 -name "lcl.lpk" 2>/dev/null | head -1 || true)"
 fi
 if [[ ! -f "$_OGL_PKG" ]]; then
-    _OGL_PKG="$(find "$(dirname "$LAZARUS_DIR")" -maxdepth 5 -name "lazopenglcontext.lpk" 2>/dev/null | head -1 || true)"
+    _OGL_PKG="$(find "$_LAZARUS_ROOT" -maxdepth 6 -name "lazopenglcontext.lpk" 2>/dev/null | head -1 || true)"
+fi
+
+# Clean any stale wrong-architecture PPUs sitting in the LCL lib dir.
+# lazbuild --build-all rebuilds from source, but stale .a files can linger.
+_LCL_LIB_DIR="$LAZARUS_DIR/lcl/lib"
+if [[ -d "$_LCL_LIB_DIR" ]]; then
+    # Remove PPU dirs for other CPUs to avoid linker picking them up
+    for _stale_dir in "$_LCL_LIB_DIR"/*/; do
+        _cpu="$(basename "$_stale_dir")"
+        # Keep our target; remove obvious mismatches (arm64-darwin vs aarch64-darwin)
+        if [[ "$_cpu" == arm64-darwin* && "$FPC_CPU" == "aarch64" ]]; then
+            pw_warn "  Removing stale PPU dir: $_stale_dir"
+            rm -rf "$_stale_dir" || true
+        fi
+    done
 fi
 
 _rebuild_package "$_LCL_PKG"
