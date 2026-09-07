@@ -221,6 +221,16 @@ public:
     /* Vertex operations (operate on selected vertices across all polys) */
     void nudgeSelectedVertices(float dx, float dy);
 
+    /* Entity placement */
+    void addSpawn(float wx, float wy, int team = SPAWN_GENERAL);
+    void addCollider(float wx, float wy, float radius = 15.0f);
+    void addWaypoint(float wx, float wy);
+    void addLight(float wx, float wy, uint8_t r = 255, uint8_t g = 255,
+                  uint8_t b = 255, float intensity = 1.0f, int range = 100);
+    void addSketchLine(Vec2 a, Vec2 b);
+    /* Add a scenery instance by scenery-name index (1-based) */
+    void addSceneryInstance(int nameIdx, float wx, float wy);
+
     /* Undo snapshot — returns opaque blob describing current state */
     std::vector<uint8_t> snapshotState() const;
     void restoreState(const std::vector<uint8_t>& snap);

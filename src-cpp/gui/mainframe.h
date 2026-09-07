@@ -36,6 +36,11 @@ public:
     void UpdateMouseWorldPosition(const Vec2& world);
     void RefreshViewport();
 
+    /* Returns 1-based scenery name index for the currently selected scenery,
+       adding it to the document's name list if not already present.
+       Returns 0 if nothing is selected in the SceneryPanel. */
+    int GetOrAddSelectedSceneryIndex();
+
     MapDocument m_doc;
     UndoStack m_undoStack;
     int m_activeTool = 0;

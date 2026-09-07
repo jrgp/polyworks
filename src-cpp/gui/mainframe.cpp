@@ -193,6 +193,22 @@ void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
     m_waypointPanel = waypointPanel;
 }
 
+int MainFrame::GetOrAddSelectedSceneryIndex() {
+    if (m_sceneryPanel == nullptr) return 0;
+    wxString selected = m_sceneryPanel->GetSelectedScenery();
+    if (selected.IsEmpty()) return 0;
+
+    std::string name = selected.ToStdString();
+    /* Search existing names (1-based) */
+    for (int i = 0; i < static_cast<int>(m_doc.sceneryNames.size()); ++i) {
+        if (m_doc.sceneryNames[i] == name)
+            return i + 1;
+    }
+    /* Add new name */
+    m_doc.sceneryNames.push_back(name);
+    return static_cast<int>(m_doc.sceneryNames.size());
+}
+
 void MainFrame::buildMenuBar() {
     auto* menuBar = new wxMenuBar();
 
@@ -501,8 +517,12 @@ void MainFrame::OnPreferences(wxCommandEvent&) {
 }
 
 void MainFrame::OnKeyDown(wxKeyEvent& event) {
-    if (event.GetModifiers() == wxMOD_NONE) {
-        switch (event.GetKeyCode()) {
+    const int mods = event.GetModifiers();
+    const int key  = event.GetKeyCode();
+
+    if (mods == wxMOD_NONE) {
+        switch (key) {
+        /* Tool shortcuts */
         case 'A': SetActiveTool(0); return;
         case 'Q': SetActiveTool(1); return;
         case 'S': SetActiveTool(2); return;
@@ -517,6 +537,35 @@ void MainFrame::OnKeyDown(wxKeyEvent& event) {
         case 'Z': SetActiveTool(11); return;
         case 'J': SetActiveTool(12); return;
         case 'U': SetActiveTool(13); return;
+
+        /* Delete selected */
+        case WXK_DELETE:
+        case WXK_BACK:
+            m_undoStack.push(m_doc);
+            m_doc.deleteSelected();
+            m_doc.markModified();
+            UpdateStatusBar();
+            UpdateTitle();
+            RefreshViewport();
+            return;
+
+        /* Nudge selected 1 world-unit in arrow direction */
+        case WXK_LEFT:  m_undoStack.push(m_doc); m_doc.moveSelected(-1.0f,  0.0f); RefreshViewport(); return;
+        case WXK_RIGHT: m_undoStack.push(m_doc); m_doc.moveSelected( 1.0f,  0.0f); RefreshViewport(); return;
+        case WXK_UP:    m_undoStack.push(m_doc); m_doc.moveSelected( 0.0f, -1.0f); RefreshViewport(); return;
+        case WXK_DOWN:  m_undoStack.push(m_doc); m_doc.moveSelected( 0.0f,  1.0f); RefreshViewport(); return;
+
+        default: break;
+        }
+    }
+
+    /* Shift+arrow: nudge 10 world units */
+    if (mods == wxMOD_SHIFT) {
+        switch (key) {
+        case WXK_LEFT:  m_undoStack.push(m_doc); m_doc.moveSelected(-10.0f,   0.0f); RefreshViewport(); return;
+        case WXK_RIGHT: m_undoStack.push(m_doc); m_doc.moveSelected( 10.0f,   0.0f); RefreshViewport(); return;
+        case WXK_UP:    m_undoStack.push(m_doc); m_doc.moveSelected(  0.0f, -10.0f); RefreshViewport(); return;
+        case WXK_DOWN:  m_undoStack.push(m_doc); m_doc.moveSelected(  0.0f,  10.0f); RefreshViewport(); return;
         default: break;
         }
     }

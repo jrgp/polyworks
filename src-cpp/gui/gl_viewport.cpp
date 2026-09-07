@@ -301,9 +301,12 @@ void GlViewport::OnKeyDown(wxKeyEvent& event) {
     if (event.GetKeyCode() == WXK_ESCAPE) {
         if (m_state == ViewportState::CreatingPoly) {
             CancelCreation();
-            Refresh(false);
-            return;
+        } else {
+            /* ESC when idle → deselect all */
+            m_document.clearSelection();
         }
+        Refresh(false);
+        return;
     }
     event.Skip();
 }
@@ -361,6 +364,50 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         return;
     }
 
+    case TOOL_OBJECTS:
+        m_undoStack.push(m_document);
+        m_document.addSpawn(world.x, world.y);
+        m_document.markModified();
+        if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+        Refresh(false);
+        return;
+
+    case TOOL_LIGHTS:
+        m_undoStack.push(m_document);
+        m_document.addLight(world.x, world.y);
+        m_document.markModified();
+        if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+        Refresh(false);
+        return;
+
+    case TOOL_WAYPOINT:
+        m_undoStack.push(m_document);
+        m_document.addWaypoint(world.x, world.y);
+        m_document.markModified();
+        if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+        Refresh(false);
+        return;
+
+    case TOOL_SCENERY: {
+        if (m_mainFrame == nullptr) return;
+        int idx = m_mainFrame->GetOrAddSelectedSceneryIndex();
+        if (idx == 0) return; /* nothing selected in SceneryPanel */
+        m_undoStack.push(m_document);
+        m_document.addSceneryInstance(idx, world.x, world.y);
+        m_document.markModified();
+        m_mainFrame->UpdateStatusBar();
+        m_mainFrame->UpdateTitle();
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_SKETCH:
+        /* Sketch: left-drag to draw a line — handled via drag state */
+        m_state = ViewportState::Sketching;
+        m_rubberA = world;
+        m_rubberB = world;
+        return;
+
     default:
         break;
     }
@@ -386,7 +433,8 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
         }
     }
 
-    if (m_state == ViewportState::RubberBanding)
+    if (m_state == ViewportState::RubberBanding ||
+        m_state == ViewportState::Sketching)
         m_rubberB = world;
 
     m_dragWorldLast = world;
@@ -406,6 +454,13 @@ void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
             m_document.selectPolysInRect(m_rubberA, m_rubberB, additive);
         else
             m_document.selectVerticesInRect(m_rubberA, m_rubberB, additive);
+    }
+
+    if (m_state == ViewportState::Sketching && m_didDrag) {
+        m_undoStack.push(m_document);
+        m_document.addSketchLine(m_rubberA, world);
+        m_document.markModified();
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
     }
 
     if (m_state == ViewportState::Dragging && !m_didDrag) {

@@ -276,6 +276,64 @@ void MapDocument::nudgeSelectedVertices(float dx, float dy) {
     moveSelected(dx, dy);
 }
 
+/* ---- Entity placement -------------------------------------------------- */
+
+void MapDocument::addSpawn(float wx, float wy, int team) {
+    EditorSpawn s;
+    s.x = wx; s.y = wy; s.team = team; s.active = true; s.selected = true;
+    clearSelection();
+    spawns.push_back(s);
+    markModified();
+}
+
+void MapDocument::addCollider(float wx, float wy, float radius) {
+    EditorCollider c;
+    c.x = wx; c.y = wy; c.radius = radius; c.active = true; c.selected = true;
+    clearSelection();
+    colliders.push_back(c);
+    markModified();
+}
+
+void MapDocument::addWaypoint(float wx, float wy) {
+    EditorWaypoint w;
+    w.x = wx; w.y = wy; w.active = true; w.selected = true;
+    w.id = static_cast<int>(waypoints.size()) + 1;
+    clearSelection();
+    waypoints.push_back(w);
+    markModified();
+}
+
+void MapDocument::addLight(float wx, float wy,
+                            uint8_t r, uint8_t g, uint8_t b,
+                            float intensity, int range) {
+    EditorLight l;
+    l.x = wx; l.y = wy; l.r = r; l.g = g; l.b = b;
+    l.intensity = intensity; l.range = range; l.selected = true;
+    clearSelection();
+    lights.push_back(l);
+    markModified();
+}
+
+void MapDocument::addSketchLine(Vec2 a, Vec2 b) {
+    EditorSketchLine sl;
+    sl.a = a; sl.b = b; sl.selected = true;
+    sketch.push_back(sl);
+    markModified();
+}
+
+void MapDocument::addSceneryInstance(int nameIdx, float wx, float wy) {
+    if (nameIdx < 1 || nameIdx > static_cast<int>(sceneryNames.size())) return;
+    EditorScenery s;
+    s.style = nameIdx;
+    s.x = wx; s.y = wy;
+    s.rotation = 0.0f; s.scaleX = 1.0f; s.scaleY = 1.0f;
+    s.alpha = 255; s.selected = true;
+    clearSelection();
+    scenery.push_back(s);
+    rebuildSceneryScreenCache(scenery.back());
+    markModified();
+}
+
 int MapDocument::addPoly(const EditorPoly& p) {
     int idx = static_cast<int>(polys.size());
     polys.push_back(p);

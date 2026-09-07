@@ -50,6 +50,7 @@ enum class ViewportState {
     RubberBanding,   /* drag-select rectangle in progress */
     Dragging,        /* moving selected objects */
     CreatingPoly,    /* placing polygon vertices one by one */
+    Sketching,       /* drawing a sketch line by drag */
 };
 
 class GlViewport final : public GlViewportBase {
