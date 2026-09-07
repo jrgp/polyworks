@@ -35,7 +35,7 @@
         <PackageName Value="LazOpenGLContext"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="15">
+    <Units Count="24">
       <Unit0>
         <Filename Value="polyworks.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -111,6 +111,51 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="pw.stbimage"/>
       </Unit14>
+      <Unit15>
+        <Filename Value="src-fp/gui/panels/frminfo.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frminfo"/>
+      </Unit15>
+      <Unit16>
+        <Filename Value="src-fp/gui/panels/frmdisplay.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmdisplay"/>
+      </Unit16>
+      <Unit17>
+        <Filename Value="src-fp/gui/panels/frmscenery.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmscenery"/>
+      </Unit17>
+      <Unit18>
+        <Filename Value="src-fp/gui/panels/frmwaypoints.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmwaypoints"/>
+      </Unit18>
+      <Unit19>
+        <Filename Value="src-fp/gui/panels/frmtools.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmtools"/>
+      </Unit19>
+      <Unit20>
+        <Filename Value="src-fp/gui/dialogs/frmcolor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmcolor"/>
+      </Unit20>
+      <Unit21>
+        <Filename Value="src-fp/gui/dialogs/frmtexture.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmtexture"/>
+      </Unit21>
+      <Unit22>
+        <Filename Value="src-fp/gui/dialogs/frmmap.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmmap"/>
+      </Unit22>
+      <Unit23>
+        <Filename Value="src-fp/gui/dialogs/frmpreferences.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="frmpreferences"/>
+      </Unit23>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -121,7 +166,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="src-fp/core;src-fp/gui"/>
+      <OtherUnitFiles Value="src-fp/core;src-fp/gui;src-fp/gui/panels;src-fp/gui/dialogs"/>
       <Libraries Value="$(ProjPath)/src-fp/vendor"/>
       <UnitOutputDirectory Value="build/units/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>

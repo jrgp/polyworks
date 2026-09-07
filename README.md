@@ -3,10 +3,75 @@ OpenSoldat PolyWorks
 
 Map editor for the game [OpenSoldat](https://github.com/opensoldat/opensoldat)
 
+## Modern rewrite (Free Pascal / Lazarus)
+
+This branch contains a complete rewrite of PolyWorks in Free Pascal and Lazarus,
+replacing the original VB6 implementation with a cross-platform application.
+
+### Requirements
+
+- Free Pascal 3.2+ (`fpc`)
+- Lazarus 2.2+ (`lazbuild`)
+- OpenGL (provided by your OS/graphics driver)
+- GCC (for building the stb_image C wrapper, first run only)
+
+On Debian/Ubuntu:
+```sh
+sudo apt install fpc lazarus libgl-dev
+```
+
+### Building
+
+```sh
+# Build the full Lazarus application
+./build.sh
+
+# Output: build/polyworks
+```
+
+### Testing (headless, no display required)
+
+```sh
+./test.sh          # run all tests
+./test.sh --verbose  # verbose output
+```
+
+All tests run without a display server, OpenGL context, or GUI.
+
+### Running
+
+```sh
+./build/polyworks
+```
+
+Open a Soldat `.pms` map file with **File → Open**.
+
+### Project layout
+
+```
+src-fp/
+  core/          Headless core: types, PMS format, geometry, map model, undo
+  gui/           Lazarus GUI: renderer, viewport, tools, main form, panels, dialogs
+  tests/         FPCUnit test suite (headless)
+  vendor/        stb_image C wrapper
+maps/            Real Soldat map fixtures (regression testing)
+polyworks.lpi    Lazarus project file
+polyworks.lpr    Application entry point
+build.sh         Build script
+test.sh          Test runner
+arch.md          Reverse-engineered VB6 architecture documentation
+plan.md          Implementation roadmap
+progress.md      Current implementation status
+decisions.md     Architecture and compatibility decisions
+```
+
+---
+
+## Original VB6 application
+
 ![Screenshot of the Polyworks GUI](/docs/img/screenshot.jpg?raw=true "OpenSoldat Polyworks")
 
-Requirements
-------------
+Requirements for the original VB6 version:
 * Visual Basic 6 SP6
 * NSIS (optional - for generating the Installer)
 * rcedit or Resource Hacker (optional - for replacing the old icon)
