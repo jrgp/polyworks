@@ -233,9 +233,17 @@ type
     Tu, Tv: Single;     { texture coordinates }
   end;
 
-  { Editor polygon — owns world coords; screen coords are a rebuild cache. }
+  { Renderable screen-space vertex cache used by lighting/rendering. }
+  TEditorScreenVertex = record
+    Screen: TVector2;
+    Color : LongWord;  { ARGB colour after lighting }
+  end;
+
+  { Editor polygon — owns world coords and unlit base colours. }
   TEditorPoly = record
     V        : array[1..3] of TEditorVertex;
+    ScreenV  : array[1..3] of TEditorScreenVertex;
+    BaseColor: array[1..3] of TColor3;
     Perp     : TPMSPolyNormals;  { precomputed normals }
     PolyType : Byte;
     Selected : array[1..3] of Boolean;  { per-vertex selection }

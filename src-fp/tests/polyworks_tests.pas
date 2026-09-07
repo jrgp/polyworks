@@ -5,9 +5,9 @@ program polyworks_tests;
 uses
   Classes, SysUtils, fpcunit, testutils, testregistry, consoletestrunner,
   { Core units }
-  pw.types, pw.utils, pw.pms, pw.geometry, pw.map,
+  pw.types, pw.utils, pw.pms, pw.geometry, pw.map, pw.lights, pw.undo,
   { Test units }
-  test_types, test_geometry, test_pms;
+  test_types, test_geometry, test_pms, test_map, test_lights, test_undo;
 
 var
   Application: TTestRunner;

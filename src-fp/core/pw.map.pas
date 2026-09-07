@@ -195,6 +195,8 @@ begin
       P.V[J].Alpha := GetAlpha(Data.Polys[I].Poly.V[J].Color);
       P.V[J].Tu := Data.Polys[I].Poly.V[J].Tu;
       P.V[J].Tv := Data.Polys[I].Poly.V[J].Tv;
+      P.BaseColor[J] := P.V[J].Color;
+      P.ScreenV[J].Color := Data.Polys[I].Poly.V[J].Color;
     end;
     Polys[I] := P;
   end;
@@ -362,7 +364,7 @@ begin
       Entry.Poly.V[J].Y := Polys[I].V[J].World.Y;
       Entry.Poly.V[J].Z := 1.0;
       Entry.Poly.V[J].Rhw := 1.0;
-      Entry.Poly.V[J].Color := Color3ToARGB(Polys[I].V[J].Color, Polys[I].V[J].Alpha);
+      Entry.Poly.V[J].Color := Color3ToARGB(Polys[I].BaseColor[J], Polys[I].V[J].Alpha);
       Entry.Poly.V[J].Tu := Polys[I].V[J].Tu;
       Entry.Poly.V[J].Tv := Polys[I].V[J].Tv;
     end;
@@ -511,8 +513,13 @@ var
 begin
   for I := 0 to PolyCount - 1 do
     for J := 1 to 3 do
+    begin
       pw.geometry.WorldToScreen(Polys[I].V[J].World.X, Polys[I].V[J].World.Y,
         ScrollX, ScrollY, Zoom, Polys[I].V[J].Screen.X, Polys[I].V[J].Screen.Y);
+      Polys[I].ScreenV[J].Screen := Polys[I].V[J].Screen;
+      if Polys[I].ScreenV[J].Color = 0 then
+        Polys[I].ScreenV[J].Color := Color3ToARGB(Polys[I].BaseColor[J], Polys[I].V[J].Alpha);
+    end;
 
   for I := 0 to SceneryCount - 1 do
     pw.geometry.WorldToScreen(Scenery[I].X, Scenery[I].Y,
@@ -566,6 +573,13 @@ begin
     P.V[2] := WV[2];
     P.V[3] := WV[1];
   end;
+
+  P.BaseColor[1] := P.V[1].Color;
+  P.BaseColor[2] := P.V[2].Color;
+  P.BaseColor[3] := P.V[3].Color;
+  P.ScreenV[1].Color := Color3ToARGB(P.BaseColor[1], P.V[1].Alpha);
+  P.ScreenV[2].Color := Color3ToARGB(P.BaseColor[2], P.V[2].Alpha);
+  P.ScreenV[3].Color := Color3ToARGB(P.BaseColor[3], P.V[3].Alpha);
 
   SetLength(Polys, PolyCount + 1);
   Polys[PolyCount] := P;
