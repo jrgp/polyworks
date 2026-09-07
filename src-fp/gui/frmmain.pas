@@ -1,0 +1,619 @@
+unit frmmain;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  Classes, SysUtils, Forms, Controls, Dialogs, Menus, ComCtrls, ExtCtrls,
+  LCLType,
+  viewport, tools, renderer,
+  pw.types, pw.utils, pw.map, pw.undo, pw.pms, pw.config;
+
+type
+  TMainForm = class(TForm)
+  private
+    FDoc: TMapDocument;
+    FUndo: TUndoStack;
+    FCfg: TAppConfig;
+    FIniPath: string;
+    FCurrentFilename: string;
+
+    FViewport: TMapViewport;
+    FToolbarPanel: TPanel;
+    FToolbar: TToolBar;
+    FStatusBar: TStatusBar;
+    FMainMenu: TMainMenu;
+    FOpenDialog: TOpenDialog;
+    FSaveDialog: TSaveDialog;
+
+    FToolMenuItems: array[0..TOOL_SKETCH] of TMenuItem;
+    FToolButtons: array[0..TOOL_SKETCH] of TToolButton;
+
+    FShowPolysItem: TMenuItem;
+    FShowWireframeItem: TMenuItem;
+    FShowPointsItem: TMenuItem;
+    FShowGridItem: TMenuItem;
+    FShowObjectsItem: TMenuItem;
+    FShowWaypointsItem: TMenuItem;
+    FShowLightsItem: TMenuItem;
+    FShowSketchItem: TMenuItem;
+    FShowTextureItem: TMenuItem;
+    FShowBackgroundItem: TMenuItem;
+    FShowSceneryItem: TMenuItem;
+
+    function AddMenuItem(AParent: TMenuItem; const ACaption: string;
+      AOnClick: TNotifyEvent; AShortCut: TShortCut = 0; ATag: PtrInt = 0;
+      ACheckable: Boolean = False): TMenuItem;
+    function AddToolButton(AToolID: Integer; const ACaption: string): TToolButton;
+    function HasSelection: Boolean;
+    function SaveDocumentTo(const AFilename: string; CompileMode: Boolean): Boolean;
+    procedure ApplyConfigToViewSettings;
+    procedure ApplyViewSettingsToConfig;
+    procedure BuildMenus;
+    procedure BuildToolbar;
+    procedure LoadDocumentTextures;
+    procedure SelectAll;
+    procedure SetCurrentFile(const AFilename: string);
+    procedure SyncToolUI;
+    procedure UpdateCaption;
+    procedure UpdateStatus(Sender: TObject);
+    procedure ViewportChanged(Sender: TObject);
+
+    procedure NewFile(Sender: TObject);
+    procedure OpenFile(Sender: TObject);
+    procedure SaveFile(Sender: TObject);
+    procedure SaveFileAs(Sender: TObject);
+    procedure SaveAndCompileFile(Sender: TObject);
+    procedure QuitApp(Sender: TObject);
+
+    procedure UndoAction(Sender: TObject);
+    procedure RedoAction(Sender: TObject);
+    procedure SelectAllAction(Sender: TObject);
+    procedure DeselectAllAction(Sender: TObject);
+    procedure DeleteAction(Sender: TObject);
+
+    procedure ToggleViewOption(Sender: TObject);
+    procedure ZoomInAction(Sender: TObject);
+    procedure ZoomOutAction(Sender: TObject);
+    procedure ResetZoomAction(Sender: TObject);
+
+    procedure SelectTool(Sender: TObject);
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  end;
+
+var
+  MainForm: TMainForm;
+
+implementation
+
+const
+  VIEW_SHOW_POLYS      = 1;
+  VIEW_SHOW_WIREFRAME  = 2;
+  VIEW_SHOW_POINTS     = 3;
+  VIEW_SHOW_GRID       = 4;
+  VIEW_SHOW_OBJECTS    = 5;
+  VIEW_SHOW_WAYPOINTS  = 6;
+  VIEW_SHOW_LIGHTS     = 7;
+  VIEW_SHOW_SKETCH     = 8;
+  VIEW_SHOW_TEXTURE    = 9;
+  VIEW_SHOW_BACKGROUND = 10;
+  VIEW_SHOW_SCENERY    = 11;
+
+function ToolCaption(ToolID: Integer): string;
+begin
+  case ToolID of
+    TOOL_SELECT:   Result := 'Select';
+    TOOL_POLY:     Result := 'Add Polygon';
+    TOOL_SPAWN:    Result := 'Add Spawn';
+    TOOL_WAYPOINT: Result := 'Add Waypoint';
+    TOOL_COLLIDER: Result := 'Add Collider';
+    TOOL_LIGHT:    Result := 'Add Light';
+    TOOL_SKETCH:   Result := 'Draw Sketch';
+  else
+    Result := 'Tool';
+  end;
+end;
+
+constructor TMainForm.Create(AOwner: TComponent);
+begin
+  inherited CreateNew(AOwner, 1);
+  Caption := 'PolyWorks';
+  Width := 1280;
+  Height := 800;
+  Position := poScreenCenter;
+  KeyPreview := True;
+
+  FIniPath := ChangeFileExt(ParamStr(0), '.ini');
+  LoadConfig(FIniPath, FCfg);
+
+  FDoc := TMapDocument.Create;
+  FDoc.RebuildScreenCache;
+  FUndo := TUndoStack.Create(FCfg.UndoDepth);
+
+  FOpenDialog := TOpenDialog.Create(Self);
+  FOpenDialog.Filter := 'Soldat map (*.pms)|*.pms|All files|*.*';
+  FOpenDialog.DefaultExt := 'pms';
+
+  FSaveDialog := TSaveDialog.Create(Self);
+  FSaveDialog.Filter := 'Soldat map (*.pms)|*.pms|All files|*.*';
+  FSaveDialog.DefaultExt := 'pms';
+
+  BuildMenus;
+
+  FToolbarPanel := TPanel.Create(Self);
+  FToolbarPanel.Parent := Self;
+  FToolbarPanel.Align := alTop;
+  FToolbarPanel.Height := 34;
+  FToolbarPanel.BevelOuter := bvNone;
+
+  BuildToolbar;
+
+  FStatusBar := TStatusBar.Create(Self);
+  FStatusBar.Parent := Self;
+  FStatusBar.Align := alBottom;
+  FStatusBar.SimplePanel := True;
+
+  FViewport := TMapViewport.Create(Self);
+  FViewport.Parent := Self;
+  FViewport.Align := alClient;
+  FViewport.SetDocument(FDoc);
+  FViewport.UndoStack := FUndo;
+  FViewport.OnViewChanged := @ViewportChanged;
+
+  ApplyConfigToViewSettings;
+  FViewport.SetActiveTool(TOOL_SELECT);
+  SyncToolUI;
+  UpdateCaption;
+  UpdateStatus(nil);
+end;
+
+destructor TMainForm.Destroy;
+begin
+  ApplyViewSettingsToConfig;
+  SaveConfig(FIniPath, FCfg);
+  FUndo.Free;
+  FDoc.Free;
+  inherited Destroy;
+end;
+
+function TMainForm.AddMenuItem(AParent: TMenuItem; const ACaption: string;
+  AOnClick: TNotifyEvent; AShortCut: TShortCut; ATag: PtrInt;
+  ACheckable: Boolean): TMenuItem;
+begin
+  Result := TMenuItem.Create(Self);
+  Result.Caption := ACaption;
+  Result.Tag := ATag;
+  Result.ShortCut := AShortCut;
+  Result.AutoCheck := ACheckable;
+  if ACheckable then
+    Result.Checked := True;
+  Result.OnClick := AOnClick;
+  AParent.Add(Result);
+end;
+
+function TMainForm.AddToolButton(AToolID: Integer; const ACaption: string): TToolButton;
+begin
+  Result := TToolButton.Create(Self);
+  Result.Parent := FToolbar;
+  Result.Caption := ACaption;
+  Result.Style := tbsCheck;
+  Result.Grouped := True;
+  Result.Tag := AToolID;
+  Result.OnClick := @SelectTool;
+end;
+
+function TMainForm.HasSelection: Boolean;
+var
+  I, J: Integer;
+begin
+  Result := False;
+  for I := 0 to FDoc.PolyCount - 1 do
+    for J := 1 to 3 do
+      if FDoc.Polys[I].Selected[J] then
+        Exit(True);
+  for I := 0 to FDoc.SceneryCount - 1 do
+    if FDoc.Scenery[I].Selected then Exit(True);
+  for I := 0 to FDoc.SpawnCount - 1 do
+    if FDoc.Spawns[I].Selected then Exit(True);
+  for I := 0 to FDoc.ColliderCount - 1 do
+    if FDoc.Colliders[I].Selected then Exit(True);
+  for I := 0 to FDoc.WaypointCount - 1 do
+    if FDoc.Waypoints[I].Selected then Exit(True);
+  for I := 0 to FDoc.LightCount - 1 do
+    if FDoc.Lights[I].Selected then Exit(True);
+end;
+
+function TMainForm.SaveDocumentTo(const AFilename: string; CompileMode: Boolean): Boolean;
+var
+  Data: TPMSData;
+  Err: string;
+begin
+  Result := False;
+  FDoc.SaveToPMS(Data);
+  if CompileMode then
+    Result := CompilePMS(AFilename, Data, Err)
+  else
+    Result := SavePMS(AFilename, Data, Err);
+
+  if not Result then
+  begin
+    MessageDlg('Save failed', Err, mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  if not CompileMode then
+  begin
+    FDoc.Modified := False;
+    SetCurrentFile(AFilename);
+  end;
+
+  UpdateCaption;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.ApplyConfigToViewSettings;
+begin
+  FViewport.ViewSettings := DefaultViewSettings;
+  FViewport.ViewSettings.ShowPolys := FCfg.ShowPolys;
+  FViewport.ViewSettings.ShowWireframe := FCfg.ShowWireframe;
+  FViewport.ViewSettings.ShowPoints := FCfg.ShowPoints;
+  FViewport.ViewSettings.ShowGrid := FCfg.ShowGrid;
+  FViewport.ViewSettings.ShowObjects := FCfg.ShowObjects;
+  FViewport.ViewSettings.ShowWaypoints := FCfg.ShowWaypoints;
+  FViewport.ViewSettings.ShowLights := FCfg.ShowLights;
+  FViewport.ViewSettings.ShowSketch := FCfg.ShowSketch;
+  FViewport.ViewSettings.GridSize := FCfg.GridSize;
+
+  FShowPolysItem.Checked := FViewport.ViewSettings.ShowPolys;
+  FShowWireframeItem.Checked := FViewport.ViewSettings.ShowWireframe;
+  FShowPointsItem.Checked := FViewport.ViewSettings.ShowPoints;
+  FShowGridItem.Checked := FViewport.ViewSettings.ShowGrid;
+  FShowObjectsItem.Checked := FViewport.ViewSettings.ShowObjects;
+  FShowWaypointsItem.Checked := FViewport.ViewSettings.ShowWaypoints;
+  FShowLightsItem.Checked := FViewport.ViewSettings.ShowLights;
+  FShowSketchItem.Checked := FViewport.ViewSettings.ShowSketch;
+  FShowTextureItem.Checked := FViewport.ViewSettings.ShowTexture;
+  FShowBackgroundItem.Checked := FViewport.ViewSettings.ShowBackground;
+  FShowSceneryItem.Checked := FViewport.ViewSettings.ShowScenery;
+end;
+
+procedure TMainForm.ApplyViewSettingsToConfig;
+begin
+  FCfg.ShowPolys := FViewport.ViewSettings.ShowPolys;
+  FCfg.ShowWireframe := FViewport.ViewSettings.ShowWireframe;
+  FCfg.ShowPoints := FViewport.ViewSettings.ShowPoints;
+  FCfg.ShowGrid := FViewport.ViewSettings.ShowGrid;
+  FCfg.ShowObjects := FViewport.ViewSettings.ShowObjects;
+  FCfg.ShowWaypoints := FViewport.ViewSettings.ShowWaypoints;
+  FCfg.ShowLights := FViewport.ViewSettings.ShowLights;
+  FCfg.ShowSketch := FViewport.ViewSettings.ShowSketch;
+  FCfg.GridSize := FViewport.ViewSettings.GridSize;
+end;
+
+procedure TMainForm.BuildMenus;
+var
+  FileMenu, EditMenu, ViewMenu, ToolsMenu: TMenuItem;
+  ToolID: Integer;
+begin
+  FMainMenu := TMainMenu.Create(Self);
+  Menu := FMainMenu;
+
+  FileMenu := TMenuItem.Create(Self);
+  FileMenu.Caption := '&File';
+  FMainMenu.Items.Add(FileMenu);
+  AddMenuItem(FileMenu, '&New', @NewFile, ShortCut(VK_N, [ssCtrl]));
+  AddMenuItem(FileMenu, '&Open...', @OpenFile, ShortCut(VK_O, [ssCtrl]));
+  AddMenuItem(FileMenu, '&Save', @SaveFile, ShortCut(VK_S, [ssCtrl]));
+  AddMenuItem(FileMenu, 'Save &As...', @SaveFileAs);
+  AddMenuItem(FileMenu, 'Save and &Compile...', @SaveAndCompileFile);
+  FileMenu.AddSeparator;
+  AddMenuItem(FileMenu, '&Quit', @QuitApp);
+
+  EditMenu := TMenuItem.Create(Self);
+  EditMenu.Caption := '&Edit';
+  FMainMenu.Items.Add(EditMenu);
+  AddMenuItem(EditMenu, '&Undo', @UndoAction, ShortCut(VK_Z, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Redo', @RedoAction, ShortCut(VK_Y, [ssCtrl]));
+  EditMenu.AddSeparator;
+  AddMenuItem(EditMenu, 'Select &All', @SelectAllAction);
+  AddMenuItem(EditMenu, '&Deselect All', @DeselectAllAction);
+  EditMenu.AddSeparator;
+  AddMenuItem(EditMenu, '&Delete', @DeleteAction, VK_DELETE);
+
+  ViewMenu := TMenuItem.Create(Self);
+  ViewMenu.Caption := '&View';
+  FMainMenu.Items.Add(ViewMenu);
+  FShowPolysItem := AddMenuItem(ViewMenu, 'Show &Polygons', @ToggleViewOption, 0, VIEW_SHOW_POLYS, True);
+  FShowWireframeItem := AddMenuItem(ViewMenu, 'Show &Wireframe', @ToggleViewOption, 0, VIEW_SHOW_WIREFRAME, True);
+  FShowPointsItem := AddMenuItem(ViewMenu, 'Show Po&ints', @ToggleViewOption, 0, VIEW_SHOW_POINTS, True);
+  FShowGridItem := AddMenuItem(ViewMenu, 'Show &Grid', @ToggleViewOption, 0, VIEW_SHOW_GRID, True);
+  FShowObjectsItem := AddMenuItem(ViewMenu, 'Show &Objects', @ToggleViewOption, 0, VIEW_SHOW_OBJECTS, True);
+  FShowWaypointsItem := AddMenuItem(ViewMenu, 'Show &Waypoints', @ToggleViewOption, 0, VIEW_SHOW_WAYPOINTS, True);
+  FShowLightsItem := AddMenuItem(ViewMenu, 'Show &Lights', @ToggleViewOption, 0, VIEW_SHOW_LIGHTS, True);
+  FShowSketchItem := AddMenuItem(ViewMenu, 'Show S&ketch', @ToggleViewOption, 0, VIEW_SHOW_SKETCH, True);
+  FShowTextureItem := AddMenuItem(ViewMenu, 'Show Te&xture', @ToggleViewOption, 0, VIEW_SHOW_TEXTURE, True);
+  FShowBackgroundItem := AddMenuItem(ViewMenu, 'Show &Background', @ToggleViewOption, 0, VIEW_SHOW_BACKGROUND, True);
+  FShowSceneryItem := AddMenuItem(ViewMenu, 'Show Sc&enery', @ToggleViewOption, 0, VIEW_SHOW_SCENERY, True);
+  ViewMenu.AddSeparator;
+  AddMenuItem(ViewMenu, 'Zoom &In', @ZoomInAction);
+  AddMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutAction);
+  AddMenuItem(ViewMenu, '&Reset Zoom', @ResetZoomAction);
+
+  ToolsMenu := TMenuItem.Create(Self);
+  ToolsMenu.Caption := '&Tools';
+  FMainMenu.Items.Add(ToolsMenu);
+  for ToolID in [TOOL_SELECT, TOOL_POLY, TOOL_SPAWN, TOOL_WAYPOINT,
+                 TOOL_COLLIDER, TOOL_LIGHT, TOOL_SKETCH] do
+  begin
+    FToolMenuItems[ToolID] := AddMenuItem(ToolsMenu, ToolCaption(ToolID), @SelectTool, 0, ToolID, True);
+    FToolMenuItems[ToolID].AutoCheck := False;
+  end;
+end;
+
+procedure TMainForm.BuildToolbar;
+begin
+  FToolbar := TToolBar.Create(Self);
+  FToolbar.Parent := FToolbarPanel;
+  FToolbar.Align := alClient;
+  FToolbar.ShowCaptions := True;
+
+  FToolButtons[TOOL_SELECT] := AddToolButton(TOOL_SELECT, 'Select');
+  FToolButtons[TOOL_POLY] := AddToolButton(TOOL_POLY, 'Polygon');
+  FToolButtons[TOOL_SPAWN] := AddToolButton(TOOL_SPAWN, 'Spawn');
+  FToolButtons[TOOL_WAYPOINT] := AddToolButton(TOOL_WAYPOINT, 'Waypoint');
+  FToolButtons[TOOL_COLLIDER] := AddToolButton(TOOL_COLLIDER, 'Collider');
+  FToolButtons[TOOL_LIGHT] := AddToolButton(TOOL_LIGHT, 'Light');
+  FToolButtons[TOOL_SKETCH] := AddToolButton(TOOL_SKETCH, 'Sketch');
+end;
+
+procedure TMainForm.LoadDocumentTextures;
+var
+  TexName: string;
+  I: Integer;
+  SoldatPath: string;
+  SceneryPath: string;
+begin
+  if not FViewport.MakeCurrent then
+    Exit;
+
+  FViewport.Renderer.FreeTextures;
+  SoldatPath := IncludeTrailingPathDelimiter(FCfg.SoldatPath);
+  TexName := ReadPascalStr(FDoc.Options.TextureName);
+  if (SoldatPath <> '') and (TexName <> '') then
+    FViewport.Renderer.LoadMapTexture(SoldatPath + 'textures/' + TexName);
+
+  if SoldatPath <> '' then
+    for I := 1 to FDoc.ScenNameCount do
+      if FDoc.SceneryNames[I] <> '' then
+      begin
+        SceneryPath := SoldatPath + 'scenery-gfx/' + FDoc.SceneryNames[I];
+        if not FileExists(SceneryPath) then
+          SceneryPath := SoldatPath + 'scenery/gfx/' + FDoc.SceneryNames[I];
+        FViewport.Renderer.LoadSceneryTexture(I, SceneryPath);
+      end;
+end;
+
+procedure TMainForm.SelectAll;
+var
+  I, J: Integer;
+begin
+  for I := 0 to FDoc.PolyCount - 1 do
+    for J := 1 to 3 do
+      FDoc.Polys[I].Selected[J] := True;
+  for I := 0 to FDoc.SceneryCount - 1 do
+    FDoc.Scenery[I].Selected := True;
+  for I := 0 to FDoc.SpawnCount - 1 do
+    FDoc.Spawns[I].Selected := True;
+  for I := 0 to FDoc.ColliderCount - 1 do
+    FDoc.Colliders[I].Selected := True;
+  for I := 0 to FDoc.WaypointCount - 1 do
+    FDoc.Waypoints[I].Selected := True;
+  for I := 0 to FDoc.LightCount - 1 do
+    FDoc.Lights[I].Selected := True;
+end;
+
+procedure TMainForm.SetCurrentFile(const AFilename: string);
+begin
+  FCurrentFilename := AFilename;
+  if AFilename <> '' then
+    AddRecentFile(FCfg, AFilename);
+end;
+
+procedure TMainForm.SyncToolUI;
+var
+  I: Integer;
+  ActiveTool: Integer;
+begin
+  ActiveTool := FViewport.GetActiveTool;
+  for I := Low(FToolMenuItems) to High(FToolMenuItems) do
+    if FToolMenuItems[I] <> nil then
+      FToolMenuItems[I].Checked := I = ActiveTool;
+  for I := Low(FToolButtons) to High(FToolButtons) do
+    if FToolButtons[I] <> nil then
+      FToolButtons[I].Down := I = ActiveTool;
+end;
+
+procedure TMainForm.UpdateCaption;
+begin
+  if FCurrentFilename <> '' then
+    Caption := 'PolyWorks - ' + ExtractFileName(FCurrentFilename)
+  else
+    Caption := 'PolyWorks';
+  if FDoc.Modified then
+    Caption := Caption + ' *';
+end;
+
+procedure TMainForm.UpdateStatus(Sender: TObject);
+begin
+  FStatusBar.SimpleText := Format('Polys: %d | Scenery: %d | Spawns: %d | Zoom: %d%%',
+    [FDoc.PolyCount, FDoc.SceneryCount, FDoc.SpawnCount, Round(FDoc.Zoom * 100)]);
+  UpdateCaption;
+end;
+
+procedure TMainForm.ViewportChanged(Sender: TObject);
+begin
+  UpdateStatus(Sender);
+end;
+
+procedure TMainForm.NewFile(Sender: TObject);
+begin
+  FDoc.NewMap;
+  FDoc.RebuildScreenCache;
+  FUndo.Clear;
+  FViewport.Renderer.FreeTextures;
+  SetCurrentFile('');
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.OpenFile(Sender: TObject);
+var
+  Data: TPMSData;
+  Err: string;
+begin
+  if not FOpenDialog.Execute then
+    Exit;
+  if LoadPMS(FOpenDialog.FileName, Data, Err) <> plrOK then
+  begin
+    MessageDlg('Open failed', Err, mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  FDoc.LoadFromPMS(Data);
+  FDoc.RebuildScreenCache;
+  FUndo.Clear;
+  SetCurrentFile(FOpenDialog.FileName);
+  LoadDocumentTextures;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.SaveFile(Sender: TObject);
+begin
+  if FCurrentFilename = '' then
+    SaveFileAs(Sender)
+  else
+    SaveDocumentTo(FCurrentFilename, False);
+end;
+
+procedure TMainForm.SaveFileAs(Sender: TObject);
+begin
+  if FCurrentFilename <> '' then
+    FSaveDialog.FileName := FCurrentFilename;
+  if FSaveDialog.Execute then
+    SaveDocumentTo(FSaveDialog.FileName, False);
+end;
+
+procedure TMainForm.SaveAndCompileFile(Sender: TObject);
+begin
+  if FCurrentFilename <> '' then
+    FSaveDialog.FileName := FCurrentFilename;
+  if FSaveDialog.Execute then
+    SaveDocumentTo(FSaveDialog.FileName, True);
+end;
+
+procedure TMainForm.QuitApp(Sender: TObject);
+begin
+  Close;
+end;
+
+procedure TMainForm.UndoAction(Sender: TObject);
+begin
+  if FUndo.Undo(FDoc) then
+  begin
+    FViewport.RequestRepaint;
+    UpdateStatus(nil);
+  end;
+end;
+
+procedure TMainForm.RedoAction(Sender: TObject);
+begin
+  if FUndo.Redo(FDoc) then
+  begin
+    FViewport.RequestRepaint;
+    UpdateStatus(nil);
+  end;
+end;
+
+procedure TMainForm.SelectAllAction(Sender: TObject);
+begin
+  SelectAll;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.DeselectAllAction(Sender: TObject);
+begin
+  FDoc.ClearSelection;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.DeleteAction(Sender: TObject);
+begin
+  if not HasSelection then
+    Exit;
+  FUndo.Push(FDoc);
+  FDoc.DeleteSelected;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.ToggleViewOption(Sender: TObject);
+var
+  Item: TMenuItem;
+begin
+  Item := Sender as TMenuItem;
+  case Item.Tag of
+    VIEW_SHOW_POLYS:      FViewport.ViewSettings.ShowPolys := Item.Checked;
+    VIEW_SHOW_WIREFRAME:  FViewport.ViewSettings.ShowWireframe := Item.Checked;
+    VIEW_SHOW_POINTS:     FViewport.ViewSettings.ShowPoints := Item.Checked;
+    VIEW_SHOW_GRID:       FViewport.ViewSettings.ShowGrid := Item.Checked;
+    VIEW_SHOW_OBJECTS:    FViewport.ViewSettings.ShowObjects := Item.Checked;
+    VIEW_SHOW_WAYPOINTS:  FViewport.ViewSettings.ShowWaypoints := Item.Checked;
+    VIEW_SHOW_LIGHTS:     FViewport.ViewSettings.ShowLights := Item.Checked;
+    VIEW_SHOW_SKETCH:     FViewport.ViewSettings.ShowSketch := Item.Checked;
+    VIEW_SHOW_TEXTURE:    FViewport.ViewSettings.ShowTexture := Item.Checked;
+    VIEW_SHOW_BACKGROUND: FViewport.ViewSettings.ShowBackground := Item.Checked;
+    VIEW_SHOW_SCENERY:    FViewport.ViewSettings.ShowScenery := Item.Checked;
+  end;
+  ApplyViewSettingsToConfig;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.ZoomInAction(Sender: TObject);
+begin
+  FDoc.SetZoom(FDoc.Zoom * 1.25, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.ZoomOutAction(Sender: TObject);
+begin
+  FDoc.SetZoom(FDoc.Zoom / 1.25, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.ResetZoomAction(Sender: TObject);
+begin
+  FDoc.SetZoom(1.0, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.SelectTool(Sender: TObject);
+var
+  ToolID: Integer;
+begin
+  ToolID := (Sender as TComponent).Tag;
+  FViewport.SetActiveTool(ToolID);
+  SyncToolUI;
+  FViewport.SetFocus;
+end;
+
+end.
