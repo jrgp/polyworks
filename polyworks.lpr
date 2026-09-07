@@ -3,8 +3,7 @@ program polyworks;
 {$mode objfpc}{$H+}
 
 uses
-  Interfaces, Forms, frmmain, frminfo, frmdisplay, frmscenery, frmwaypoints,
-  frmtools, frmcolor, frmtexture, frmmap, frmpreferences;
+  Interfaces, Forms, frmmain;
 
 begin
   RequireDerivedFormResource := False;

@@ -8,7 +8,8 @@ uses
   Classes, SysUtils, Forms, Controls, Dialogs, Menus, ComCtrls, ExtCtrls,
   LCLType,
   viewport, tools, renderer,
-  pw.types, pw.utils, pw.map, pw.undo, pw.pms, pw.config;
+  pw.types, pw.utils, pw.map, pw.undo, pw.pms, pw.config,
+  frmmap, frmpreferences;
 
 type
   TMainForm = class(TForm)
@@ -77,6 +78,9 @@ type
     procedure ZoomInAction(Sender: TObject);
     procedure ZoomOutAction(Sender: TObject);
     procedure ResetZoomAction(Sender: TObject);
+
+    procedure MapPropertiesAction(Sender: TObject);
+    procedure PreferencesAction(Sender: TObject);
 
     procedure SelectTool(Sender: TObject);
   public
@@ -322,6 +326,9 @@ begin
   AddMenuItem(EditMenu, '&Deselect All', @DeselectAllAction);
   EditMenu.AddSeparator;
   AddMenuItem(EditMenu, '&Delete', @DeleteAction, VK_DELETE);
+  EditMenu.AddSeparator;
+  AddMenuItem(EditMenu, '&Map Properties...', @MapPropertiesAction);
+  AddMenuItem(EditMenu, 'P&references...', @PreferencesAction);
 
   ViewMenu := TMenuItem.Create(Self);
   ViewMenu.Caption := '&View';
@@ -614,6 +621,30 @@ begin
   FViewport.SetActiveTool(ToolID);
   SyncToolUI;
   FViewport.SetFocus;
+end;
+
+procedure TMainForm.MapPropertiesAction(Sender: TObject);
+begin
+  if ShowMapPropertiesDialog(FDoc.Options) then
+  begin
+    FDoc.Modified := True;
+    FDoc.RebuildScreenCache;
+    LoadDocumentTextures;
+    FViewport.RequestRepaint;
+    UpdateStatus(nil);
+  end;
+end;
+
+procedure TMainForm.PreferencesAction(Sender: TObject);
+begin
+  if ShowPreferencesDialog(FCfg) then
+  begin
+    FUndo.Free;
+    FUndo := TUndoStack.Create(FCfg.UndoDepth);
+    FViewport.UndoStack := FUndo;
+    ApplyConfigToViewSettings;
+    FViewport.RequestRepaint;
+  end;
 end;
 
 end.
