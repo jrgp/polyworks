@@ -841,3 +841,237 @@ void MapDocument::flipSelected(bool horizontal, bool vertical) {
     rebuildScreenCache();
     markModified();
 }
+
+/* ---- Texture UV transforms ---------------------------------------------- */
+
+void MapDocument::flipTextureOnSelected(bool horizontal) {
+    /* Matches VB6 mnuFlipTexture_Click:
+       Compute centroid of selected UV coords, then reflect tu (if horizontal)
+       or tv (if !horizontal) through that centroid. */
+    float sumU = 0, sumV = 0;
+    float avgMul = 1;
+    for (const auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                sumU = sumU * (1.0f - 1.0f / avgMul) + p.v[i].tu / avgMul;
+                sumV = sumV * (1.0f - 1.0f / avgMul) + p.v[i].tv / avgMul;
+                avgMul += 1;
+            }
+        }
+    }
+    const float cu = sumU, cv = sumV;
+    for (auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                if (horizontal)
+                    p.v[i].tu = cu + (p.v[i].tu - cu) * -1.0f;
+                else
+                    p.v[i].tv = cv + (p.v[i].tv - cv) * -1.0f;
+            }
+        }
+    }
+    markModified();
+}
+
+void MapDocument::rotateTextureOnSelected(float angle, float texAspect) {
+    /* Matches VB6 mnuRotateTexture_Click:
+       Rotate UV coords around their centroid by 'angle' radians.
+       texAspect = texWidth / texHeight is applied so the UV space is treated uniformly. */
+    float cu = 0, cv = 0;
+    float avgMul = 1;
+    for (const auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                cu = cu * (1.0f - 1.0f / avgMul) + p.v[i].tu * texAspect / avgMul;
+                cv = cv * (1.0f - 1.0f / avgMul) + p.v[i].tv / avgMul;
+                avgMul += 1;
+            }
+        }
+    }
+    const float cosA = std::cos(angle);
+    const float sinA = std::sin(angle);
+    for (auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) {
+                const float dx = p.v[i].tu * texAspect - cu;
+                const float dy = p.v[i].tv - cv;
+                const float r = std::sqrt(dx * dx + dy * dy);
+                if (r < 1e-9f) continue;
+                float theta = std::atan2(dy, dx) + angle;
+                (void)cosA; (void)sinA;
+                p.v[i].tu = (cu + r * std::cos(theta)) / texAspect;
+                p.v[i].tv =  cv + r * std::sin(theta);
+            }
+        }
+    }
+    markModified();
+}
+
+/* ---- Waypoint sever ----------------------------------------------------- */
+
+void MapDocument::severWaypointConnections() {
+    /* Matches VB6 mnuSever_Click:
+       2+ selected waypoints → remove connections where BOTH endpoints are selected.
+       1  selected waypoint  → remove ALL connections involving that waypoint. */
+    int numSel = 0;
+    for (const auto& wp : waypoints)
+        if (wp.selected) ++numSel;
+
+    if (numSel == 0) return;
+
+    if (numSel > 1) {
+        /* Remove connections where both endpoints are selected */
+        for (auto& wp : waypoints)
+            if (wp.selected)
+                wp.connections.erase(
+                    std::remove_if(wp.connections.begin(), wp.connections.end(),
+                        [&](int connId) {
+                            for (const auto& other : waypoints)
+                                if (other.id == connId && other.selected)
+                                    return true;
+                            return false;
+                        }),
+                    wp.connections.end());
+    } else {
+        /* Single selected waypoint: remove ALL its connections, and any pointing to it */
+        int selId = -1;
+        for (const auto& wp : waypoints)
+            if (wp.selected) { selId = wp.id; break; }
+        if (selId < 0) return;
+        for (auto& wp : waypoints) {
+            if (wp.selected)
+                wp.connections.clear();
+            else
+                wp.connections.erase(
+                    std::remove(wp.connections.begin(), wp.connections.end(), selId),
+                    wp.connections.end());
+        }
+    }
+    markModified();
+}
+
+/* ---- Sketch ------------------------------------------------------------ */
+
+void MapDocument::clearSketch() {
+    sketch.clear();
+    markModified();
+}
+
+/* ---- Apply lights to base colors --------------------------------------- */
+
+void MapDocument::applyLightsToBaseColors() {
+    /* Matches VB6 mnuApplyLight_Click:
+       For each polygon vertex (or selected only if selection is non-empty),
+       compute the light contribution using the VB6 dot-product formula and
+       bake it into the vertex r/g/b.  Then clear the lights array. */
+    if (lights.empty()) return;
+
+    const bool hasSelection = anySelected();
+
+    const float PI = 3.14159265358979f;
+    (void)PI;
+
+    for (auto& p : polys) {
+        /* For a 2-D polygon all vertices have z=0, so the face normal degenerates
+           to (0,0,1).  VB6 uses the full cross-product path but arrives at the
+           same result when all z-coords are equal. */
+        float nx = 0, ny = 0, nz = 1;
+        float mag = std::sqrt(nx*nx + ny*ny + nz*nz);
+        if (mag > 0) { nx/=mag; ny/=mag; nz/=mag; }
+
+        for (int j = 0; j < 3; ++j) {
+            if (hasSelection && !p.v[j].selected) continue;
+
+            int rVal = 0, gVal = 0, bVal = 0;
+
+            for (const auto& light : lights) {
+                float ldx = light.x - p.v[j].world.x;
+                float ldy = light.y - p.v[j].world.y;
+                float lmag = std::sqrt(ldx*ldx + ldy*ldy);
+                float lnx = 0, lny = 0, lnz = 1;
+                if (lmag > 0) { lnx = ldx/lmag; lny = ldy/lmag; }
+
+                float diffuse = nx*lnx + ny*lny + nz*lnz;
+                if (diffuse < 0) diffuse = 0;
+
+                float atten;
+                if (light.range == 0) {
+                    atten = 1.0f;
+                } else {
+                    if (lmag <= light.range)
+                        atten = 1.0f - lmag / static_cast<float>(light.range);
+                    else
+                        atten = 0.0f;
+                }
+
+                rVal += static_cast<int>(light.r * diffuse * atten);
+                gVal += static_cast<int>(light.g * diffuse * atten);
+                bVal += static_cast<int>(light.b * diffuse * atten);
+            }
+
+            rVal += p.v[j].r;
+            gVal += p.v[j].g;
+            bVal += p.v[j].b;
+
+            p.v[j].r = static_cast<uint8_t>(std::min(rVal, 255));
+            p.v[j].g = static_cast<uint8_t>(std::min(gVal, 255));
+            p.v[j].b = static_cast<uint8_t>(std::min(bVal, 255));
+        }
+    }
+
+    lights.clear();
+    rebuildScreenCache();
+    markModified();
+}
+
+/* ---- Map bounds / fit to viewport -------------------------------------- */
+
+bool MapDocument::mapBounds(float& minX, float& minY, float& maxX, float& maxY) const {
+    if (polys.empty()) {
+        minX = minY = maxX = maxY = 0;
+        return false;
+    }
+    minX = minY =  1e30f;
+    maxX = maxY = -1e30f;
+    for (const auto& p : polys) {
+        for (int i = 0; i < 3; ++i) {
+            minX = std::min(minX, p.v[i].world.x);
+            minY = std::min(minY, p.v[i].world.y);
+            maxX = std::max(maxX, p.v[i].world.x);
+            maxY = std::max(maxY, p.v[i].world.y);
+        }
+    }
+    return true;
+}
+
+void MapDocument::fitToViewport(float viewW, float viewH) {
+    /* Matches VB6 mnuFitOnScreen_Click:
+       Zoom the view so the entire polygon set fits within the viewport with
+       a small margin, then centre the map in the viewport. */
+    float minX, minY, maxX, maxY;
+    if (!mapBounds(minX, minY, maxX, maxY)) return;
+
+    const float margin = 32.0f;
+    const float mapW = maxX - minX;
+    const float mapH = maxY - minY;
+    if (mapW <= 0 || mapH <= 0) return;
+
+    const float usableW = viewW - margin * 2;
+    const float usableH = viewH - margin * 2;
+    float newZoom;
+    if (mapH / mapW < usableH / usableW)
+        newZoom = usableW / mapW;
+    else
+        newZoom = usableH / mapH;
+
+    /* Clamp to legal range */
+    if (newZoom < 0.03125f) newZoom = 0.03125f;
+    if (newZoom > 512.0f)   newZoom = 512.0f;
+
+    zoom = newZoom;
+    const float centerX = (minX + maxX) * 0.5f;
+    const float centerY = (minY + maxY) * 0.5f;
+    scrollX = centerX - viewW * 0.5f / zoom;
+    scrollY = centerY - viewH * 0.5f / zoom;
+    rebuildScreenCache();
+}

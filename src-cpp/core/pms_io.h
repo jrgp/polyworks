@@ -69,3 +69,14 @@ bool pmsDataToBytes(const PmsData& data, std::vector<uint8_t>& out,
 
 bool pmsBytesToData(const std::vector<uint8_t>& bytes, PmsData& out,
                     std::string& err);
+
+/* ---- Prefab save / load (VB6-compatible .pwf format) ------------------- */
+/* Saves all currently-selected entities from doc to a .pwf prefab file.
+   Returns true on success; sets err on failure. */
+bool savePrefab(const std::string& path, const MapDocument& doc,
+                std::string& err);
+
+/* Loads a .pwf prefab file and appends its contents to doc (selected).
+   Returns true on success; sets err on failure. */
+bool loadPrefab(const std::string& path, MapDocument& doc,
+                std::string& err);

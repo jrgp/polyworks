@@ -70,9 +70,14 @@ private:
 
     void OnFileNew(wxCommandEvent& event);
     void OnFileOpen(wxCommandEvent& event);
+    void OnFileOpenCompiled(wxCommandEvent& event);
     void OnFileSave(wxCommandEvent& event);
     void OnFileSaveAs(wxCommandEvent& event);
     void OnFileCompile(wxCommandEvent& event);
+    void OnFileCompileAs(wxCommandEvent& event);
+    void OnFileExport(wxCommandEvent& event);
+    void OnFileImport(wxCommandEvent& event);
+    void OnFileRunSoldat(wxCommandEvent& event);
 
     void OnEditUndo(wxCommandEvent& event);
     void OnEditRedo(wxCommandEvent& event);
@@ -81,7 +86,17 @@ private:
     void OnEditInvertSelection(wxCommandEvent& event);
     void OnEditDuplicateSelected(wxCommandEvent& event);
     void OnEditSelectByColor(wxCommandEvent& event);
+    void OnEditSeverConnections(wxCommandEvent& event);
+    void OnEditClearSketch(wxCommandEvent& event);
+    void OnEditTransform(wxCommandEvent& event);
     void OnPolyOperation(wxCommandEvent& event);
+    void OnPolyApplyLight(wxCommandEvent& event);
+    void OnPolyTexTransform(wxCommandEvent& event);
+
+    void OnViewLayerToggle(wxCommandEvent& event);
+    void OnViewZoom(wxCommandEvent& event);
+    void OnViewFitOnScreen(wxCommandEvent& event);
+    void OnArrangeSelected(wxCommandEvent& event);
 
     void OnMapSettings(wxCommandEvent& event);
     void OnPreferences(wxCommandEvent& event);

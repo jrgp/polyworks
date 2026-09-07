@@ -42,6 +42,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <algorithm>
+#include <map>
 
 /* ---- Stream helpers ---------------------------------------------------- */
 
@@ -638,4 +639,364 @@ void pmsDataToDoc(const PmsData& data, MapDocument& doc) {
         esk.b = {sk.v[1].x, sk.v[1].y};
         doc.sketch.push_back(esk);
     }
+}
+
+/* ---- Prefab save / load (VB6-compatible .pwf format) ------------------- */
+/*
+ * PWF binary format (VB6 SavePrefab / LoadPrefab):
+ *   int32   numSelectedPolys
+ *   For each selected poly:
+ *     PmsPolygon   (with world XY coordinates)
+ *     3 × uint8    (vertex selection flags, always 1 in saved output)
+ *     uint8        polyType (same as PmsPolyEntry.polyType)
+ *   int32   numSelectedScenery
+ *   For each selected scenery:
+ *     PmsProp      (44 bytes)
+ *     uint8[51]    scenery name (length-prefixed byte string, same as PmsSceneryName.data)
+ *   int32   numSelColliders
+ *   For each selected collider:
+ *     PmsCollider  (16 bytes)
+ *   int32   numSelSpawns
+ *   For each selected spawn:
+ *     PmsSpawnPoint (16 bytes)
+ *   int32   numSelWaypoints
+ *   For each selected waypoint:
+ *     PmsWaypoint  (112 bytes)
+ *   int32   numSelConnections
+ *   For each selected connection:
+ *     int16  point1 (local 1-based index among saved waypoints)
+ *     int16  point2
+ */
+
+bool savePrefab(const std::string& path, const MapDocument& doc,
+                std::string& err) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) { err = "Cannot open file for writing: " + path; return false; }
+
+    try {
+        /* ------ Polygons ------ */
+        /* Gather selected polys */
+        std::vector<int> selPolyIdx;
+        for (int i = 0; i < static_cast<int>(doc.polys.size()); ++i)
+            if (doc.polys[i].anySelected()) selPolyIdx.push_back(i);
+
+        int32_t nPolys = static_cast<int32_t>(selPolyIdx.size());
+        write_raw(f, nPolys);
+
+        for (int i : selPolyIdx) {
+            const EditorPoly& ep = doc.polys[i];
+            /* Build a PmsPolygon from the EditorPoly */
+            PmsPolygon pg{};
+            for (int j = 0; j < 3; ++j) {
+                pg.v[j].x   = ep.v[j].world.x;
+                pg.v[j].y   = ep.v[j].world.y;
+                pg.v[j].z   = 1.0f;
+                pg.v[j].rhw = 1.0f;
+                pg.v[j].color = (static_cast<uint32_t>(ep.v[j].alpha) << 24) |
+                                (static_cast<uint32_t>(ep.v[j].r)     << 16) |
+                                (static_cast<uint32_t>(ep.v[j].g)     <<  8) |
+                                 static_cast<uint32_t>(ep.v[j].b);
+                pg.v[j].tu  = ep.v[j].tu;
+                pg.v[j].tv  = ep.v[j].tv;
+            }
+            write_raw(f, pg);
+            /* Vertex-selected flags (always 1 when saving) */
+            uint8_t sel = 1;
+            write_raw(f, sel); write_raw(f, sel); write_raw(f, sel);
+            uint8_t pt = static_cast<uint8_t>(ep.polyType);
+            write_raw(f, pt);
+        }
+
+        /* ------ Scenery ------ */
+        std::vector<int> selScenIdx;
+        for (int i = 0; i < static_cast<int>(doc.scenery.size()); ++i)
+            if (doc.scenery[i].selected) selScenIdx.push_back(i);
+
+        int32_t nScen = static_cast<int32_t>(selScenIdx.size());
+        write_raw(f, nScen);
+
+        for (int i : selScenIdx) {
+            const EditorScenery& es = doc.scenery[i];
+            PmsProp pp{};
+            pp.active   = -1;  /* EditorScenery has no active flag; always true */
+            pp.style    = static_cast<int16_t>(es.style);
+            pp.width    = es.width;
+            pp.height   = es.height;
+            pp.x        = es.x;
+            pp.y        = es.y;
+            pp.rotation = es.rotation;
+            pp.scaleX   = es.scaleX;
+            pp.scaleY   = es.scaleY;
+            pp.alpha    = es.alpha;
+            pp.color    = es.color;
+            pp.level    = es.level;
+            write_raw(f, pp);
+            /* Scenery name: 51-byte length-prefixed array */
+            const std::string& name = (es.style >= 1 &&
+                es.style < static_cast<int>(doc.sceneryNames.size()))
+                ? doc.sceneryNames[static_cast<size_t>(es.style)] : "";
+            uint8_t nameBuf[51]{};
+            uint8_t len = static_cast<uint8_t>(std::min(name.size(), size_t(50)));
+            nameBuf[0] = len;
+            std::memcpy(nameBuf + 1, name.c_str(), len);
+            write_raw_buf(f, nameBuf, 51);
+        }
+
+        /* ------ Colliders ------ */
+        std::vector<int> selCollIdx;
+        for (int i = 0; i < static_cast<int>(doc.colliders.size()); ++i)
+            if (doc.colliders[i].selected) selCollIdx.push_back(i);
+        int32_t nColl = static_cast<int32_t>(selCollIdx.size());
+        write_raw(f, nColl);
+        for (int i : selCollIdx) {
+            const EditorCollider& ec = doc.colliders[i];
+            PmsCollider pc{};
+            pc.active = ec.active ? -1 : 0;
+            pc.x = ec.x; pc.y = ec.y; pc.radius = ec.radius;
+            write_raw(f, pc);
+        }
+
+        /* ------ Spawns ------ */
+        std::vector<int> selSpawnIdx;
+        for (int i = 0; i < static_cast<int>(doc.spawns.size()); ++i)
+            if (doc.spawns[i].selected) selSpawnIdx.push_back(i);
+        int32_t nSpawn = static_cast<int32_t>(selSpawnIdx.size());
+        write_raw(f, nSpawn);
+        for (int i : selSpawnIdx) {
+            const EditorSpawn& es = doc.spawns[i];
+            PmsSpawnPoint ps{};
+            ps.active = es.active ? -1 : 0;
+            ps.x = static_cast<int32_t>(es.x);
+            ps.y = static_cast<int32_t>(es.y);
+            ps.team = es.team;
+            write_raw(f, ps);
+        }
+
+        /* ------ Waypoints ------ */
+        /* Assign local 1-based indices to selected waypoints */
+        std::vector<int> selWpIdx;
+        std::map<int,int> wpLocalId;  /* waypoint.id → local 1-based index */
+        int localIdx = 1;
+        for (int i = 0; i < static_cast<int>(doc.waypoints.size()); ++i) {
+            if (doc.waypoints[i].selected) {
+                selWpIdx.push_back(i);
+                wpLocalId[doc.waypoints[i].id] = localIdx++;
+            }
+        }
+        int32_t nWp = static_cast<int32_t>(selWpIdx.size());
+        write_raw(f, nWp);
+        for (int i : selWpIdx) {
+            const EditorWaypoint& ew = doc.waypoints[i];
+            PmsWaypoint pw{};
+            pw.active       = ew.active ? -1 : 0;
+            pw.id           = ew.id;
+            pw.x            = static_cast<int32_t>(ew.x);
+            pw.y            = static_cast<int32_t>(ew.y);
+            pw.left         = ew.left ? 1 : 0;
+            pw.right        = ew.right ? 1 : 0;
+            pw.up           = ew.up ? 1 : 0;
+            pw.down         = ew.down ? 1 : 0;
+            pw.m2           = ew.m2 ? 1 : 0;
+            pw.pathNum      = static_cast<uint8_t>(ew.pathNum);
+            pw.special      = static_cast<uint8_t>(ew.special);
+            /* crap[5] padding bytes — zero-fill */
+            int nc = 0;
+            for (int conn : ew.connections) {
+                if (nc >= 20) break;
+                if (wpLocalId.count(conn))
+                    pw.connections[nc++] = wpLocalId[conn];
+            }
+            pw.connectionsNum = nc;
+            write_raw(f, pw);
+        }
+
+        /* ------ Connections ------ */
+        std::vector<std::pair<int16_t,int16_t>> selConns;
+        for (const auto& wp : doc.waypoints) {
+            if (!wp.selected) continue;
+            for (int connId : wp.connections) {
+                if (!wpLocalId.count(connId)) continue;
+                /* Only save connection if other endpoint is also selected */
+                bool otherSel = false;
+                for (const auto& w2 : doc.waypoints)
+                    if (w2.id == connId && w2.selected) { otherSel = true; break; }
+                if (!otherSel) continue;
+                int16_t p1 = static_cast<int16_t>(wpLocalId[wp.id]);
+                int16_t p2 = static_cast<int16_t>(wpLocalId[connId]);
+                if (p1 < p2)  /* avoid duplicates */
+                    selConns.push_back({p1, p2});
+            }
+        }
+        /* Deduplicate */
+        std::sort(selConns.begin(), selConns.end());
+        selConns.erase(std::unique(selConns.begin(), selConns.end()), selConns.end());
+
+        int32_t nConn = static_cast<int32_t>(selConns.size());
+        write_raw(f, nConn);
+        for (auto [p1, p2] : selConns) {
+            write_raw(f, p1);
+            write_raw(f, p2);
+        }
+
+    } catch (const std::exception& e) {
+        err = e.what(); return false;
+    }
+    return true;
+}
+
+bool loadPrefab(const std::string& path, MapDocument& doc,
+                std::string& err) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) { err = "Cannot open file: " + path; return false; }
+
+    /* Deselect everything first */
+    doc.clearSelection();
+
+    try {
+        /* ------ Polygons ------ */
+        int32_t nPolys = 0;
+        read_raw(f, nPolys);
+        for (int32_t i = 0; i < nPolys; ++i) {
+            PmsPolygon pg{};
+            read_raw(f, pg);
+            uint8_t vsel[3]{}, pt = 0;
+            read_raw(f, vsel[0]); read_raw(f, vsel[1]); read_raw(f, vsel[2]);
+            read_raw(f, pt);
+
+            EditorPoly ep{};
+            ep.polyType = pt;
+            for (int j = 0; j < 3; ++j) {
+                ep.v[j].world.x = pg.v[j].x;
+                ep.v[j].world.y = pg.v[j].y;
+                ep.v[j].alpha   = static_cast<uint8_t>((pg.v[j].color >> 24) & 0xff);
+                ep.v[j].r       = static_cast<uint8_t>((pg.v[j].color >> 16) & 0xff);
+                ep.v[j].g       = static_cast<uint8_t>((pg.v[j].color >>  8) & 0xff);
+                ep.v[j].b       = static_cast<uint8_t>( pg.v[j].color        & 0xff);
+                ep.v[j].tu      = pg.v[j].tu;
+                ep.v[j].tv      = pg.v[j].tv;
+                ep.v[j].selected = true;
+            }
+            doc.polys.push_back(ep);
+        }
+
+        /* ------ Scenery ------ */
+        int32_t nScen = 0;
+        read_raw(f, nScen);
+        for (int32_t i = 0; i < nScen; ++i) {
+            PmsProp pp{};
+            read_raw(f, pp);
+            uint8_t nameBuf[51]{};
+            read_raw_buf(f, nameBuf, 51);
+            uint8_t len = nameBuf[0];
+            if (len > 50) len = 50;
+            std::string name(reinterpret_cast<char*>(nameBuf + 1), len);
+
+            /* Find or add scenery name */
+            int nameIdx = -1;
+            for (int j = 1; j < static_cast<int>(doc.sceneryNames.size()); ++j)
+                if (doc.sceneryNames[j] == name) { nameIdx = j; break; }
+            if (nameIdx < 0) {
+                nameIdx = static_cast<int>(doc.sceneryNames.size());
+                doc.sceneryNames.push_back(name);
+            }
+
+            EditorScenery es{};
+            /* active: EditorScenery has no active flag, but track for future use */
+            es.style    = nameIdx;
+            es.width    = pp.width;
+            es.height   = pp.height;
+            es.x        = pp.x;
+            es.y        = pp.y;
+            es.rotation = pp.rotation;
+            es.scaleX   = pp.scaleX;
+            es.scaleY   = pp.scaleY;
+            es.alpha    = pp.alpha == 0 ? 255 : static_cast<uint8_t>(pp.alpha);
+            es.color    = pp.color;
+            es.level    = pp.level;
+            es.selected = true;
+            doc.scenery.push_back(es);
+        }
+
+        /* ------ Colliders ------ */
+        int32_t nColl = 0;
+        read_raw(f, nColl);
+        for (int32_t i = 0; i < nColl; ++i) {
+            PmsCollider pc{};
+            read_raw(f, pc);
+            EditorCollider ec{};
+            ec.active   = pc.active != 0;
+            ec.x        = pc.x; ec.y = pc.y; ec.radius = pc.radius;
+            ec.selected = true;
+            doc.colliders.push_back(ec);
+        }
+
+        /* ------ Spawns ------ */
+        int32_t nSpawn = 0;
+        read_raw(f, nSpawn);
+        for (int32_t i = 0; i < nSpawn; ++i) {
+            PmsSpawnPoint ps{};
+            read_raw(f, ps);
+            EditorSpawn es{};
+            es.active   = ps.active != 0;
+            es.x        = static_cast<float>(ps.x);
+            es.y        = static_cast<float>(ps.y);
+            es.team     = static_cast<uint8_t>(ps.team);
+            es.selected = true;
+            doc.spawns.push_back(es);
+        }
+
+        /* ------ Waypoints ------ */
+        /* Determine ID offset: loaded waypoints get IDs starting after existing max */
+        int maxId = 0;
+        for (const auto& wp : doc.waypoints)
+            maxId = std::max(maxId, wp.id);
+
+        int32_t nWp = 0;
+        read_raw(f, nWp);
+        std::vector<int> loadedWpNewIds;  /* maps local-1-based → new doc id */
+        loadedWpNewIds.push_back(0);  /* sentinel for index 0 */
+        for (int32_t i = 0; i < nWp; ++i) {
+            PmsWaypoint pw{};
+            read_raw(f, pw);
+            EditorWaypoint ew{};
+            ew.id       = ++maxId;
+            ew.x        = static_cast<float>(pw.x);
+            ew.y        = static_cast<float>(pw.y);
+            ew.left     = pw.left != 0;
+            ew.right    = pw.right != 0;
+            ew.up       = pw.up != 0;
+            ew.down     = pw.down != 0;
+            ew.m2       = pw.m2 != 0;
+            ew.pathNum  = pw.pathNum;
+            ew.special  = pw.special;
+            ew.active   = pw.active != 0;
+            ew.selected = true;
+            loadedWpNewIds.push_back(ew.id);
+            doc.waypoints.push_back(ew);
+        }
+
+        /* ------ Connections ------ */
+        int32_t nConn = 0;
+        read_raw(f, nConn);
+        const int wpStart = static_cast<int>(doc.waypoints.size()) - nWp;
+        for (int32_t i = 0; i < nConn; ++i) {
+            int16_t p1 = 0, p2 = 0;
+            read_raw(f, p1); read_raw(f, p2);
+            /* Remap local 1-based to new document IDs */
+            if (p1 >= 1 && p1 <= nWp && p2 >= 1 && p2 <= nWp) {
+                int newId1 = loadedWpNewIds[static_cast<size_t>(p1)];
+                int newId2 = loadedWpNewIds[static_cast<size_t>(p2)];
+                /* Add connection both ways (match VB6 bidirectional model) */
+                doc.waypoints[wpStart + p1 - 1].connections.push_back(newId2);
+                doc.waypoints[wpStart + p2 - 1].connections.push_back(newId1);
+            }
+        }
+
+    } catch (const std::exception& e) {
+        err = e.what(); return false;
+    }
+
+    doc.rebuildScreenCache();
+    doc.markModified();
+    return true;
 }

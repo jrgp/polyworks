@@ -144,6 +144,13 @@ struct ViewSettings {
     bool showSceneryMiddle = true;
     bool showSceneryFront  = true;
     float gridSize = 25.0f;
+
+    /* Editing aids (match VB6 globals) */
+    bool snapToGrid     = false;  /* snap dragged vertices to grid */
+    bool snapToVertices = false;  /* snap to nearby vertices (ohSnap) */
+    bool fixedTexture   = false;  /* don't update tu/tv when snapping/moving */
+    bool blendWireframe = false;  /* alpha-blend wireframe overlay */
+    bool blendPolys     = false;  /* alpha-blend polygon fill */
 };
 
 /* ---- MapDocument ------------------------------------------------------- */
@@ -316,6 +323,14 @@ public:
     /* Untexture: set tu/tv of each selected vertex to 1.0f, 1.0f. */
     void untextureSelected();
 
+    /* Flip texture UVs on selected vertices around their centroid.
+       horizontal=true: reflect tu; horizontal=false: reflect tv. */
+    void flipTextureOnSelected(bool horizontal);
+
+    /* Rotate texture UVs on selected vertices by angle (radians) around their centroid.
+       texAspect = textureWidth / textureHeight (use 1.0 if unknown). */
+    void rotateTextureOnSelected(float angle, float texAspect = 1.0f);
+
     /* Average Vertex Colors (Ctrl+G): for each group of coincident vertices (within 2
        world-units of each other), set all their colors to the average of the group.
        Matches VB6 AverageVertices(). */
@@ -323,6 +338,30 @@ public:
 
     /* Vertex operations (operate on selected vertices across all polys) */
     void nudgeSelectedVertices(float dx, float dy);
+
+    /* Waypoint operations */
+    /* Severs connections between selected waypoints.
+       If 2+ waypoints are selected: removes connections where BOTH endpoints are selected.
+       If 1 waypoint is selected: removes ALL connections to/from that waypoint.
+       Matches VB6 mnuSever_Click. */
+    void severWaypointConnections();
+
+    /* Sketch operations */
+    void clearSketch();
+
+    /* Light operations */
+    /* Bakes the light contribution (using VB6-compatible dot-product formula) into the
+       base vertex r/g/b values of all (or selected) polygons, then clears the lights array.
+       Matches VB6 mnuApplyLight_Click. */
+    void applyLightsToBaseColors();
+
+    /* Map bounds — computes bounding box of all polygon vertices.
+       Returns false (with all zeros) if there are no polygons. */
+    bool mapBounds(float& minX, float& minY, float& maxX, float& maxY) const;
+
+    /* Fit-to-viewport: adjusts zoom and scroll so the entire map is centred and visible
+       within a viewport of the given pixel size. Matches VB6 mnuFitOnScreen_Click. */
+    void fitToViewport(float viewW, float viewH);
 
     /* Entity placement */
     void addSpawn(float wx, float wy, int team = SPAWN_GENERAL);

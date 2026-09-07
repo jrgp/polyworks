@@ -10,6 +10,7 @@
 #include "dialogs/map_settings_dlg.h"
 #include "dialogs/preferences_dlg.h"
 #include "pms_io.h"
+#include "geometry.h"
 
 #include <wx/filedlg.h>
 #include <wx/menu.h>
@@ -17,6 +18,7 @@
 #include <wx/filename.h>
 #include <wx/sizer.h>
 #include <wx/config.h>
+#include <wx/utils.h>
 
 #include <array>
 
@@ -66,7 +68,42 @@ enum MenuId {
     ID_WINDOW_WAYPOINTS,
     ID_WINDOW_SCENERY,
     ID_WINDOW_PROPERTIES,
-    ID_WINDOW_TEXTURE
+    ID_WINDOW_TEXTURE,
+    /* View layer toggles (named so Bind() can wire handlers) */
+    ID_VIEW_POLYGONS,
+    ID_VIEW_WIREFRAME,
+    ID_VIEW_POINTS,
+    ID_VIEW_OBJECTS,
+    ID_VIEW_WAYPOINTS,
+    ID_VIEW_LIGHTS,
+    ID_VIEW_SKETCH,
+    ID_VIEW_TEXTURES,
+    ID_VIEW_BACKGROUND,
+    ID_VIEW_SCENERY_BACK,
+    ID_VIEW_SCENERY_MIDDLE,
+    ID_VIEW_SCENERY_FRONT,
+    /* Additional View items */
+    ID_VIEW_FIT_ON_SCREEN,
+    ID_VIEW_SNAP_TO_GRID,
+    ID_VIEW_SNAP_TO_VERTS,
+    ID_VIEW_BLEND_WIREFRAME,
+    ID_VIEW_BLEND_POLYS,
+    /* Edit menu additions */
+    ID_EDIT_SEVER_CONNECTIONS,
+    ID_EDIT_CLEAR_SKETCH,
+    ID_EDIT_TRANSFORM_FLIP_H,
+    ID_EDIT_TRANSFORM_FLIP_V,
+    ID_EDIT_TRANSFORM_ROTATE_180,
+    ID_EDIT_TRANSFORM_ROTATE_90CW,
+    ID_EDIT_TRANSFORM_ROTATE_90CCW,
+    /* Polygon menu additions */
+    ID_POLY_FIXED_TEXTURE,
+    ID_POLY_APPLY_LIGHT,
+    ID_POLY_TEX_FLIP_H,
+    ID_POLY_TEX_FLIP_V,
+    ID_POLY_TEX_ROTATE_180,
+    ID_POLY_TEX_ROTATE_90CW,
+    ID_POLY_TEX_ROTATE_90CCW,
 };
 
 struct ToolInfo {
@@ -203,6 +240,82 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_PROPERTIES);
     Bind(wxEVT_MENU, &MainFrame::OnWindowTogglePanel,   this, ID_WINDOW_TEXTURE);
     Bind(wxEVT_CHAR_HOOK, &MainFrame::OnKeyDown, this);
+
+    /* View layer toggles */
+    auto bindLayerToggle = [this](int id) {
+        Bind(wxEVT_MENU, &MainFrame::OnViewLayerToggle, this, id);
+    };
+    bindLayerToggle(ID_VIEW_POLYGONS);
+    bindLayerToggle(ID_VIEW_WIREFRAME);
+    bindLayerToggle(ID_VIEW_POINTS);
+    bindLayerToggle(ID_VIEW_GRID);
+    bindLayerToggle(ID_VIEW_OBJECTS);
+    bindLayerToggle(ID_VIEW_WAYPOINTS);
+    bindLayerToggle(ID_VIEW_LIGHTS);
+    bindLayerToggle(ID_VIEW_SKETCH);
+    bindLayerToggle(ID_VIEW_TEXTURES);
+    bindLayerToggle(ID_VIEW_BACKGROUND);
+    bindLayerToggle(ID_VIEW_SCENERY_BACK);
+    bindLayerToggle(ID_VIEW_SCENERY_MIDDLE);
+    bindLayerToggle(ID_VIEW_SCENERY_FRONT);
+    bindLayerToggle(ID_VIEW_BLEND_WIREFRAME);
+    bindLayerToggle(ID_VIEW_BLEND_POLYS);
+    bindLayerToggle(ID_VIEW_SNAP_TO_GRID);
+    bindLayerToggle(ID_VIEW_SNAP_TO_VERTS);
+
+    /* Zoom / fit */
+    Bind(wxEVT_MENU, &MainFrame::OnViewZoom, this, ID_VIEW_ZOOM_IN);
+    Bind(wxEVT_MENU, &MainFrame::OnViewZoom, this, ID_VIEW_ZOOM_OUT);
+    Bind(wxEVT_MENU, &MainFrame::OnViewZoom, this, ID_VIEW_ZOOM_RESET);
+    Bind(wxEVT_MENU, &MainFrame::OnViewZoom, this, ID_VIEW_CENTER_RESET);
+    Bind(wxEVT_MENU, &MainFrame::OnViewFitOnScreen, this, ID_VIEW_FIT_ON_SCREEN);
+
+    /* Arrange */
+    Bind(wxEVT_MENU, &MainFrame::OnArrangeSelected, this, ID_ARRANGE_BRING_TO_FRONT);
+    Bind(wxEVT_MENU, &MainFrame::OnArrangeSelected, this, ID_ARRANGE_SEND_TO_BACK);
+    Bind(wxEVT_MENU, &MainFrame::OnArrangeSelected, this, ID_ARRANGE_BRING_FORWARD);
+    Bind(wxEVT_MENU, &MainFrame::OnArrangeSelected, this, ID_ARRANGE_SEND_BACKWARD);
+
+    /* Deselect */
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        m_doc.clearSelection(); RefreshViewport();
+    }, ID_EDIT_DESELECT);
+
+    /* Sever / Clear Sketch */
+    Bind(wxEVT_MENU, &MainFrame::OnEditSeverConnections, this, ID_EDIT_SEVER_CONNECTIONS);
+    Bind(wxEVT_MENU, &MainFrame::OnEditClearSketch,      this, ID_EDIT_CLEAR_SKETCH);
+
+    /* Transform */
+    auto bindTransform = [this](int id) {
+        Bind(wxEVT_MENU, &MainFrame::OnEditTransform, this, id);
+    };
+    bindTransform(ID_EDIT_TRANSFORM_FLIP_H);
+    bindTransform(ID_EDIT_TRANSFORM_FLIP_V);
+    bindTransform(ID_EDIT_TRANSFORM_ROTATE_180);
+    bindTransform(ID_EDIT_TRANSFORM_ROTATE_90CW);
+    bindTransform(ID_EDIT_TRANSFORM_ROTATE_90CCW);
+
+    /* Polygon menu: Fixed Texture toggle, Apply Light, Texture Transform */
+    Bind(wxEVT_MENU, [this](wxCommandEvent& e) {
+        m_doc.viewSettings.fixedTexture = e.IsChecked();
+    }, ID_POLY_FIXED_TEXTURE);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyApplyLight, this, ID_POLY_APPLY_LIGHT);
+    auto bindTexTransform = [this](int id) {
+        Bind(wxEVT_MENU, &MainFrame::OnPolyTexTransform, this, id);
+    };
+    bindTexTransform(ID_POLY_TEX_FLIP_H);
+    bindTexTransform(ID_POLY_TEX_FLIP_V);
+    bindTexTransform(ID_POLY_TEX_ROTATE_180);
+    bindTexTransform(ID_POLY_TEX_ROTATE_90CW);
+    bindTexTransform(ID_POLY_TEX_ROTATE_90CCW);
+
+    /* File: Open Compiled, Compile As, Export, Import, Run */
+    Bind(wxEVT_MENU, &MainFrame::OnFileOpenCompiled, this, ID_FILE_OPEN_COMPILED);
+    Bind(wxEVT_MENU, &MainFrame::OnFileCompileAs,    this, ID_FILE_COMPILE_AS);
+    Bind(wxEVT_MENU, &MainFrame::OnFileExport,       this, ID_FILE_EXPORT);
+    Bind(wxEVT_MENU, &MainFrame::OnFileImport,       this, ID_FILE_IMPORT);
+    Bind(wxEVT_MENU, &MainFrame::OnFileRunSoldat,    this, ID_FILE_RUN_OPENSOLDAT);
+    Bind(wxEVT_MENU, &MainFrame::OnFileRunSoldat,    this, ID_FILE_RUN_SOLDAT);
     Bind(wxEVT_SIZE, &MainFrame::OnSize, this);
 
     UpdateStatusBar();
@@ -336,28 +449,47 @@ void MainFrame::buildMenuBar() {
     editMenu->Append(ID_EDIT_DESELECT, "&Deselect\tEsc");
     editMenu->Append(ID_EDIT_INVERT_SELECTION, "&Invert Selection\tCtrl+I");
     editMenu->Append(ID_EDIT_SELECT_BY_COLOR, "Select by &Color\tCtrl+B");
+    editMenu->AppendSeparator();
+    auto* transformMenu = new wxMenu();
+    transformMenu->Append(ID_EDIT_TRANSFORM_ROTATE_180,   "Rotate &180°");
+    transformMenu->Append(ID_EDIT_TRANSFORM_ROTATE_90CW,  "Rotate 90° C&W");
+    transformMenu->Append(ID_EDIT_TRANSFORM_ROTATE_90CCW, "Rotate 90° CC&W");
+    transformMenu->AppendSeparator();
+    transformMenu->Append(ID_EDIT_TRANSFORM_FLIP_H, "Flip &Horizontal");
+    transformMenu->Append(ID_EDIT_TRANSFORM_FLIP_V, "Flip &Vertical");
+    editMenu->AppendSubMenu(transformMenu, "&Transform");
+    editMenu->AppendSeparator();
+    editMenu->Append(ID_EDIT_SEVER_CONNECTIONS, "&Sever Connections\tBack");
+    editMenu->Append(ID_EDIT_CLEAR_SKETCH, "Clear S&ketch");
 
     auto* viewMenu = new wxMenu();
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Polygons")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Wireframe");
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Poi&nts")->Check(true);
-    viewMenu->AppendCheckItem(ID_VIEW_GRID, "&Grid\tCtrl+'");
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Objects")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Waypoints")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Lights")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "S&ketch")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Textures")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Background")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Back")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Middle")->Check(true);
-    viewMenu->AppendCheckItem(wxWindow::NewControlId(), "Scenery &Front")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_POLYGONS,       "&Polygons")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_WIREFRAME,      "&Wireframe");
+    viewMenu->AppendCheckItem(ID_VIEW_POINTS,         "Poi&nts")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_GRID,           "&Grid\tCtrl+'");
+    viewMenu->AppendCheckItem(ID_VIEW_OBJECTS,        "&Objects")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_WAYPOINTS,      "&Waypoints")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_LIGHTS,         "&Lights")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_SKETCH,         "S&ketch")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_TEXTURES,       "&Textures")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_BACKGROUND,     "&Background")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_SCENERY_BACK,   "Scenery &Back")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_SCENERY_MIDDLE, "Scenery &Middle")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_SCENERY_FRONT,  "Scenery &Front")->Check(true);
+    viewMenu->AppendSeparator();
+    viewMenu->AppendCheckItem(ID_VIEW_BLEND_WIREFRAME, "Blend &Wireframe");
+    viewMenu->AppendCheckItem(ID_VIEW_BLEND_POLYS,     "B&lend Polygons");
+    viewMenu->AppendSeparator();
+    viewMenu->AppendCheckItem(ID_VIEW_SNAP_TO_GRID,   "Snap to &Grid\tCtrl+Shift+G");
+    viewMenu->AppendCheckItem(ID_VIEW_SNAP_TO_VERTS,  "Snap to &Vertices\tCtrl+Shift+V");
     viewMenu->AppendSeparator();
     viewMenu->AppendCheckItem(ID_VIEW_PALETTE, "Color &Palette");
     viewMenu->AppendSeparator();
-    viewMenu->Append(ID_VIEW_ZOOM_IN, "Zoom &In\tCtrl++");
-    viewMenu->Append(ID_VIEW_ZOOM_OUT, "Zoom &Out\tCtrl+-");
-    viewMenu->Append(ID_VIEW_ZOOM_RESET, "Zoom &100%\t*");
-    viewMenu->Append(ID_VIEW_CENTER_RESET, "Center and &Reset\tCtrl+0");
+    viewMenu->Append(ID_VIEW_ZOOM_IN,     "Zoom &In\tCtrl++");
+    viewMenu->Append(ID_VIEW_ZOOM_OUT,    "Zoom &Out\tCtrl+-");
+    viewMenu->Append(ID_VIEW_ZOOM_RESET,  "Zoom &100%\t*");
+    viewMenu->Append(ID_VIEW_CENTER_RESET,"Center and &Reset\tCtrl+0");
+    viewMenu->Append(ID_VIEW_FIT_ON_SCREEN, "&Fit on Screen\tCtrl+Shift+F");
     viewMenu->AppendSeparator();
     viewMenu->Append(wxID_REFRESH, "&Refresh\tF5");
 
@@ -381,6 +513,18 @@ void MainFrame::buildMenuBar() {
     polygonMenu->Append(ID_POLY_UNTEXTURE,             "&Untexture\tCtrl+U");
     polygonMenu->AppendSeparator();
     polygonMenu->Append(ID_POLY_AVERAGE_COLORS,        "&Average Vertex Colors\tCtrl+G");
+    polygonMenu->AppendSeparator();
+    polygonMenu->AppendCheckItem(ID_POLY_FIXED_TEXTURE, "F&ixed Texture");
+    polygonMenu->Append(ID_POLY_APPLY_LIGHT, "&Apply Light to Vertices");
+    polygonMenu->AppendSeparator();
+    auto* texTransMenu = new wxMenu();
+    texTransMenu->Append(ID_POLY_TEX_ROTATE_180,   "Rotate &180°");
+    texTransMenu->Append(ID_POLY_TEX_ROTATE_90CW,  "Rotate 90° C&W");
+    texTransMenu->Append(ID_POLY_TEX_ROTATE_90CCW, "Rotate 90° CC&W");
+    texTransMenu->AppendSeparator();
+    texTransMenu->Append(ID_POLY_TEX_FLIP_H, "Flip &Horizontal");
+    texTransMenu->Append(ID_POLY_TEX_FLIP_V, "Flip &Vertical");
+    polygonMenu->AppendSubMenu(texTransMenu, "Texture &Transform");
 
     auto* arrangeMenu = new wxMenu();
     arrangeMenu->Append(ID_ARRANGE_BRING_TO_FRONT, "Bring to &Front\tHome");
@@ -672,6 +816,268 @@ void MainFrame::OnEditDuplicateSelected(wxCommandEvent& event) {
     RefreshViewport();
 }
 
+void MainFrame::OnEditSeverConnections(wxCommandEvent&) {
+    m_undoStack.push(m_doc);
+    m_doc.severWaypointConnections();
+    m_doc.markModified();
+    RefreshViewport();
+}
+
+void MainFrame::OnEditClearSketch(wxCommandEvent&) {
+    m_undoStack.push(m_doc);
+    m_doc.clearSketch();
+    m_doc.markModified();
+    UpdateStatusBar();
+    RefreshViewport();
+}
+
+void MainFrame::OnEditTransform(wxCommandEvent& event) {
+    if (!m_doc.anySelected()) return;
+    m_undoStack.push(m_doc);
+    const int id = event.GetId();
+    if (id == ID_EDIT_TRANSFORM_FLIP_H) {
+        m_doc.flipSelected(true, false);
+    } else if (id == ID_EDIT_TRANSFORM_FLIP_V) {
+        m_doc.flipSelected(false, true);
+    } else if (id == ID_EDIT_TRANSFORM_ROTATE_180) {
+        m_doc.rotateSelected(180.0f);
+    } else if (id == ID_EDIT_TRANSFORM_ROTATE_90CW) {
+        m_doc.rotateSelected(90.0f);
+    } else if (id == ID_EDIT_TRANSFORM_ROTATE_90CCW) {
+        m_doc.rotateSelected(-90.0f);
+    } else {
+        m_undoStack.pop(); return;
+    }
+    m_doc.markModified();
+    RefreshViewport();
+}
+
+void MainFrame::OnPolyApplyLight(wxCommandEvent&) {
+    m_undoStack.push(m_doc);
+    m_doc.applyLightsToBaseColors();
+    m_doc.markModified();
+    RefreshViewport();
+}
+
+void MainFrame::OnPolyTexTransform(wxCommandEvent& event) {
+    if (!m_doc.anySelected()) return;
+    m_undoStack.push(m_doc);
+    const int id = event.GetId();
+    float texW = 64.0f, texH = 64.0f;
+    if (m_viewport) {
+        auto dims = m_viewport->getTextureSize(m_doc);
+        if (dims.first > 0) { texW = static_cast<float>(dims.first); texH = static_cast<float>(dims.second); }
+    }
+    const float aspect = (texH > 0) ? texW / texH : 1.0f;
+    if (id == ID_POLY_TEX_FLIP_H) {
+        m_doc.flipTextureOnSelected(true);
+    } else if (id == ID_POLY_TEX_FLIP_V) {
+        m_doc.flipTextureOnSelected(false);
+    } else if (id == ID_POLY_TEX_ROTATE_180) {
+        m_doc.rotateTextureOnSelected(180.0f, aspect);
+    } else if (id == ID_POLY_TEX_ROTATE_90CW) {
+        m_doc.rotateTextureOnSelected(90.0f, aspect);
+    } else if (id == ID_POLY_TEX_ROTATE_90CCW) {
+        m_doc.rotateTextureOnSelected(-90.0f, aspect);
+    } else {
+        m_undoStack.pop(); return;
+    }
+    m_doc.markModified();
+    RefreshViewport();
+}
+
+void MainFrame::OnViewLayerToggle(wxCommandEvent& event) {
+    const int id = event.GetId();
+    const bool v = event.IsChecked();
+    ViewSettings& vs = m_doc.viewSettings;
+    if      (id == ID_VIEW_POLYGONS)       vs.showPolys = v;
+    else if (id == ID_VIEW_WIREFRAME)      vs.showWireframe = v;
+    else if (id == ID_VIEW_POINTS)         vs.showPoints = v;
+    else if (id == ID_VIEW_GRID)           vs.showGrid = v;
+    else if (id == ID_VIEW_OBJECTS)        vs.showObjects = v;
+    else if (id == ID_VIEW_WAYPOINTS)      vs.showWaypoints = v;
+    else if (id == ID_VIEW_LIGHTS)         vs.showLights = v;
+    else if (id == ID_VIEW_SKETCH)         vs.showSketch = v;
+    else if (id == ID_VIEW_TEXTURES)       vs.showTexture = v;
+    else if (id == ID_VIEW_BACKGROUND)     vs.showBackground = v;
+    else if (id == ID_VIEW_SCENERY_BACK)   vs.showSceneryBack = v;
+    else if (id == ID_VIEW_SCENERY_MIDDLE) vs.showSceneryMiddle = v;
+    else if (id == ID_VIEW_SCENERY_FRONT)  vs.showSceneryFront = v;
+    else if (id == ID_VIEW_BLEND_WIREFRAME) vs.blendWireframe = v;
+    else if (id == ID_VIEW_BLEND_POLYS)    vs.blendPolys = v;
+    else if (id == ID_VIEW_SNAP_TO_GRID)   vs.snapToGrid = v;
+    else if (id == ID_VIEW_SNAP_TO_VERTS)  vs.snapToVertices = v;
+    RefreshViewport();
+}
+
+void MainFrame::OnViewZoom(wxCommandEvent& event) {
+    if (!m_viewport) return;
+    wxSize sz = m_viewport->GetClientSize();
+    const float cx = sz.GetWidth() * 0.5f;
+    const float cy = sz.GetHeight() * 0.5f;
+    const int id = event.GetId();
+    if (id == ID_VIEW_ZOOM_IN) {
+        m_doc.setZoom(snapZoom(m_doc.zoom, 1), cx, cy);
+    } else if (id == ID_VIEW_ZOOM_OUT) {
+        m_doc.setZoom(snapZoom(m_doc.zoom, -1), cx, cy);
+    } else if (id == ID_VIEW_ZOOM_RESET) {
+        m_doc.setZoom(1.0f, cx, cy);
+    } else if (id == ID_VIEW_CENTER_RESET) {
+        m_doc.zoom = 1.0f;
+        m_doc.scrollX = 0;
+        m_doc.scrollY = 0;
+        m_doc.rebuildScreenCache();
+    }
+    UpdateStatusBar();
+    RefreshViewport();
+}
+
+void MainFrame::OnViewFitOnScreen(wxCommandEvent&) {
+    if (!m_viewport) return;
+    wxSize sz = m_viewport->GetClientSize();
+    m_doc.fitToViewport(static_cast<float>(sz.GetWidth()),
+                        static_cast<float>(sz.GetHeight()));
+    UpdateStatusBar();
+    RefreshViewport();
+}
+
+void MainFrame::OnArrangeSelected(wxCommandEvent& event) {
+    if (!m_doc.anySelected()) return;
+    m_undoStack.push(m_doc);
+    const int id = event.GetId();
+    if (id == ID_ARRANGE_BRING_TO_FRONT) {
+        m_doc.bringSelectedToFront();
+    } else if (id == ID_ARRANGE_SEND_TO_BACK) {
+        m_doc.sendSelectedToBack();
+    } else if (id == ID_ARRANGE_BRING_FORWARD) {
+        m_doc.bringSelectedForward();
+    } else if (id == ID_ARRANGE_SEND_BACKWARD) {
+        m_doc.sendSelectedBackward();
+    } else {
+        m_undoStack.pop(); return;
+    }
+    m_doc.markModified();
+    RefreshViewport();
+}
+
+void MainFrame::OnFileOpenCompiled(wxCommandEvent&) {
+    /* Compiled PMS uses the same binary format as native PMS; open identically. */
+    wxFileDialog dialog(this,
+                        "Open Compiled PMS",
+                        wxEmptyString,
+                        wxEmptyString,
+                        "PolyWorks Map (*.pms)|*.pms|All files (*)|*",
+                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK) return;
+
+    PmsData data;
+    std::string error;
+    if (loadPmsFile(dialog.GetPath().ToStdString(), data, error) != PmsLoadResult::OK) {
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Open failed", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    pmsDataToDoc(data, m_doc);
+    m_doc.clearModified();
+    m_doc.rebuildScreenCache();
+    m_currentFilePath = dialog.GetPath();
+    if (m_viewport) {
+        wxFileName fn(dialog.GetPath());
+        fn.Normalize();
+        const wxString pmsDir  = fn.GetPath();
+        const wxString parentDir = wxFileName(pmsDir, wxEmptyString).GetPath();
+        m_viewport->addTexturePath(pmsDir.ToStdString());
+        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+        m_viewport->addTexturePath(parentDir.ToStdString());
+    }
+    m_undoStack.clear();
+    UpdateStatusBar();
+    UpdateTitle();
+    RefreshViewport();
+}
+
+void MainFrame::OnFileCompileAs(wxCommandEvent&) {
+    wxFileDialog dialog(this,
+                        "Compile PMS As",
+                        wxEmptyString,
+                        BaseNameOrUntitled(m_currentFilePath),
+                        "PolyWorks Map (*.pms)|*.pms|All files (*)|*",
+                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dialog.ShowModal() != wxID_OK) return;
+
+    PmsData data;
+    docToPmsData(m_doc, data);
+    std::string error;
+    if (!compilePms(dialog.GetPath().ToStdString(), data, error))
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Compile failed", wxOK | wxICON_ERROR, this);
+}
+
+void MainFrame::OnFileExport(wxCommandEvent&) {
+    if (!m_doc.anySelected()) {
+        wxMessageBox("Select objects to export as a prefab.", "Export Prefab",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    wxFileDialog dialog(this,
+                        "Export Prefab",
+                        wxEmptyString,
+                        wxEmptyString,
+                        "PolyWorks Prefab (*.pwf)|*.pwf|All files (*)|*",
+                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dialog.ShowModal() != wxID_OK) return;
+
+    std::string error;
+    if (!savePrefab(dialog.GetPath().ToStdString(), m_doc, error))
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Export failed", wxOK | wxICON_ERROR, this);
+}
+
+void MainFrame::OnFileImport(wxCommandEvent&) {
+    wxFileDialog dialog(this,
+                        "Import Prefab",
+                        wxEmptyString,
+                        wxEmptyString,
+                        "PolyWorks Prefab (*.pwf)|*.pwf|All files (*)|*",
+                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK) return;
+
+    m_undoStack.push(m_doc);
+    std::string error;
+    if (!loadPrefab(dialog.GetPath().ToStdString(), m_doc, error)) {
+        m_undoStack.pop();
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Import failed", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    UpdateStatusBar();
+    UpdateTitle();
+    RefreshViewport();
+}
+
+void MainFrame::OnFileRunSoldat(wxCommandEvent& event) {
+    /* Launch Soldat or OpenSoldat if a path has been configured via Preferences. */
+    /* For now, show a message pointing to Preferences if nothing is configured. */
+    const wxString key = (event.GetId() == ID_FILE_RUN_OPENSOLDAT)
+        ? "/Soldat/OpenSoldatExe" : "/Soldat/SoldatExe";
+    wxConfig cfg("PolyWorks");
+    wxString exe;
+    cfg.Read(key, &exe);
+    if (exe.IsEmpty()) {
+        wxMessageBox(
+            "No Soldat executable configured.\n"
+            "Set the path in Edit > Preferences.",
+            "Run Soldat", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    if (!wxFileExists(exe)) {
+        wxMessageBox(
+            wxString::Format("Executable not found:\n%s\n\nCheck the path in Edit > Preferences.", exe),
+            "Run Soldat", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    wxExecute(wxString::Format("\"%s\"", exe));
+}
+
 void MainFrame::OnExit(wxCommandEvent& event) {
     Close(true);
 }
@@ -833,12 +1239,19 @@ void MainFrame::OnKeyDown(wxKeyEvent& event) {
 
         /* Delete selected */
         case WXK_DELETE:
-        case WXK_BACK:
             m_undoStack.push(m_doc);
             m_doc.deleteSelected();
             m_doc.markModified();
             UpdateStatusBar();
             UpdateTitle();
+            RefreshViewport();
+            return;
+
+        /* Backspace = Sever waypoint connections (matches original PolyWorks) */
+        case WXK_BACK:
+            m_undoStack.push(m_doc);
+            m_doc.severWaypointConnections();
+            m_doc.markModified();
             RefreshViewport();
             return;
 
