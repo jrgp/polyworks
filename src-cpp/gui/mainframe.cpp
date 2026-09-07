@@ -4,6 +4,8 @@
 #include "panels/tools_panel.h"
 #include "panels/display_panel.h"
 #include "panels/info_panel.h"
+#include "panels/scenery_panel.h"
+#include "panels/waypoint_panel.h"
 #include "dialogs/map_settings_dlg.h"
 #include "pms_io.h"
 
@@ -179,6 +181,14 @@ void MainFrame::AttachDisplayPanel(DisplayPanel* displayPanel) {
 
 void MainFrame::AttachInfoPanel(InfoPanel* infoPanel) {
     m_infoPanel = infoPanel;
+}
+
+void MainFrame::AttachSceneryPanel(SceneryPanel* sceneryPanel) {
+    m_sceneryPanel = sceneryPanel;
+}
+
+void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
+    m_waypointPanel = waypointPanel;
 }
 
 void MainFrame::buildMenuBar() {

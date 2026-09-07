@@ -11,6 +11,8 @@ class GlViewport;
 class ToolsPanel;
 class DisplayPanel;
 class InfoPanel;
+class SceneryPanel;
+class WaypointPanel;
 class wxCommandEvent;
 class wxKeyEvent;
 class wxSizeEvent;
@@ -25,6 +27,8 @@ public:
     void AttachToolsPanel(ToolsPanel* toolsPanel);
     void AttachDisplayPanel(DisplayPanel* displayPanel);
     void AttachInfoPanel(InfoPanel* infoPanel);
+    void AttachSceneryPanel(SceneryPanel* sceneryPanel);
+    void AttachWaypointPanel(WaypointPanel* waypointPanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
     void UpdateStatusBar();
@@ -35,9 +39,11 @@ public:
     MapDocument m_doc;
     UndoStack m_undoStack;
     int m_activeTool = 0;
-    GlViewport*    m_viewport     = nullptr;
-    DisplayPanel*  m_displayPanel = nullptr;
-    InfoPanel*     m_infoPanel    = nullptr;
+    GlViewport*    m_viewport      = nullptr;
+    DisplayPanel*  m_displayPanel  = nullptr;
+    InfoPanel*     m_infoPanel     = nullptr;
+    SceneryPanel*  m_sceneryPanel  = nullptr;
+    WaypointPanel* m_waypointPanel = nullptr;
 
 private:
     void buildMenuBar();
