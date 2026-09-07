@@ -57,20 +57,30 @@ uses
 
 type
   TToolLayout = record
-    ToolID: Integer;
-    SlotIndex: Integer;
-    RowIndex: Integer;
+    ToolID: Integer;    // Our internal tool ID (for callbacks)
+    BmpRow: Integer;    // Row in tool_gfx.bmp (original VB6 ordering)
+    SlotPos: Integer;   // Position in the 2-column grid (0=top-left)
+    Tooltip: string;
   end;
 
 const
-  TOOL_LAYOUTS: array[0..6] of TToolLayout = (
-    (ToolID: TOOL_SELECT;   SlotIndex: 0;  RowIndex: 0),
-    (ToolID: TOOL_POLY;     SlotIndex: 1;  RowIndex: 1),
-    (ToolID: TOOL_SCENERY;  SlotIndex: 7;  RowIndex: 7),
-    (ToolID: TOOL_WAYPOINT; SlotIndex: 8;  RowIndex: 8),
-    (ToolID: TOOL_SPAWN;    SlotIndex: 9;  RowIndex: 9),
-    (ToolID: TOOL_SKETCH;   SlotIndex: 11; RowIndex: 11),
-    (ToolID: TOOL_LIGHT;    SlotIndex: 12; RowIndex: 12)
+  // All 14 original PolyWorks tools in original order (left-to-right, top-to-bottom)
+  // SlotPos 0..1 = row 1, 2..3 = row 2, etc.
+  TOOL_LAYOUTS: array[0..13] of TToolLayout = (
+    (ToolID: TOOL_SELECT;    BmpRow: 0;  SlotPos: 0;  Tooltip: 'Transform (M)'),
+    (ToolID: TOOL_POLY;      BmpRow: 1;  SlotPos: 1;  Tooltip: 'Poly Creation (C)'),
+    (ToolID: TOOL_VSELECT;   BmpRow: 2;  SlotPos: 2;  Tooltip: 'Vertex Selection (V)'),
+    (ToolID: TOOL_PSELECT;   BmpRow: 3;  SlotPos: 3;  Tooltip: 'Poly Selection (P)'),
+    (ToolID: TOOL_VCOLOR;    BmpRow: 4;  SlotPos: 4;  Tooltip: 'Vertex Color (E)'),
+    (ToolID: TOOL_PCOLOR;    BmpRow: 5;  SlotPos: 5;  Tooltip: 'Poly Color (R)'),
+    (ToolID: TOOL_TEXEDIT;   BmpRow: 6;  SlotPos: 6;  Tooltip: 'Texture (T)'),
+    (ToolID: TOOL_SCENERY;   BmpRow: 7;  SlotPos: 7;  Tooltip: 'Scenery (Y)'),
+    (ToolID: TOOL_WAYPOINT;  BmpRow: 8;  SlotPos: 8;  Tooltip: 'Waypoints'),
+    (ToolID: TOOL_SPAWN;     BmpRow: 9;  SlotPos: 9;  Tooltip: 'Objects'),
+    (ToolID: TOOL_COLORPICK; BmpRow: 10; SlotPos: 10; Tooltip: 'Color Picker (,)'),
+    (ToolID: TOOL_SKETCH;    BmpRow: 11; SlotPos: 11; Tooltip: 'Sketch (.)'),
+    (ToolID: TOOL_LIGHT;     BmpRow: 12; SlotPos: 12; Tooltip: 'Lights'),
+    (ToolID: TOOL_DEPTHMAP;  BmpRow: 13; SlotPos: 13; Tooltip: 'Depth Map')
   );
 
 constructor TPWToolButton.Create(AOwner: TComponent; ASkin: TBitmap;
@@ -82,11 +92,11 @@ begin
   Width := PW_TOOL_SIZE;
   Height := PW_TOOL_SIZE;
   FSkin := ASkin;
-  FSlotIndex := ASlotIndex;
+  FSlotIndex := ASlotIndex;  // position in grid (0..13)
   FToolID := AToolID;
-  FRowIndex := ARowIndex;
-  Left := (FSlotIndex mod 2) * PW_TOOL_SIZE;
-  Top := PW_TITLEBAR_HEIGHT + (FSlotIndex div 2) * PW_TOOL_SIZE;
+  FRowIndex := ARowIndex;    // bitmap row in tool_gfx.bmp
+  Left := (ASlotIndex mod 2) * PW_TOOL_SIZE;
+  Top := PW_TITLEBAR_HEIGHT + (ASlotIndex div 2) * PW_TOOL_SIZE;
   Cursor := crHandPoint;
 end;
 
@@ -156,6 +166,8 @@ var
   I: Integer;
   Button: TPWToolButton;
   SkinPath: string;
+  NumTools: Integer;
+  NumRows: Integer;
 begin
   inherited CreateNew(AOwner, 1);
   BorderStyle := bsNone;
@@ -165,8 +177,12 @@ begin
   Position := poDesigned;
   Caption := '';
   Color := PW_COLOR_BG;
+
+  NumTools := Length(TOOL_LAYOUTS);
+  NumRows := (NumTools + 1) div 2;
+
   ClientWidth := 64;
-  ClientHeight := 241;
+  ClientHeight := PW_TITLEBAR_HEIGHT + NumRows * PW_TOOL_SIZE;
   Constraints.MinWidth := ClientWidth;
   Constraints.MaxWidth := ClientWidth;
   Constraints.MinHeight := ClientHeight;
@@ -181,12 +197,14 @@ begin
   if FileExists(SkinPath) then
     FToolBitmap.LoadFromFile(SkinPath);
 
-  SetLength(FButtons, Length(TOOL_LAYOUTS));
-  for I := Low(TOOL_LAYOUTS) to High(TOOL_LAYOUTS) do
+  SetLength(FButtons, NumTools);
+  for I := 0 to NumTools - 1 do
   begin
-    Button := TPWToolButton.Create(Self, FToolBitmap, TOOL_LAYOUTS[I].SlotIndex,
-      TOOL_LAYOUTS[I].ToolID, TOOL_LAYOUTS[I].RowIndex);
+    Button := TPWToolButton.Create(Self, FToolBitmap, TOOL_LAYOUTS[I].SlotPos,
+      TOOL_LAYOUTS[I].ToolID, TOOL_LAYOUTS[I].BmpRow);
     Button.Parent := Self;
+    Button.Hint := TOOL_LAYOUTS[I].Tooltip;
+    Button.ShowHint := True;
     Button.OnToolSelect := @HandleToolSelect;
     FButtons[I] := Button;
   end;

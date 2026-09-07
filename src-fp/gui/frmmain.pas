@@ -73,6 +73,7 @@ type
     procedure ViewportChanged(Sender: TObject);
 
     procedure HandleFirstShow(Sender: TObject);
+    procedure HandleClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure NewFile(Sender: TObject);
     procedure OpenFile(Sender: TObject);
     procedure SaveFile(Sender: TObject);
@@ -149,6 +150,7 @@ begin
   Font.Name := PW_PANEL_FONT_NAME;
   Font.Height := PW_MAIN_FONT_HEIGHT;
   OnShow := @HandleFirstShow;
+  OnClose := @HandleClose;
 
   FIniPath := ChangeFileExt(ParamStr(0), '.ini');
   LoadConfig(FIniPath, FCfg);
@@ -649,9 +651,32 @@ begin
     SaveDocumentTo(FSaveDialog.FileName, True);
 end;
 
+procedure TMainForm.HandleClose(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  // Prompt for unsaved changes
+  if FDoc.Modified then
+  begin
+    case Application.MessageBox(
+      PChar('The current map has unsaved changes. Quit anyway?'),
+      PChar('PolyWorks'), MB_YESNO or MB_ICONQUESTION) of
+      IDNO:
+      begin
+        CloseAction := caNone;
+        Exit;
+      end;
+    end;
+  end;
+  // Release OpenGL resources while context is still valid
+  if FViewport <> nil then
+    FViewport.FreeResources;
+  CloseAction := caFree;
+  // Ensure the process actually terminates
+  Application.Terminate;
+end;
+
 procedure TMainForm.QuitApp(Sender: TObject);
 begin
-  Close;
+  Close; // will trigger HandleClose
 end;
 
 procedure TMainForm.UndoAction(Sender: TObject);

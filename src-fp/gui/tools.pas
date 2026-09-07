@@ -9,6 +9,7 @@ uses
   pw.types, pw.map, pw.undo, pw.geometry;
 
 const
+  // Core editing tools (internal IDs — NOT the same as VB6 TOOL_* constants)
   TOOL_SELECT     = 0;
   TOOL_POLY       = 1;
   TOOL_SCENERY    = 2;
@@ -18,6 +19,37 @@ const
   TOOL_COLLIDER   = 6;
   TOOL_LIGHT      = 7;
   TOOL_SKETCH     = 8;
+  // Additional tools matching original PolyWorks VB6 panel
+  TOOL_VSELECT    = 9;   // Vertex Selection
+  TOOL_PSELECT    = 10;  // Polygon Selection
+  TOOL_VCOLOR     = 11;  // Vertex Color
+  TOOL_PCOLOR     = 12;  // Poly Color
+  TOOL_TEXEDIT    = 13;  // Texture UV edit
+  TOOL_COLORPICK  = 14;  // Color Picker
+  TOOL_DEPTHMAP   = 15;  // Depth Map
+
+  TOOL_MAX        = TOOL_DEPTHMAP;
+
+  // Bitmap row in tool_gfx.bmp for each tool ID
+  // The skin has 14 rows (0–13) matching original VB6 tool order
+  TOOL_BITMAP_ROW: array[0..TOOL_MAX] of Integer = (
+    0,  // TOOL_SELECT    → row 0 (Transform)
+    1,  // TOOL_POLY      → row 1 (Poly Creation)
+    7,  // TOOL_SCENERY   → row 7 (Scenery)
+    9,  // TOOL_SPAWN     → row 9 (Objects)
+    8,  // TOOL_WAYPOINT  → row 8 (Waypoints)
+    0,  // TOOL_CONNECTION → row 0 (reuse select icon; no dedicated row)
+    0,  // TOOL_COLLIDER  → row 0 (reuse)
+    12, // TOOL_LIGHT     → row 12 (Lights)
+    11, // TOOL_SKETCH    → row 11 (Sketch)
+    2,  // TOOL_VSELECT   → row 2 (Vertex Selection)
+    3,  // TOOL_PSELECT   → row 3 (Poly Selection)
+    4,  // TOOL_VCOLOR    → row 4 (Vertex Color)
+    5,  // TOOL_PCOLOR    → row 5 (Poly Color)
+    6,  // TOOL_TEXEDIT   → row 6 (Texture)
+    10, // TOOL_COLORPICK → row 10 (Color Picker)
+    13  // TOOL_DEPTHMAP  → row 13 (Depth Map)
+  );
 
   DEFAULT_HIT_PIXELS = 8.0;
   DEFAULT_LIGHT_RANGE = 300;
@@ -76,15 +108,26 @@ type
 
   TSelectTool = class(TBaseTool, ITool, IToolOverlay)
   private
-    FDragging: Boolean;
-    FDragged: Boolean;
-    FStartWorld: TVector2;
-    FCurrentWorld: TVector2;
+    // Drag-mode state machine
+    type TDragMode = (dmIdle, dmSelecting, dmMoving);
+    var
+    FDragMode: TDragMode;
     FSelectMode: TSelMode;
+    // For rubber-band selection (dmSelecting)
+    FSelStart: TVector2;
+    FSelCurrent: TVector2;
+    FSelDragged: Boolean;
+    // For object move (dmMoving)
+    FMoveStart: TVector2;
+    FMoveLast: TVector2;
+    FUndoPushed: Boolean;
+    FUndoRef: TUndoStack;
+
     procedure SetPolySelection(var P: TEditorPoly; Mode: TSelMode);
     function TryHitVertexOrObject(Doc: TMapDocument; WX, WY, Tol: Single;
       out HitKind: THitKind; out Index1, Index2: Integer): Boolean;
     function TryHitPolygonBody(Doc: TMapDocument; WX, WY: Single; out PolyIdx: Integer): Boolean;
+    function HitSelected(Doc: TMapDocument; WX, WY: Single): Boolean;
     procedure SelectAtPoint(Doc: TMapDocument; WX, WY: Single; Mode: TSelMode);
   public
     procedure MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
@@ -181,6 +224,51 @@ type
     procedure RenderOverlay(Doc: TMapDocument; ViewW, ViewH: Integer);
   end;
 
+  { Stub tools — basic select behavior until full implementation }
+  TVertexSelectTool = class(TSelectTool)
+  public
+    function CursorForState: TCursor; override;
+  end;
+
+  TPolySelectTool = class(TSelectTool)
+  public
+    procedure MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+                        WX, WY: Single; Button: TMouseButton;
+                        Shift: TShiftState; Repaint: TNotifyEvent); override;
+    function CursorForState: TCursor; override;
+  end;
+
+  TVertexColorTool = class(TBaseTool)
+  public
+    procedure MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+                        WX, WY: Single; Button: TMouseButton;
+                        Shift: TShiftState; Repaint: TNotifyEvent); override;
+    function CursorForState: TCursor; override;
+  end;
+
+  TPolyColorTool = class(TBaseTool)
+  public
+    procedure MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+                        WX, WY: Single; Button: TMouseButton;
+                        Shift: TShiftState; Repaint: TNotifyEvent); override;
+    function CursorForState: TCursor; override;
+  end;
+
+  TTexEditTool = class(TBaseTool)
+  public
+    function CursorForState: TCursor; override;
+  end;
+
+  TColorPickTool = class(TBaseTool)
+  public
+    function CursorForState: TCursor; override;
+  end;
+
+  TDepthMapTool = class(TBaseTool)
+  public
+    function CursorForState: TCursor; override;
+  end;
+
 procedure DrawDashedRect(X1, Y1, X2, Y2: Single);
 begin
   glDisable(GL_TEXTURE_2D);
@@ -214,14 +302,21 @@ end;
 function CreateToolByID(ToolID: Integer): ITool;
 begin
   case ToolID of
-    TOOL_SELECT:   Result := TSelectTool.Create;
-    TOOL_POLY:     Result := TPolyTool.Create;
-    TOOL_SCENERY:  Result := TSceneryTool.Create;
-    TOOL_SPAWN:    Result := TSpawnTool.Create;
-    TOOL_WAYPOINT: Result := TWaypointTool.Create;
-    TOOL_COLLIDER: Result := TColliderTool.Create;
-    TOOL_LIGHT:    Result := TLightTool.Create;
-    TOOL_SKETCH:   Result := TSketchTool.Create;
+    TOOL_SELECT:     Result := TSelectTool.Create;
+    TOOL_POLY:       Result := TPolyTool.Create;
+    TOOL_SCENERY:    Result := TSceneryTool.Create;
+    TOOL_SPAWN:      Result := TSpawnTool.Create;
+    TOOL_WAYPOINT:   Result := TWaypointTool.Create;
+    TOOL_COLLIDER:   Result := TColliderTool.Create;
+    TOOL_LIGHT:      Result := TLightTool.Create;
+    TOOL_SKETCH:     Result := TSketchTool.Create;
+    TOOL_VSELECT:    Result := TVertexSelectTool.Create;
+    TOOL_PSELECT:    Result := TPolySelectTool.Create;
+    TOOL_VCOLOR:     Result := TVertexColorTool.Create;
+    TOOL_PCOLOR:     Result := TPolyColorTool.Create;
+    TOOL_TEXEDIT:    Result := TTexEditTool.Create;
+    TOOL_COLORPICK:  Result := TColorPickTool.Create;
+    TOOL_DEPTHMAP:   Result := TDepthMapTool.Create;
   else
     Result := nil;
   end;
@@ -349,6 +444,105 @@ begin
   Result := PolyIdx >= 0;
 end;
 
+{ Returns True if (WX,WY) is near any SELECTED vertex/object.
+  Used to decide: start move, or start rubber-band. }
+function TSelectTool.HitSelected(Doc: TMapDocument; WX, WY: Single): Boolean;
+var
+  I, J: Integer;
+  Tol2, DX, DY: Single;
+  Tol: Single;
+begin
+  Result := False;
+  if Doc = nil then Exit;
+  Tol := WorldHitRadius(Doc);
+  Tol2 := Tol * Tol;
+
+  for I := 0 to Doc.PolyCount - 1 do
+    for J := 1 to 3 do
+      if Doc.Polys[I].Selected[J] then
+      begin
+        DX := Doc.Polys[I].V[J].World.X - WX;
+        DY := Doc.Polys[I].V[J].World.Y - WY;
+        if DX * DX + DY * DY <= Tol2 then
+        begin
+          Result := True;
+          Exit;
+        end;
+      end;
+
+  for I := 0 to Doc.SceneryCount - 1 do
+    if Doc.Scenery[I].Selected then
+    begin
+      DX := Doc.Scenery[I].X - WX;
+      DY := Doc.Scenery[I].Y - WY;
+      if DX * DX + DY * DY <= Tol2 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+
+  for I := 0 to Doc.SpawnCount - 1 do
+    if Doc.Spawns[I].Selected then
+    begin
+      DX := Doc.Spawns[I].X - WX;
+      DY := Doc.Spawns[I].Y - WY;
+      if DX * DX + DY * DY <= Tol2 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+
+  for I := 0 to Doc.ColliderCount - 1 do
+    if Doc.Colliders[I].Selected then
+    begin
+      DX := Doc.Colliders[I].X - WX;
+      DY := Doc.Colliders[I].Y - WY;
+      if DX * DX + DY * DY <= Tol2 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+
+  for I := 0 to Doc.WaypointCount - 1 do
+    if Doc.Waypoints[I].Selected then
+    begin
+      DX := Doc.Waypoints[I].X - WX;
+      DY := Doc.Waypoints[I].Y - WY;
+      if DX * DX + DY * DY <= Tol2 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+
+  for I := 0 to Doc.LightCount - 1 do
+    if Doc.Lights[I].Selected then
+    begin
+      DX := Doc.Lights[I].X - WX;
+      DY := Doc.Lights[I].Y - WY;
+      if DX * DX + DY * DY <= Tol2 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+
+  // Also check if click is inside a selected polygon body
+  for I := 0 to Doc.PolyCount - 1 do
+  begin
+    // Check if all 3 vertices are selected (poly body selected)
+    if Doc.Polys[I].Selected[1] and Doc.Polys[I].Selected[2] and Doc.Polys[I].Selected[3] then
+      if PointInPoly(WX, WY, Doc.Polys[I].V[1].World, Doc.Polys[I].V[2].World, Doc.Polys[I].V[3].World) then
+      begin
+        Result := True;
+        Exit;
+      end;
+  end;
+end;
+
 procedure TSelectTool.SelectAtPoint(Doc: TMapDocument; WX, WY: Single; Mode: TSelMode);
 var
   HitKind: THitKind;
@@ -402,75 +596,176 @@ end;
 
 procedure TSelectTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
   WX, WY: Single; Button: TMouseButton; Shift: TShiftState; Repaint: TNotifyEvent);
+var
+  HitKind: THitKind;
+  Index1, Index2: Integer;
+  Tol: Single;
 begin
   if (Doc = nil) or (Button <> mbLeft) then
     Exit;
 
-  FDragging := True;
-  FDragged := False;
+  Tol := WorldHitRadius(Doc);
+
+  // If clicking near an already-selected item → start a MOVE operation
+  if HitSelected(Doc, WX, WY) then
+  begin
+    FDragMode := dmMoving;
+    FMoveStart.X := WX;
+    FMoveStart.Y := WY;
+    FMoveLast.X := WX;
+    FMoveLast.Y := WY;
+    FUndoPushed := False;
+    FUndoRef := UndoStack;
+    DoRepaint(Repaint);
+    Exit;
+  end;
+
+  // If clicking near an unselected item → select it, then start move
+  if TryHitVertexOrObject(Doc, WX, WY, Tol, HitKind, Index1, Index2) or
+     TryHitPolygonBody(Doc, WX, WY, Index1) then
+  begin
+    // Select the hit item (replace selection unless modifier held)
+    FSelectMode := SelectModeFromShift(Shift);
+    SelectAtPoint(Doc, WX, WY, FSelectMode);
+    // Start move from the hit item
+    FDragMode := dmMoving;
+    FMoveStart.X := WX;
+    FMoveStart.Y := WY;
+    FMoveLast.X := WX;
+    FMoveLast.Y := WY;
+    FUndoPushed := False;
+    FUndoRef := UndoStack;
+    DoRepaint(Repaint);
+    Exit;
+  end;
+
+  // Clicked on empty space → start rubber-band selection
+  FDragMode := dmSelecting;
   FSelectMode := SelectModeFromShift(Shift);
-  FStartWorld.X := WX;
-  FStartWorld.Y := WY;
-  FCurrentWorld := FStartWorld;
+  FSelStart.X := WX;
+  FSelStart.Y := WY;
+  FSelCurrent := FSelStart;
+  FSelDragged := False;
+  if FSelectMode = smReplace then
+    Doc.ClearSelection;
   DoRepaint(Repaint);
 end;
 
 procedure TSelectTool.MouseMove(Doc: TMapDocument; WX, WY: Single;
   Shift: TShiftState; Repaint: TNotifyEvent);
+const
+  kMoveTolerance = 2.0;
 var
-  Tol: Single;
+  DX, DY: Single;
+  WTol: Single;
 begin
-  if not FDragging then
-    Exit;
+  case FDragMode of
+    dmMoving:
+    begin
+      DX := WX - FMoveLast.X;
+      DY := WY - FMoveLast.Y;
+      // Only start actually moving after the user drags far enough
+      if not FUndoPushed then
+      begin
+        if Doc <> nil then
+          WTol := kMoveTolerance / Max(Doc.Zoom, 0.001)
+        else
+          WTol := kMoveTolerance;
+        if (Abs(WX - FMoveStart.X) > WTol) or (Abs(WY - FMoveStart.Y) > WTol) then
+        begin
+          // Push undo before first mutation
+          if (FUndoRef <> nil) and (Doc <> nil) then
+            FUndoRef.Push(Doc);
+          FUndoPushed := True;
+        end;
+      end;
+      if FUndoPushed and (Doc <> nil) and ((DX <> 0) or (DY <> 0)) then
+      begin
+        Doc.MoveSelectedWorld(DX, DY);
+        FMoveLast.X := WX;
+        FMoveLast.Y := WY;
+        DoRepaint(Repaint);
+      end;
+    end;
 
-  FCurrentWorld.X := WX;
-  FCurrentWorld.Y := WY;
-  Tol := 0.0;
-  if Doc <> nil then
-    Tol := 2.0 / Max(Doc.Zoom, 0.001);
-  if (Abs(FCurrentWorld.X - FStartWorld.X) > Tol) or
-     (Abs(FCurrentWorld.Y - FStartWorld.Y) > Tol) then
-    FDragged := True;
-  DoRepaint(Repaint);
+    dmSelecting:
+    begin
+      FSelCurrent.X := WX;
+      FSelCurrent.Y := WY;
+      if Doc <> nil then
+        WTol := kMoveTolerance / Max(Doc.Zoom, 0.001)
+      else
+        WTol := kMoveTolerance;
+      if (Abs(FSelCurrent.X - FSelStart.X) > WTol) or
+         (Abs(FSelCurrent.Y - FSelStart.Y) > WTol) then
+        FSelDragged := True;
+      DoRepaint(Repaint);
+    end;
+  end;
 end;
 
 procedure TSelectTool.MouseUp(Doc: TMapDocument; WX, WY: Single;
   Button: TMouseButton; Repaint: TNotifyEvent);
 begin
-  if (Doc = nil) or (Button <> mbLeft) or not FDragging then
+  if (Doc = nil) or (Button <> mbLeft) then
     Exit;
 
-  FCurrentWorld.X := WX;
-  FCurrentWorld.Y := WY;
-  if FDragged then
-    Doc.SelectByWorldRect(FStartWorld.X, FStartWorld.Y, FCurrentWorld.X, FCurrentWorld.Y, FSelectMode)
-  else
-    SelectAtPoint(Doc, WX, WY, FSelectMode);
+  case FDragMode of
+    dmMoving:
+    begin
+      // Move is already applied incrementally; nothing extra to do.
+      // If no actual movement occurred (just a click), treat as selection click.
+      if not FUndoPushed then
+        SelectAtPoint(Doc, WX, WY, smReplace);
+      FDragMode := dmIdle;
+      FUndoPushed := False;
+      DoRepaint(Repaint);
+    end;
 
-  FDragging := False;
-  FDragged := False;
-  DoRepaint(Repaint);
+    dmSelecting:
+    begin
+      FSelCurrent.X := WX;
+      FSelCurrent.Y := WY;
+      if FSelDragged then
+        Doc.SelectByWorldRect(FSelStart.X, FSelStart.Y, FSelCurrent.X, FSelCurrent.Y, FSelectMode)
+      else
+        SelectAtPoint(Doc, WX, WY, FSelectMode);
+      FDragMode := dmIdle;
+      FSelDragged := False;
+      DoRepaint(Repaint);
+    end;
+
+    dmIdle: ; // Nothing to do
+  end;
 end;
 
 procedure TSelectTool.Cancel(Doc: TMapDocument);
 begin
-  FDragging := False;
-  FDragged := False;
+  // If we were moving and pushed undo, revert to snapshot
+  if (FDragMode = dmMoving) and FUndoPushed and (FUndoRef <> nil) and (Doc <> nil) then
+    FUndoRef.Undo(Doc);
+  FDragMode := dmIdle;
+  FSelDragged := False;
+  FUndoPushed := False;
 end;
 
 function TSelectTool.CursorForState: TCursor;
 begin
-  Result := crDefault;
+  case FDragMode of
+    dmMoving: Result := crSizeAll;
+  else
+    Result := crDefault;
+  end;
 end;
 
 procedure TSelectTool.RenderOverlay(Doc: TMapDocument; ViewW, ViewH: Integer);
 var
   SX1, SY1, SX2, SY2: Single;
 begin
-  if (Doc = nil) or not FDragging or not FDragged then
+  if (Doc = nil) or (FDragMode <> dmSelecting) or not FSelDragged then
     Exit;
-  Doc.WorldToScreen(FStartWorld.X, FStartWorld.Y, SX1, SY1);
-  Doc.WorldToScreen(FCurrentWorld.X, FCurrentWorld.Y, SX2, SY2);
+  Doc.WorldToScreen(FSelStart.X, FSelStart.Y, SX1, SY1);
+  Doc.WorldToScreen(FSelCurrent.X, FSelCurrent.Y, SX2, SY2);
   DrawDashedRect(SX1, SY1, SX2, SY2);
 end;
 
@@ -768,6 +1063,91 @@ begin
   Doc.WorldToScreen(FStartWorld.X, FStartWorld.Y, SX1, SY1);
   Doc.WorldToScreen(FCurrentWorld.X, FCurrentWorld.Y, SX2, SY2);
   DrawDashedLine(SX1, SY1, SX2, SY2);
+end;
+
+// ---------------------------------------------------------------------------
+// Stub tools — additional panel tools with basic select fallback behavior
+// ---------------------------------------------------------------------------
+
+function TVertexSelectTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+// TPolySelectTool — selects whole polygon bodies only (no individual vertices)
+procedure TPolySelectTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+  WX, WY: Single; Button: TMouseButton; Shift: TShiftState; Repaint: TNotifyEvent);
+var
+  Mode: TSelMode;
+  PolyIdx: Integer;
+begin
+  if (Doc = nil) or (Button <> mbLeft) then
+    Exit;
+  Mode := SelectModeFromShift(Shift);
+  if Mode = smReplace then
+    Doc.ClearSelection;
+  if TryHitPolygonBody(Doc, WX, WY, PolyIdx) then
+  begin
+    case Mode of
+      smReplace, smAdd:
+      begin
+        Doc.Polys[PolyIdx].Selected[1] := True;
+        Doc.Polys[PolyIdx].Selected[2] := True;
+        Doc.Polys[PolyIdx].Selected[3] := True;
+      end;
+      smSubtract:
+      begin
+        Doc.Polys[PolyIdx].Selected[1] := False;
+        Doc.Polys[PolyIdx].Selected[2] := False;
+        Doc.Polys[PolyIdx].Selected[3] := False;
+      end;
+    end;
+  end;
+  DoRepaint(Repaint);
+end;
+
+function TPolySelectTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+// TVertexColorTool — placeholder; TODO: open color dialog and apply to selected vertices
+procedure TVertexColorTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+  WX, WY: Single; Button: TMouseButton; Shift: TShiftState; Repaint: TNotifyEvent);
+begin
+  // Stub: select vertex at click point for now
+end;
+
+function TVertexColorTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+// TPolyColorTool — placeholder; TODO: fill polygon color
+procedure TPolyColorTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+  WX, WY: Single; Button: TMouseButton; Shift: TShiftState; Repaint: TNotifyEvent);
+begin
+  // Stub: select polygon at click point for now
+end;
+
+function TPolyColorTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+function TTexEditTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+function TColorPickTool.CursorForState: TCursor;
+begin
+  Result := crCross;
+end;
+
+function TDepthMapTool.CursorForState: TCursor;
+begin
+  Result := crCross;
 end;
 
 end.

@@ -58,7 +58,7 @@ var
   OKButton: TButton;
   CancelButton: TButton;
 begin
-  inherited CreateNew(AOwner, 1);
+  inherited CreateNew(AOwner);
   BorderStyle := bsDialog;
   BorderIcons := [];
   Position := poScreenCenter;
@@ -239,7 +239,8 @@ function ShowMapPropertiesDialog(var Opts: TPMSOptions): Boolean;
 var
   Dialog: TMapPropertiesDialog;
 begin
-  Dialog := TMapPropertiesDialog.Create(nil);
+  Result := False;
+  Dialog := TMapPropertiesDialog.Create(Application);
   try
     Dialog.LoadFromOptions(Opts);
     Result := Dialog.ShowModal = mrOK;

@@ -15,12 +15,16 @@ type
   TMapViewport = class(TOpenGLControl)
   private
     FRenderer: TRenderer;
-    FTools: array[0..TOOL_SKETCH] of ITool;
+    FTools: array[0..TOOL_MAX] of ITool;
     FActiveTool: Integer;
     FLastMouseX: Integer;
     FLastMouseY: Integer;
     FSpaceDown: Boolean;   // Space held → pan mode
     FPanActive: Boolean;   // actually panning (space+LMB or middle mouse)
+    FRightDragPan: Boolean;   // right-drag panning (macOS-friendly)
+    FRightDownX: Integer;     // position where right button went down
+    FRightDownY: Integer;
+    FRightMoved: Boolean;     // did the right button drag far enough?
     FOnViewChanged: TNotifyEvent;
     FOnToolSelect: TToolSelectCallback;  // notify frmmain of tool key press
 
@@ -61,6 +65,7 @@ type
     procedure SetActiveTool(ToolID: Integer);
     function GetActiveTool: Integer;
     procedure RequestRepaint;
+    procedure FreeResources; // Call before context is destroyed
     procedure Paint; override;
 
     property Renderer: TRenderer read FRenderer;
@@ -139,10 +144,14 @@ begin
   // Screen.Cursors[id] is 0; fall back to a sensible built-in.
   {$IFNDEF WINDOWS}
   case ToolID of
-    TOOL_SELECT:               Result := crArrow;
+    TOOL_SELECT:                Result := crArrow;
+    TOOL_VSELECT, TOOL_PSELECT: Result := crCross;
     TOOL_POLY, TOOL_SCENERY,
     TOOL_SPAWN, TOOL_WAYPOINT,
-    TOOL_LIGHT, TOOL_SKETCH:   Result := crCross;
+    TOOL_COLLIDER, TOOL_LIGHT,
+    TOOL_SKETCH, TOOL_VCOLOR,
+    TOOL_PCOLOR, TOOL_TEXEDIT,
+    TOOL_COLORPICK, TOOL_DEPTHMAP: Result := crCross;
   else
     Result := crDefault;
   end;
@@ -151,9 +160,13 @@ begin
   begin
     case ToolID of
       TOOL_SELECT:               Result := crArrow;
+      TOOL_VSELECT, TOOL_PSELECT: Result := crCross;
       TOOL_POLY, TOOL_SCENERY,
       TOOL_SPAWN, TOOL_WAYPOINT,
-      TOOL_LIGHT, TOOL_SKETCH:   Result := crCross;
+      TOOL_COLLIDER, TOOL_LIGHT,
+      TOOL_SKETCH, TOOL_VCOLOR,
+      TOOL_PCOLOR, TOOL_TEXEDIT,
+      TOOL_COLORPICK, TOOL_DEPTHMAP: Result := crCross;
     else
       Result := crDefault;
     end;
@@ -409,6 +422,18 @@ begin
   Invalidate;
 end;
 
+procedure TMapViewport.FreeResources;
+begin
+  // Free OpenGL textures while the context is still valid.
+  // Must be called before the GL context is destroyed.
+  if MakeCurrent then
+  begin
+    if FRenderer <> nil then
+      FRenderer.FreeTextures;
+    ReleaseContext;
+  end;
+end;
+
 // ---------------------------------------------------------------------------
 // Input — mouse wheel
 // ---------------------------------------------------------------------------
@@ -520,10 +545,15 @@ begin
     case Key of
       Ord('M'): NewToolID := TOOL_SELECT;    // Transform/Move
       Ord('C'): NewToolID := TOOL_POLY;      // Create polygon
+      Ord('V'): NewToolID := TOOL_VSELECT;   // Vertex Selection
+      Ord('P'): NewToolID := TOOL_PSELECT;   // Poly Selection
+      Ord('E'): NewToolID := TOOL_VCOLOR;    // Vertex Color
+      Ord('R'): NewToolID := TOOL_PCOLOR;    // Poly Color
       Ord('Y'): NewToolID := TOOL_SCENERY;   // Scenery
       Ord('O'): NewToolID := TOOL_SPAWN;     // Objects/Spawn
       Ord('T'): NewToolID := TOOL_WAYPOINT;  // Waypoints
       Ord('L'): NewToolID := TOOL_LIGHT;     // Lights
+      Ord(','): NewToolID := TOOL_COLORPICK; // Color Picker
       Ord('.'): NewToolID := TOOL_SKETCH;    // Sketch
     end;
     if NewToolID >= 0 then
@@ -652,25 +682,20 @@ begin
   FLastMouseY := Y;
 
   // Middle mouse or Space+Left → start panning
-  if (Button = mbMiddle) or (Button = mbLeft) and FSpaceDown then
+  if (Button = mbMiddle) or ((Button = mbLeft) and FSpaceDown) then
   begin
     FPanActive := True;
     ApplyCursor;
     Exit;
   end;
 
-  // Right click → context menu
+  // Right button: track position; decide context menu vs pan on MouseUp
   if Button = mbRight then
   begin
-    // Cancel any in-progress tool action on right click
-    Tool := ActiveToolRef;
-    if Tool <> nil then
-      Tool.Cancel(Doc);
-    RequestRepaint;
-    FContextMenu.PopupComponent := Self;
-    FContextMenu.Popup(
-      Self.ClientToScreen(Point(X, Y)).X,
-      Self.ClientToScreen(Point(X, Y)).Y);
+    FRightDownX := X;
+    FRightDownY := Y;
+    FRightMoved := False;
+    FRightDragPan := False;
     Exit;
   end;
 
@@ -692,17 +717,49 @@ var
   Tool: ITool;
   WX, WY: Single;
   DX, DY: Integer;
+const
+  RightDragThreshold = 4;
 begin
   inherited MouseMove(Shift, X, Y);
   DX := X - FLastMouseX;
   DY := Y - FLastMouseY;
 
-  // Pan: middle mouse or space+left drag
+  // Right-button drag → initiate or continue pan
+  if (ssRight in Shift) and not FPanActive then
+  begin
+    if not FRightMoved then
+    begin
+      if (Abs(X - FRightDownX) > RightDragThreshold) or
+         (Abs(Y - FRightDownY) > RightDragThreshold) then
+      begin
+        FRightMoved := True;
+        FRightDragPan := True;
+        // Cancel any in-progress tool action
+        Tool := ActiveToolRef;
+        if Tool <> nil then
+          Tool.Cancel(Doc);
+      end;
+    end;
+    if FRightDragPan and (Doc <> nil) and (Doc.Zoom > 0.0001) then
+    begin
+      Doc.Scroll(-DX / Doc.Zoom, -DY / Doc.Zoom);
+      RequestRepaint;
+      NotifyViewChanged;
+      FLastMouseX := X;
+      FLastMouseY := Y;
+      Exit;
+    end;
+  end;
+
+  // Middle/Space+Left pan
   if FPanActive and (Doc <> nil) and (Doc.Zoom > 0.0001) then
   begin
     Doc.Scroll(-DX / Doc.Zoom, -DY / Doc.Zoom);
     RequestRepaint;
     NotifyViewChanged;
+    FLastMouseX := X;
+    FLastMouseY := Y;
+    Exit; // don't forward to tool during pan
   end;
 
   FLastMouseX := X;
@@ -730,11 +787,34 @@ begin
   FLastMouseX := X;
   FLastMouseY := Y;
 
-  // End pan
+  // End middle/Space pan
   if (Button = mbMiddle) or ((Button = mbLeft) and FPanActive) then
   begin
     FPanActive := False;
     ApplyCursor;
+    Exit;
+  end;
+
+  // End right-button: show context menu if no drag occurred
+  if Button = mbRight then
+  begin
+    if FRightDragPan then
+    begin
+      FRightDragPan := False;
+      FRightMoved := False;
+    end
+    else
+    begin
+      // No drag → context menu
+      Tool := ActiveToolRef;
+      if Tool <> nil then
+        Tool.Cancel(Doc);
+      RequestRepaint;
+      FContextMenu.PopupComponent := Self;
+      FContextMenu.Popup(
+        Self.ClientToScreen(Point(X, Y)).X,
+        Self.ClientToScreen(Point(X, Y)).Y);
+    end;
     Exit;
   end;
 
