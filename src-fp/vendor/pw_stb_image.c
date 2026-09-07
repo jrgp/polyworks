@@ -1,9 +1,12 @@
 /*
  * pw_stb_image.c — thin C wrapper around stb_image for PolyWorks.
  *
- * Compiled as a static library and linked from Pascal.
- * Build: gcc -O2 -c pw_stb_image.c -o pw_stb_image.o
- *        ar rcs libpw_stb_image.a pw_stb_image.o
+ * stb_image.h is vendored in this same directory (src-fp/vendor/stb_image.h).
+ * MIT / Public Domain — see stb_image.h header for full license text.
+ *
+ * Build:
+ *   cc -O2 -I. -c pw_stb_image.c -o pw_stb_image.o
+ *   ar rcs libpw_stb_image.a pw_stb_image.o
  */
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -13,7 +16,7 @@
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_GIF
 
-#include <stb/stb_image.h>
+#include "stb_image.h"
 
 /* Load an image from file.
  * Returns pixel data as RGBA (4 bytes per pixel), NULL on failure.

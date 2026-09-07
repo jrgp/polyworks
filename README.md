@@ -57,12 +57,43 @@ src-fp/
 maps/            Real Soldat map fixtures (regression testing)
 polyworks.lpi    Lazarus project file
 polyworks.lpr    Application entry point
-build.sh         Build script
+build.sh         Linux/generic build script
+build-mac.sh     macOS build script (zero manual intervention)
 test.sh          Test runner
+scripts/         Shared build helpers
 arch.md          Reverse-engineered VB6 architecture documentation
 plan.md          Implementation roadmap
 progress.md      Current implementation status
 decisions.md     Architecture and compatibility decisions
+```
+
+### Building on macOS
+
+```sh
+./build-mac.sh
+```
+
+That's it. The script:
+
+- Detects or installs [Homebrew](https://brew.sh)
+- Detects or installs Free Pascal via Homebrew (`brew install fpc`)
+- Locates Lazarus / `lazbuild` in standard macOS paths
+- Builds the vendored `stb_image` C wrapper (no external headers needed)
+- Runs the full headless test suite
+- Builds the application with `lazbuild`
+- Creates `build/PolyWorks.app` (runnable from Finder or Terminal)
+
+**One unavoidable manual step:** Lazarus has no Homebrew formula.
+If it isn't found, the script prints a single actionable error.
+Download the macOS installer from https://lazarus-ide.org, drag it to
+`~/Applications` or `/Applications`, then re-run `./build-mac.sh`.
+
+```sh
+# Run from Terminal
+./build/polyworks
+
+# Or open the .app bundle
+open build/PolyWorks.app
 ```
 
 ---

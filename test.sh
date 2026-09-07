@@ -1,36 +1,44 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test.sh — Build and run the PolyWorks headless test suite.
 # Usage: ./test.sh [--verbose]
+# Works on Linux and macOS.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_CORE="$SCRIPT_DIR/src-fp/core"
-SRC_TESTS="$SCRIPT_DIR/src-fp/tests"
-BUILD_DIR="$SCRIPT_DIR/build/tests"
-BINARY="$BUILD_DIR/polyworks_tests"
+REPO="$SCRIPT_DIR"
 
-mkdir -p "$BUILD_DIR"
+# shellcheck source=scripts/common.sh
+source "$REPO/scripts/common.sh"
 
-echo "=== Building PolyWorks test suite ==="
-fpc \
+require_cmd fpc "Install Free Pascal: https://freepascal.org"
+FPC="$(command -v fpc)"
+
+VERBOSE="${1:-}"
+
+pw_print "PolyWorks headless test suite"
+pw_ok "FPC: $FPC ($("$FPC" -iV))"
+
+mkdir -p "$TESTS_BIN_DIR"
+
+pw_print "Compiling tests"
+"$FPC" \
   -Fu"$SRC_CORE" \
   -Fu"$SRC_TESTS" \
-  -FU"$BUILD_DIR" \
-  -FE"$BUILD_DIR" \
-  -O2 \
-  -g \
-  "$SRC_TESTS/polyworks_tests.pas" \
-  2>&1
+  -FU"$TESTS_BIN_DIR" \
+  -FE"$TESTS_BIN_DIR" \
+  -O2 -g \
+  "$SRC_TESTS/polyworks_tests.pas" 2>&1
 
 echo ""
-echo "=== Running tests ==="
+pw_print "Running tests"
+BINARY="$TESTS_BIN_DIR/polyworks_tests"
 cd "$SRC_TESTS"
-if [[ "${1:-}" == "--verbose" ]]; then
-  "$BINARY" --all --format=plain
+if [[ "$VERBOSE" == "--verbose" ]]; then
+    "$BINARY" --all --format=plain
 else
-  "$BINARY" --all
+    "$BINARY" --all
 fi
 
 echo ""
-echo "Done."
+pw_ok "Done."
