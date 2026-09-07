@@ -81,6 +81,11 @@ type
     procedure DeleteSelected;
     procedure SetSelectedPolyType(Kind: Byte);
     procedure SnapSelectedToGrid(GridSize: Single);
+    procedure DuplicateSelected(OffsetX, OffsetY: Single);
+    procedure CopySelected;
+    procedure PasteClipboard;
+    procedure InvertSelection;
+    procedure SelectByColor;
   end;
 
 implementation
@@ -1086,6 +1091,87 @@ begin
     Modified := True;
     RebuildScreenCache;
   end;
+end;
+
+procedure TMapDocument.DuplicateSelected(OffsetX, OffsetY: Single);
+var
+  I, J, OldPolyCount, OldSceneryCount: Integer;
+  NewPoly: TEditorPoly;
+  NewScen: TEditorScenery;
+begin
+  OldPolyCount    := PolyCount;
+  OldSceneryCount := SceneryCount;
+
+  for I := 0 to OldPolyCount - 1 do
+    if PolyAnySelected(Polys[I]) then
+    begin
+      NewPoly := Polys[I];
+      for J := 1 to 3 do
+      begin
+        NewPoly.V[J].World.X := NewPoly.V[J].World.X + OffsetX;
+        NewPoly.V[J].World.Y := NewPoly.V[J].World.Y + OffsetY;
+      end;
+      if PolyCount >= Length(Polys) then
+        SetLength(Polys, Max(8, PolyCount * 2));
+      Polys[PolyCount] := NewPoly;
+      Inc(PolyCount);
+    end;
+
+  for I := 0 to OldSceneryCount - 1 do
+    if Scenery[I].Selected then
+    begin
+      NewScen := Scenery[I];
+      NewScen.X := NewScen.X + OffsetX;
+      NewScen.Y := NewScen.Y + OffsetY;
+      if SceneryCount >= Length(Scenery) then
+        SetLength(Scenery, Max(8, SceneryCount * 2));
+      Scenery[SceneryCount] := NewScen;
+      Inc(SceneryCount);
+    end;
+
+  { Clear original selection; select only the new duplicates }
+  for I := 0 to OldPolyCount - 1 do
+    for J := 1 to 3 do
+      Polys[I].Selected[J] := False;
+  for I := 0 to OldSceneryCount - 1 do
+    Scenery[I].Selected := False;
+
+  Modified := True;
+  RebuildScreenCache;
+end;
+
+procedure TMapDocument.CopySelected;
+begin
+  { Clipboard copy — not yet implemented }
+end;
+
+procedure TMapDocument.PasteClipboard;
+begin
+  { Clipboard paste — not yet implemented }
+end;
+
+procedure TMapDocument.InvertSelection;
+var
+  I, J: Integer;
+begin
+  for I := 0 to PolyCount - 1 do
+    for J := 1 to 3 do
+      Polys[I].Selected[J] := not Polys[I].Selected[J];
+  for I := 0 to SceneryCount - 1 do
+    Scenery[I].Selected := not Scenery[I].Selected;
+  for I := 0 to SpawnCount - 1 do
+    Spawns[I].Selected := not Spawns[I].Selected;
+  for I := 0 to ColliderCount - 1 do
+    Colliders[I].Selected := not Colliders[I].Selected;
+  for I := 0 to WaypointCount - 1 do
+    Waypoints[I].Selected := not Waypoints[I].Selected;
+  for I := 0 to LightCount - 1 do
+    Lights[I].Selected := not Lights[I].Selected;
+end;
+
+procedure TMapDocument.SelectByColor;
+begin
+  { Select all vertices matching the current painting color — not yet implemented }
 end;
 
 end.

@@ -507,16 +507,53 @@ begin
           end;
           Key := 0; Exit;
         end;
-      VK_A:  // Select All
+      VK_A:  // Select All [Ctrl+A]
         begin
           OnContextMenuSelectAll(nil);
           Key := 0; Exit;
         end;
-      VK_D:  // Deselect All
+      VK_D:  // Duplicate [Ctrl+D]  (NOT deselect — that's Escape)
         begin
-          Doc.ClearSelection;
+          if HasSelection and (UndoStack <> nil) then
+          begin
+            UndoStack.Push(Doc);
+            Doc.DuplicateSelected(32, 32);
+            RequestRepaint;
+            NotifyViewChanged;
+          end;
+          Key := 0; Exit;
+        end;
+      VK_C:  // Copy [Ctrl+C]
+        begin
+          Doc.CopySelected;
+          Key := 0; Exit;
+        end;
+      VK_V:  // Paste [Ctrl+V]
+        begin
+          if UndoStack <> nil then UndoStack.Push(Doc);
+          Doc.PasteClipboard;
           RequestRepaint;
           NotifyViewChanged;
+          Key := 0; Exit;
+        end;
+      VK_I:  // Invert Selection [Ctrl+I]
+        begin
+          Doc.InvertSelection;
+          RequestRepaint;
+          NotifyViewChanged;
+          Key := 0; Exit;
+        end;
+      VK_B:  // Select By Color [Ctrl+B]
+        begin
+          Doc.SelectByColor;
+          RequestRepaint;
+          NotifyViewChanged;
+          Key := 0; Exit;
+        end;
+      Ord(''''), $DE, $C0:  // Ctrl+' → toggle grid (VK_OEM_7 or VK_OEM_3)
+        begin
+          ViewSettings.ShowGrid := not ViewSettings.ShowGrid;
+          RequestRepaint;
           Key := 0; Exit;
         end;
       Ord('='), $BB:  // Ctrl+= or Ctrl++ → zoom in (VK_OEM_PLUS=$BB)
@@ -529,7 +566,7 @@ begin
           ZoomBy(0.5);
           Key := 0; Exit;
         end;
-      Ord('0'), VK_NUMPAD0:   // Ctrl+0 → reset zoom
+      Ord('0'), VK_NUMPAD0:   // Ctrl+0 → reset zoom + center view
         begin
           ZoomReset;
           Key := 0; Exit;
@@ -538,23 +575,26 @@ begin
     Exit;  // don't process any Ctrl+other as tool key
   end;
 
-  // --- Tool selection hotkeys (no modifier) ---
+  // --- Tool selection hotkeys per Help.html (no modifier) ---
   if (Shift * [ssCtrl, ssAlt]) = [] then
   begin
     NewToolID := -1;
     case Key of
-      Ord('M'): NewToolID := TOOL_SELECT;    // Transform/Move
-      Ord('C'): NewToolID := TOOL_POLY;      // Create polygon
-      Ord('V'): NewToolID := TOOL_VSELECT;   // Vertex Selection
-      Ord('P'): NewToolID := TOOL_PSELECT;   // Poly Selection
-      Ord('E'): NewToolID := TOOL_VCOLOR;    // Vertex Color
-      Ord('R'): NewToolID := TOOL_PCOLOR;    // Poly Color
-      Ord('Y'): NewToolID := TOOL_SCENERY;   // Scenery
-      Ord('O'): NewToolID := TOOL_SPAWN;     // Objects/Spawn
-      Ord('T'): NewToolID := TOOL_WAYPOINT;  // Waypoints
-      Ord('L'): NewToolID := TOOL_LIGHT;     // Lights
-      Ord(','): NewToolID := TOOL_COLORPICK; // Color Picker
-      Ord('.'): NewToolID := TOOL_SKETCH;    // Sketch
+      // Help.html canonical bindings:
+      Ord('A'): NewToolID := TOOL_SELECT;     // Transform [A]
+      Ord('Q'): NewToolID := TOOL_POLY;       // Poly Creation [Q]
+      Ord('S'): NewToolID := TOOL_VSELECT;    // Vertex Selection [S]
+      Ord('W'): NewToolID := TOOL_PSELECT;    // Poly Selection [W]
+      Ord('D'): NewToolID := TOOL_VCOLOR;     // Vertex Color [D]
+      Ord('E'): NewToolID := TOOL_PCOLOR;     // Poly Color [E]
+      Ord('F'): NewToolID := TOOL_TEXEDIT;    // Texture [F]
+      Ord('R'): NewToolID := TOOL_SCENERY;    // Scenery [R]
+      Ord('G'): NewToolID := TOOL_WAYPOINT;   // Waypoints [G]
+      Ord('T'): NewToolID := TOOL_SPAWN;      // Objects [T]
+      Ord('H'): NewToolID := TOOL_COLORPICK;  // Color Picker [H]
+      Ord('Z'): NewToolID := TOOL_SKETCH;     // Sketch [Z]
+      Ord('J'): NewToolID := TOOL_LIGHT;      // Lights [J]
+      Ord('U'): NewToolID := TOOL_DEPTHMAP;   // Depth Map [U]
     end;
     if NewToolID >= 0 then
     begin
@@ -584,11 +624,15 @@ begin
     end;
   end;
 
-  // --- Numpad zoom ---
+  // --- Numpad zoom and plain +/-/* zoom (Help.html: + and - keys, * for 100%) ---
   case Key of
     VK_ADD:      begin ZoomBy(2.0);  Key := 0; Exit; end;
     VK_SUBTRACT: begin ZoomBy(0.5);  Key := 0; Exit; end;
     VK_MULTIPLY: begin ZoomReset;    Key := 0; Exit; end;
+    Ord('+'): if (Shift * [ssCtrl, ssAlt]) = [] then begin ZoomBy(2.0); Key := 0; Exit; end;
+    Ord('-'): if (Shift * [ssCtrl, ssAlt]) = [] then begin ZoomBy(0.5); Key := 0; Exit; end;
+    Ord('*'): if (Shift * [ssCtrl, ssAlt]) = [] then begin ZoomReset;   Key := 0; Exit; end;
+    VK_F5:   begin RequestRepaint; Key := 0; Exit; end;  // Refresh [F5]
   end;
 
   // --- Escape: cancel current tool action ---

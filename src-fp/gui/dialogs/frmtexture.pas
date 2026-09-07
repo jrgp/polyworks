@@ -36,8 +36,8 @@ end;
 
 constructor TTextureBrowserDialog.Create(AOwner: TComponent);
 begin
-  inherited CreateNew(AOwner, 1);
-  BorderStyle := bsDialog;
+  inherited CreateNew(AOwner);
+  BorderStyle := bsSingle; // bsDialog creates NSPanel on macOS (lclSyncCheck crash workaround)
   BorderIcons := [];
   Position := poScreenCenter;
   Caption := 'Texture Browser';

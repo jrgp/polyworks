@@ -310,8 +310,38 @@ begin
   end;
 end;
 {$ELSE}
+
+{ On Linux/macOS, search common OpenSoldat installation directories }
+function TryDir(const D: string): Boolean;
+begin
+  Result := DirectoryExists(D) and
+            (FileExists(D + 'textures/') or
+             DirectoryExists(D + PathDelim + 'textures'));
+end;
+
 begin
   Result := '';
+  { Steam on Linux }
+  if TryDir(GetEnvironmentVariable('HOME') + '/.steam/steam/steamapps/common/opensoldat/') then
+    Exit(GetEnvironmentVariable('HOME') + '/.steam/steam/steamapps/common/opensoldat/');
+  if TryDir(GetEnvironmentVariable('HOME') + '/.steam/steam/steamapps/common/Soldat/') then
+    Exit(GetEnvironmentVariable('HOME') + '/.steam/steam/steamapps/common/Soldat/');
+
+  { Flatpak Proton / Heroic on Linux }
+  if TryDir(GetEnvironmentVariable('HOME') + '/.local/share/opensoldat/') then
+    Exit(GetEnvironmentVariable('HOME') + '/.local/share/opensoldat/');
+
+  { macOS: Application Support }
+  {$IFDEF DARWIN}
+  if TryDir(GetEnvironmentVariable('HOME') + '/Library/Application Support/opensoldat/') then
+    Exit(GetEnvironmentVariable('HOME') + '/Library/Application Support/opensoldat/');
+  if TryDir('/Applications/OpenSoldat.app/Contents/Resources/') then
+    Exit('/Applications/OpenSoldat.app/Contents/Resources/');
+  {$ENDIF}
+
+  { Generic: next to the PolyWorks binary }
+  if TryDir(ExtractFileDir(ParamStr(0)) + PathDelim) then
+    Exit(IncludeTrailingPathDelimiter(ExtractFileDir(ParamStr(0))));
 end;
 {$ENDIF}
 

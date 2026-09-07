@@ -21,7 +21,11 @@ type
     FStepsCombo: TComboBox;
     FTopColorButton: TButton;
     FBottomColorButton: TButton;
-    FOpenDialog: TOpenDialog;
+    { FOpenDialog is intentionally NOT created in the constructor.
+      On macOS Cocoa (Lazarus 2.x), creating TOpenDialog/NSOpenPanel during
+      form construction can corrupt the Cocoa event routing and cause the
+      lclSyncCheck: unrecognized-selector crash when ShowModal is called.
+      Create it lazily in BrowseTexture and free it immediately after use. }
     FTopColor: LongWord;
     FBottomColor: LongWord;
     procedure BrowseTexture(Sender: TObject);
@@ -59,8 +63,10 @@ var
   CancelButton: TButton;
 begin
   inherited CreateNew(AOwner);
-  BorderStyle := bsDialog;
-  BorderIcons := [];
+  // bsSingle creates a plain NSWindow on Cocoa; bsDialog creates NSPanel
+  // which has subtle differences in macOS modal event-loop handling.
+  BorderStyle := bsSingle;
+  BorderIcons := [biSystemMenu];
   Position := poScreenCenter;
   Caption := 'Map Properties';
   ClientWidth := 420;
@@ -172,18 +178,25 @@ begin
   CancelButton.ModalResult := mrCancel;
   CancelButton.Cancel := True;
 
-  FOpenDialog := TOpenDialog.Create(Self);
-  FOpenDialog.Filter := 'Image files|*.bmp;*.png|Bitmap files|*.bmp|PNG files|*.png|All files|*.*';
-
   FTopColor := $FF000000;
   FBottomColor := $FF000000;
   UpdateColorButtons;
 end;
 
 procedure TMapPropertiesDialog.BrowseTexture(Sender: TObject);
+var
+  Dlg: TOpenDialog;
 begin
-  if FOpenDialog.Execute then
-    FTextureNameEdit.Text := ExtractFileName(FOpenDialog.FileName);
+  { Create TOpenDialog lazily to avoid triggering Cocoa NSOpenPanel
+    initialization during form construction (macOS lclSyncCheck: crash). }
+  Dlg := TOpenDialog.Create(Self);
+  try
+    Dlg.Filter := 'Image files|*.bmp;*.png|Bitmap files|*.bmp|PNG files|*.png|All files|*.*';
+    if Dlg.Execute then
+      FTextureNameEdit.Text := ExtractFileName(Dlg.FileName);
+  finally
+    Dlg.Free;
+  end;
 end;
 
 procedure TMapPropertiesDialog.PickTopColor(Sender: TObject);

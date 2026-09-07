@@ -5,7 +5,7 @@ unit frmmain;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Dialogs, Menus, ComCtrls, LCLType,
+  Classes, SysUtils, Math, Forms, Controls, Dialogs, Menus, ComCtrls, LCLType,
   viewport, tools, renderer,
   pw.types, pw.utils, pw.map, pw.undo, pw.pms, pw.config,
   frmmap, frmpreferences, frmtools, frminfo, frmdisplay, frmscenery,
@@ -83,14 +83,21 @@ type
 
     procedure UndoAction(Sender: TObject);
     procedure RedoAction(Sender: TObject);
+    procedure DuplicateAction(Sender: TObject);
+    procedure CopyAction(Sender: TObject);
+    procedure PasteAction(Sender: TObject);
     procedure SelectAllAction(Sender: TObject);
     procedure DeselectAllAction(Sender: TObject);
+    procedure InvertSelectionAction(Sender: TObject);
+    procedure SelectByColorAction(Sender: TObject);
     procedure DeleteAction(Sender: TObject);
 
     procedure ToggleViewOption(Sender: TObject);
+    procedure ToggleGridAction(Sender: TObject);
     procedure ZoomInAction(Sender: TObject);
     procedure ZoomOutAction(Sender: TObject);
     procedure ResetZoomAction(Sender: TObject);
+    procedure FitOnScreenAction(Sender: TObject);
 
     procedure MapPropertiesAction(Sender: TObject);
     procedure PreferencesAction(Sender: TObject);
@@ -140,7 +147,7 @@ end;
 
 constructor TMainForm.Create(AOwner: TComponent);
 begin
-  inherited CreateNew(AOwner, 1);
+  inherited CreateNew(AOwner);
   Caption := 'PolyWorks';
   Width := 1280;
   Height := 800;
@@ -359,7 +366,7 @@ begin
   AddMenuItem(FileMenu, '&Open...', @OpenFile, ShortCut(VK_O, [ssCtrl]));
   AddMenuItem(FileMenu, '&Save', @SaveFile, ShortCut(VK_S, [ssCtrl]));
   AddMenuItem(FileMenu, 'Save &As...', @SaveFileAs, ShortCut(VK_S, [ssCtrl, ssShift]));
-  AddMenuItem(FileMenu, 'Save and &Compile...', @SaveAndCompileFile, ShortCut(VK_F9, []));
+  AddMenuItem(FileMenu, 'Compile to PMS &As...', @SaveAndCompileFile, ShortCut(VK_F9, []));
   FileMenu.AddSeparator;
   AddMenuItem(FileMenu, '&Quit', @QuitApp, ShortCut(VK_F4, [ssAlt]));
 
@@ -369,21 +376,33 @@ begin
   AddMenuItem(EditMenu, '&Undo', @UndoAction, ShortCut(VK_Z, [ssCtrl]));
   AddMenuItem(EditMenu, '&Redo', @RedoAction, ShortCut(VK_Y, [ssCtrl]));
   EditMenu.AddSeparator;
+  AddMenuItem(EditMenu, 'D&uplicate', @DuplicateAction, ShortCut(VK_D, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Copy', @CopyAction, ShortCut(VK_C, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Paste', @PasteAction, ShortCut(VK_V, [ssCtrl]));
+  EditMenu.AddSeparator;
   AddMenuItem(EditMenu, 'Select &All', @SelectAllAction, ShortCut(VK_A, [ssCtrl]));
-  AddMenuItem(EditMenu, '&Deselect All', @DeselectAllAction, ShortCut(VK_D, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Invert Selection', @InvertSelectionAction, ShortCut(VK_I, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Deselect', @DeselectAllAction, ShortCut(VK_ESCAPE, []));
+  AddMenuItem(EditMenu, 'Select By &Color', @SelectByColorAction, ShortCut(VK_B, [ssCtrl]));
   EditMenu.AddSeparator;
-  AddMenuItem(EditMenu, '&Delete', @DeleteAction, VK_DELETE);
+  AddMenuItem(EditMenu, 'C&lear', @DeleteAction, VK_DELETE);
   EditMenu.AddSeparator;
-  AddMenuItem(EditMenu, '&Map Properties...', @MapPropertiesAction, ShortCut(VK_M, [ssCtrl]));
+  AddMenuItem(EditMenu, '&Map Settings...', @MapPropertiesAction, ShortCut(VK_M, [ssCtrl]));
   AddMenuItem(EditMenu, 'P&references...', @PreferencesAction, ShortCut(VK_P, [ssCtrl]));
 
   ViewMenu := TMenuItem.Create(Self);
   ViewMenu.Caption := '&View';
   FMainMenu.Items.Add(ViewMenu);
+  AddMenuItem(ViewMenu, 'Zoom &In', @ZoomInAction, ShortCut(VK_ADD, []));
+  AddMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutAction, ShortCut(VK_SUBTRACT, []));
+  AddMenuItem(ViewMenu, '&Fit on Screen', @FitOnScreenAction, 0);
+  AddMenuItem(ViewMenu, '&Reset View', @ResetZoomAction, ShortCut(VK_MULTIPLY, []));
+  ViewMenu.AddSeparator;
+  FShowGridItem := AddMenuItem(ViewMenu, 'Show &Grid', @ToggleGridAction,
+    ShortCut(Ord(''''), [ssCtrl]), VIEW_SHOW_GRID, True);
   FShowPolysItem := AddMenuItem(ViewMenu, 'Show &Polygons', @ToggleViewOption, 0, VIEW_SHOW_POLYS, True);
   FShowWireframeItem := AddMenuItem(ViewMenu, 'Show &Wireframe', @ToggleViewOption, 0, VIEW_SHOW_WIREFRAME, True);
   FShowPointsItem := AddMenuItem(ViewMenu, 'Show Po&ints', @ToggleViewOption, 0, VIEW_SHOW_POINTS, True);
-  FShowGridItem := AddMenuItem(ViewMenu, 'Show &Grid', @ToggleViewOption, 0, VIEW_SHOW_GRID, True);
   FShowObjectsItem := AddMenuItem(ViewMenu, 'Show &Objects', @ToggleViewOption, 0, VIEW_SHOW_OBJECTS, True);
   FShowWaypointsItem := AddMenuItem(ViewMenu, 'Show &Waypoints', @ToggleViewOption, 0, VIEW_SHOW_WAYPOINTS, True);
   FShowLightsItem := AddMenuItem(ViewMenu, 'Show &Lights', @ToggleViewOption, 0, VIEW_SHOW_LIGHTS, True);
@@ -391,10 +410,6 @@ begin
   FShowTextureItem := AddMenuItem(ViewMenu, 'Show Te&xture', @ToggleViewOption, 0, VIEW_SHOW_TEXTURE, True);
   FShowBackgroundItem := AddMenuItem(ViewMenu, 'Show &Background', @ToggleViewOption, 0, VIEW_SHOW_BACKGROUND, True);
   FShowSceneryItem := AddMenuItem(ViewMenu, 'Show Sc&enery', @ToggleViewOption, 0, VIEW_SHOW_SCENERY, True);
-  ViewMenu.AddSeparator;
-  AddMenuItem(ViewMenu, 'Zoom &In', @ZoomInAction, ShortCut(VK_ADD, []));
-  AddMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutAction, ShortCut(VK_SUBTRACT, []));
-  AddMenuItem(ViewMenu, '&Reset Zoom', @ResetZoomAction, ShortCut(VK_MULTIPLY, []));
 
   ToolsMenu := TMenuItem.Create(Self);
   ToolsMenu.Caption := '&Tools';
@@ -454,25 +469,103 @@ var
   I: Integer;
   SoldatPath: string;
   SceneryPath: string;
+  MapDir: string;
+
+  { Try several candidate directories to find AssetName.
+    Returns resolved path or '' if not found. }
+  function ResolveAsset(const SubDirs: array of string;
+                        const AssetName: string): string;
+  var
+    S, Candidate: string;
+  begin
+    for S in SubDirs do
+    begin
+      Candidate := IncludeTrailingPathDelimiter(S) + AssetName;
+      if FileExists(Candidate) then
+        Exit(Candidate);
+    end;
+    Result := '';
+  end;
+
+  function SearchTexture(const Name: string): string;
+  var
+    Paths: array of string;
+  begin
+    SetLength(Paths, 0);
+    if SoldatPath <> '' then
+    begin
+      SetLength(Paths, Length(Paths) + 1);
+      Paths[High(Paths)] := SoldatPath + 'textures';
+    end;
+    if MapDir <> '' then
+    begin
+      SetLength(Paths, Length(Paths) + 2);
+      Paths[High(Paths) - 1] := MapDir + 'textures';
+      Paths[High(Paths)]     := MapDir;
+    end;
+    { next to binary }
+    SetLength(Paths, Length(Paths) + 1);
+    Paths[High(Paths)] := ExtractFileDir(ParamStr(0)) + PathDelim + 'textures';
+    Result := ResolveAsset(Paths, Name);
+  end;
+
+  function SearchScenery(const Name: string): string;
+  var
+    Paths: array of string;
+  begin
+    SetLength(Paths, 0);
+    if SoldatPath <> '' then
+    begin
+      SetLength(Paths, Length(Paths) + 2);
+      Paths[High(Paths) - 1] := SoldatPath + 'scenery-gfx';
+      Paths[High(Paths)]     := SoldatPath + 'scenery' + PathDelim + 'gfx';
+    end;
+    if MapDir <> '' then
+    begin
+      SetLength(Paths, Length(Paths) + 2);
+      Paths[High(Paths) - 1] := MapDir + 'scenery-gfx';
+      Paths[High(Paths)]     := MapDir;
+    end;
+    SetLength(Paths, Length(Paths) + 1);
+    Paths[High(Paths)] := ExtractFileDir(ParamStr(0)) + PathDelim + 'scenery-gfx';
+    Result := ResolveAsset(Paths, Name);
+  end;
+
 begin
   if not FViewport.MakeCurrent then
     Exit;
 
   FViewport.Renderer.FreeTextures;
-  SoldatPath := IncludeTrailingPathDelimiter(FCfg.SoldatPath);
-  TexName := ReadPascalStr(FDoc.Options.TextureName);
-  if (SoldatPath <> '') and (TexName <> '') then
-    FViewport.Renderer.LoadMapTexture(SoldatPath + 'textures/' + TexName);
+  SoldatPath := '';
+  if FCfg.SoldatPath <> '' then
+    SoldatPath := IncludeTrailingPathDelimiter(FCfg.SoldatPath);
+  MapDir := '';
+  if FCurrentFilename <> '' then
+    MapDir := IncludeTrailingPathDelimiter(ExtractFileDir(FCurrentFilename));
 
-  if SoldatPath <> '' then
-    for I := 1 to FDoc.ScenNameCount do
-      if FDoc.SceneryNames[I] <> '' then
-      begin
-        SceneryPath := SoldatPath + 'scenery-gfx/' + FDoc.SceneryNames[I];
-        if not FileExists(SceneryPath) then
-          SceneryPath := SoldatPath + 'scenery/gfx/' + FDoc.SceneryNames[I];
-        FViewport.Renderer.LoadSceneryTexture(I, SceneryPath);
-      end;
+  TexName := ReadPascalStr(FDoc.Options.TextureName);
+  if TexName <> '' then
+  begin
+    SceneryPath := SearchTexture(TexName);
+    if SceneryPath <> '' then
+      FViewport.Renderer.LoadMapTexture(SceneryPath)
+    {$IFDEF DEBUG}
+    else
+      WriteLn('[TextureLoad] Map texture not found: ', TexName)
+    {$ENDIF};
+  end;
+
+  for I := 1 to FDoc.ScenNameCount do
+    if FDoc.SceneryNames[I] <> '' then
+    begin
+      SceneryPath := SearchScenery(FDoc.SceneryNames[I]);
+      if SceneryPath <> '' then
+        FViewport.Renderer.LoadSceneryTexture(I, SceneryPath)
+      {$IFDEF DEBUG}
+      else
+        WriteLn('[TextureLoad] Scenery not found: ', FDoc.SceneryNames[I])
+      {$ENDIF};
+    end;
 end;
 
 procedure TMainForm.PositionFloatingForms;
@@ -715,6 +808,43 @@ begin
   UpdateStatus(nil);
 end;
 
+procedure TMainForm.DuplicateAction(Sender: TObject);
+begin
+  if not HasSelection then Exit;
+  FUndo.Push(FDoc);
+  FDoc.DuplicateSelected(32, 32);
+  InvalidatePanelCaches;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.CopyAction(Sender: TObject);
+begin
+  FDoc.CopySelected;
+end;
+
+procedure TMainForm.PasteAction(Sender: TObject);
+begin
+  FUndo.Push(FDoc);
+  FDoc.PasteClipboard;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.InvertSelectionAction(Sender: TObject);
+begin
+  FDoc.InvertSelection;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.SelectByColorAction(Sender: TObject);
+begin
+  FDoc.SelectByColor;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
 procedure TMainForm.DeleteAction(Sender: TObject);
 begin
   if not HasSelection then
@@ -751,6 +881,16 @@ begin
   UpdateStatus(nil);
 end;
 
+procedure TMainForm.ToggleGridAction(Sender: TObject);
+begin
+  FViewport.ViewSettings.ShowGrid := not FViewport.ViewSettings.ShowGrid;
+  FShowGridItem.Checked := FViewport.ViewSettings.ShowGrid;
+  if FDisplayForm <> nil then
+    FDisplayForm.SetViewSettings(FViewport.ViewSettings);
+  ApplyViewSettingsToConfig;
+  FViewport.RequestRepaint;
+end;
+
 procedure TMainForm.ZoomInAction(Sender: TObject);
 begin
   FDoc.SetZoom(FDoc.Zoom * 1.25, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
@@ -768,6 +908,38 @@ end;
 procedure TMainForm.ResetZoomAction(Sender: TObject);
 begin
   FDoc.SetZoom(1.0, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
+
+procedure TMainForm.FitOnScreenAction(Sender: TObject);
+var
+  MinX, MinY, MaxX, MaxY: Single;
+  I, J: Integer;
+  ZoomX, ZoomY, NewZoom: Single;
+begin
+  { Compute bounding box of all map geometry }
+  if FDoc.PolyCount = 0 then Exit;
+  MinX := FDoc.Polys[0].V[1].World.X; MaxX := MinX;
+  MinY := FDoc.Polys[0].V[1].World.Y; MaxY := MinY;
+  for I := 0 to FDoc.PolyCount - 1 do
+    for J := 1 to 3 do
+    begin
+      if FDoc.Polys[I].V[J].World.X < MinX then MinX := FDoc.Polys[I].V[J].World.X;
+      if FDoc.Polys[I].V[J].World.X > MaxX then MaxX := FDoc.Polys[I].V[J].World.X;
+      if FDoc.Polys[I].V[J].World.Y < MinY then MinY := FDoc.Polys[I].V[J].World.Y;
+      if FDoc.Polys[I].V[J].World.Y > MaxY then MaxY := FDoc.Polys[I].V[J].World.Y;
+    end;
+
+  if (MaxX - MinX < 1) or (MaxY - MinY < 1) then Exit;
+
+  ZoomX := FViewport.ClientWidth  / (MaxX - MinX);
+  ZoomY := FViewport.ClientHeight / (MaxY - MinY);
+  NewZoom := Min(ZoomX, ZoomY) * 0.9;
+  FDoc.SetZoom(NewZoom, FViewport.ClientWidth * 0.5, FViewport.ClientHeight * 0.5);
+  FDoc.ScrollX := -(MinX + (MaxX - MinX) * 0.5) * NewZoom + FViewport.ClientWidth  * 0.5;
+  FDoc.ScrollY := -(MinY + (MaxY - MinY) * 0.5) * NewZoom + FViewport.ClientHeight * 0.5;
+  FDoc.RebuildScreenCache;
   FViewport.RequestRepaint;
   UpdateStatus(nil);
 end;
