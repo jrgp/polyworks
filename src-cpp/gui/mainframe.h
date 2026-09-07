@@ -80,6 +80,8 @@ private:
     void OnEditSelectAll(wxCommandEvent& event);
     void OnEditInvertSelection(wxCommandEvent& event);
     void OnEditDuplicateSelected(wxCommandEvent& event);
+    void OnEditSelectByColor(wxCommandEvent& event);
+    void OnPolyOperation(wxCommandEvent& event);
 
     void OnMapSettings(wxCommandEvent& event);
     void OnPreferences(wxCommandEvent& event);

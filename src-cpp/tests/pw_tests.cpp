@@ -680,10 +680,152 @@ TEST(apply_color_vertices_near_respects_selection) {
     EXPECT_EQ(doc.polys[0].v[2].b, 50);   /* unselected: not painted */
 }
 
+/* ---- Polygon operations ------------------------------------------------ */
+
+TEST(split_at_vertex_creates_new_poly) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true;
+    p.v[1].world = {100, 0};
+    p.v[2].world = {50, 100};
+    doc.addPoly(p);
+
+    const size_t before = doc.polys.size();
+    doc.splitAtVertex();
+    EXPECT_EQ((int)doc.polys.size(), (int)(before + 1));
+}
+
+TEST(split_at_vertex_moves_original_vertex) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true;
+    p.v[1].world = {100, 0};
+    p.v[2].world = {50, 100};
+    doc.addPoly(p);
+
+    doc.splitAtVertex();
+    /* Original poly's v1 (left of v0) should have moved to midpoint of (100,0)-(50,100) */
+    const Vec2& moved = doc.polys[0].v[1].world;
+    EXPECT(std::abs(moved.x - 75.0f) < 0.01f);
+    EXPECT(std::abs(moved.y - 50.0f) < 0.01f);
+}
+
+TEST(split_at_vertex_no_selection_is_noop) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[1].world = {100, 0}; p.v[2].world = {50, 100};
+    doc.addPoly(p);
+    const size_t before = doc.polys.size();
+    doc.splitAtVertex();
+    EXPECT_EQ((int)doc.polys.size(), (int)before);
+}
+
+TEST(join_vertices_snaps_to_first) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true;
+    p.v[1].world = {100, 0}; p.v[1].selected = true;
+    p.v[2].world = {50, 100}; p.v[2].selected = true;
+    doc.addPoly(p);
+
+    doc.joinSelectedVertices();
+    for (int j = 0; j < 3; ++j) {
+        EXPECT(std::abs(doc.polys[0].v[j].world.x) < 0.01f);
+        EXPECT(std::abs(doc.polys[0].v[j].world.y) < 0.01f);
+    }
+}
+
+TEST(create_poly_from_selected_adds_poly) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true;
+    p.v[1].world = {100, 0}; p.v[1].selected = true;
+    p.v[2].world = {50, 100}; p.v[2].selected = true;
+    doc.addPoly(p);
+
+    const size_t before = doc.polys.size();
+    doc.createPolyFromSelected();
+    EXPECT_EQ((int)doc.polys.size(), (int)(before + 1));
+}
+
+TEST(create_poly_from_selected_needs_three_verts) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true;
+    p.v[1].world = {100, 0}; p.v[1].selected = true;
+    p.v[2].world = {50, 100};
+    doc.addPoly(p);
+
+    const size_t before = doc.polys.size();
+    doc.createPolyFromSelected();
+    EXPECT_EQ((int)doc.polys.size(), (int)before);
+}
+
+TEST(untexture_selected_sets_tu_tv_one) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[0].selected = true; p.v[0].tu = 0.3f; p.v[0].tv = 0.7f;
+    p.v[1].world = {100, 0}; p.v[1].tu = 0.5f; p.v[1].tv = 0.5f;
+    p.v[2].world = {50, 100};
+    doc.addPoly(p);
+
+    doc.untextureSelected();
+    EXPECT(std::abs(doc.polys[0].v[0].tu - 1.0f) < 0.001f);
+    EXPECT(std::abs(doc.polys[0].v[0].tv - 1.0f) < 0.001f);
+    EXPECT(std::abs(doc.polys[0].v[1].tu - 0.5f) < 0.001f);
+}
+
+TEST(fix_texture_sets_tu_tv_from_world) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {64, 128}; p.v[0].selected = true;
+    p.v[1].world = {0, 0};
+    p.v[2].world = {100, 0};
+    doc.addPoly(p);
+
+    doc.fixTextureOnSelected(256.0f, 512.0f);
+    EXPECT(std::abs(doc.polys[0].v[0].tu - 0.25f) < 0.001f);
+    EXPECT(std::abs(doc.polys[0].v[0].tv - 0.25f) < 0.001f);
+    EXPECT(std::abs(doc.polys[0].v[1].tu) < 0.001f);
+}
+
+TEST(average_vertex_colors_groups_coincident) {
+    MapDocument doc;
+    EditorPoly p1{};
+    p1.v[0].world = {0, 0}; p1.v[0].r = 100; p1.v[0].g = 0; p1.v[0].b = 0;
+    p1.v[1].world = {100, 0}; p1.v[2].world = {50, 100};
+    doc.addPoly(p1);
+
+    EditorPoly p2{};
+    p2.v[0].world = {0, 0}; p2.v[0].r = 0; p2.v[0].g = 100; p2.v[0].b = 0;
+    p2.v[1].world = {200, 0}; p2.v[2].world = {100, 100};
+    doc.addPoly(p2);
+
+    doc.averageVertexColors();
+
+    EXPECT_EQ((int)doc.polys[0].v[0].r, 50);
+    EXPECT_EQ((int)doc.polys[0].v[0].g, 50);
+    EXPECT_EQ((int)doc.polys[1].v[0].r, 50);
+    EXPECT_EQ((int)doc.polys[1].v[0].g, 50);
+}
+
+TEST(average_vertex_colors_no_coincident_unchanged) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};   p.v[0].r = 200;
+    p.v[1].world = {100, 0}; p.v[1].r = 100;
+    p.v[2].world = {50, 100}; p.v[2].r = 50;
+    doc.addPoly(p);
+
+    doc.averageVertexColors();
+    EXPECT_EQ((int)doc.polys[0].v[0].r, 200);
+    EXPECT_EQ((int)doc.polys[0].v[1].r, 100);
+    EXPECT_EQ((int)doc.polys[0].v[2].r, 50);
+}
+
 /* ---- Main -------------------------------------------------------------- */
 
 int main() {
-    std::fprintf(stdout, "Running %zu tests...\n\n", g_tests.size());
     for (auto& tc : g_tests) {
         g_currentTest = tc.name;
         tc.fn();

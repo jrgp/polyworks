@@ -294,6 +294,33 @@ public:
     int  addPoly(const EditorPoly& p);
     bool removePoly(int index);
 
+    /* Polygon editing operations (Ctrl+L, Ctrl+J, Ctrl+E) */
+    /* Split each selected poly at its selected vertex: produces a new poly sharing
+       the selected vertex and the left-hand neighbour; the original poly's left vertex
+       moves to the midpoint of the original left-right edge. */
+    void splitAtVertex();
+
+    /* Join Vertices: move all selected vertices to the position of the first selected
+       vertex (matches VB6 mnuJoinVertices_Click). */
+    void joinSelectedVertices();
+
+    /* Create With Selected: collect up to 3 selected vertices from the current
+       selection (across all polys, in poly/vertex order) and create a new polygon. */
+    void createPolyFromSelected();
+
+    /* Texture coordinate operations (Ctrl+F, Ctrl+U) */
+    /* Fix Texture: set tu/tv of each selected vertex to world_x/texW, world_y/texH
+       where texW/texH are the polygon's current texture dimensions (use 1.0 if unknown). */
+    void fixTextureOnSelected(float texW, float texH);
+
+    /* Untexture: set tu/tv of each selected vertex to 1.0f, 1.0f. */
+    void untextureSelected();
+
+    /* Average Vertex Colors (Ctrl+G): for each group of coincident vertices (within 2
+       world-units of each other), set all their colors to the average of the group.
+       Matches VB6 AverageVertices(). */
+    void averageVertexColors();
+
     /* Vertex operations (operate on selected vertices across all polys) */
     void nudgeSelectedVertices(float dx, float dy);
 

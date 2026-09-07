@@ -34,6 +34,13 @@ enum MenuId {
     ID_EDIT_DELETE_SELECTED,
     ID_EDIT_DESELECT,
     ID_EDIT_INVERT_SELECTION,
+    ID_EDIT_SELECT_BY_COLOR,
+    ID_POLY_SPLIT_AT_VERTEX,
+    ID_POLY_JOIN_VERTICES,
+    ID_POLY_CREATE_WITH_SELECTED,
+    ID_POLY_FIX_TEXTURE,
+    ID_POLY_UNTEXTURE,
+    ID_POLY_AVERAGE_COLORS,
     ID_MAP_SETTINGS,
     ID_MAP_PREFERENCES,
     ID_ARRANGE_BRING_TO_FRONT,
@@ -167,6 +174,14 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnEditDeleteSelected, this, ID_EDIT_DELETE_SELECTED);
     Bind(wxEVT_MENU, &MainFrame::OnEditSelectAll, this, wxID_SELECTALL);
     Bind(wxEVT_MENU, &MainFrame::OnEditInvertSelection, this, ID_EDIT_INVERT_SELECTION);
+    Bind(wxEVT_MENU, &MainFrame::OnEditSelectByColor, this, ID_EDIT_SELECT_BY_COLOR);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_SPLIT_AT_VERTEX);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_JOIN_VERTICES);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_CREATE_WITH_SELECTED);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_FIX_TEXTURE);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_UNTEXTURE);
+    Bind(wxEVT_MENU, &MainFrame::OnPolyOperation, this, ID_POLY_AVERAGE_COLORS);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { RefreshViewport(); }, wxID_REFRESH);
     Bind(wxEVT_MENU, &MainFrame::OnMapSettings, this, ID_MAP_SETTINGS);
     Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_MAP_PREFERENCES);
     Bind(wxEVT_MENU, &MainFrame::OnExit, this, wxID_EXIT);
@@ -313,13 +328,14 @@ void MainFrame::buildMenuBar() {
     editMenu->Append(wxID_REDO, "&Redo\tCtrl+Y");
     editMenu->AppendSeparator();
     editMenu->Append(ID_EDIT_DUPLICATE, "&Duplicate\tCtrl+D");
-    editMenu->Append(wxID_COPY, "&Copy");
-    editMenu->Append(wxID_PASTE, "&Paste");
+    editMenu->Append(wxID_COPY, "&Copy\tCtrl+C");
+    editMenu->Append(wxID_PASTE, "&Paste\tCtrl+V");
     editMenu->Append(ID_EDIT_DELETE_SELECTED, "C&lear\tDel");
     editMenu->AppendSeparator();
     editMenu->Append(wxID_SELECTALL, "Select &All\tCtrl+A");
     editMenu->Append(ID_EDIT_DESELECT, "&Deselect\tEsc");
     editMenu->Append(ID_EDIT_INVERT_SELECTION, "&Invert Selection\tCtrl+I");
+    editMenu->Append(ID_EDIT_SELECT_BY_COLOR, "Select by &Color\tCtrl+B");
 
     auto* viewMenu = new wxMenu();
     viewMenu->AppendCheckItem(wxWindow::NewControlId(), "&Polygons")->Check(true);
@@ -342,6 +358,8 @@ void MainFrame::buildMenuBar() {
     viewMenu->Append(ID_VIEW_ZOOM_OUT, "Zoom &Out\tCtrl+-");
     viewMenu->Append(ID_VIEW_ZOOM_RESET, "Zoom &100%\t*");
     viewMenu->Append(ID_VIEW_CENTER_RESET, "Center and &Reset\tCtrl+0");
+    viewMenu->AppendSeparator();
+    viewMenu->Append(wxID_REFRESH, "&Refresh\tF5");
 
     auto* mapMenu = new wxMenu();
     mapMenu->Append(ID_MAP_SETTINGS, "Map &Settings\tCtrl+M");
@@ -354,6 +372,15 @@ void MainFrame::buildMenuBar() {
     }
     typeMenu->Check(ID_POLY_TYPE_BASE + POLY_NORMAL, true);
     polygonMenu->AppendSubMenu(typeMenu, "&Type");
+    polygonMenu->AppendSeparator();
+    polygonMenu->Append(ID_POLY_SPLIT_AT_VERTEX,      "&Split at Vertex\tCtrl+L");
+    polygonMenu->Append(ID_POLY_JOIN_VERTICES,         "&Join Vertices\tCtrl+J");
+    polygonMenu->Append(ID_POLY_CREATE_WITH_SELECTED,  "&Create with Selected\tCtrl+E");
+    polygonMenu->AppendSeparator();
+    polygonMenu->Append(ID_POLY_FIX_TEXTURE,           "&Fix Texture\tCtrl+F");
+    polygonMenu->Append(ID_POLY_UNTEXTURE,             "&Untexture\tCtrl+U");
+    polygonMenu->AppendSeparator();
+    polygonMenu->Append(ID_POLY_AVERAGE_COLORS,        "&Average Vertex Colors\tCtrl+G");
 
     auto* arrangeMenu = new wxMenu();
     arrangeMenu->Append(ID_ARRANGE_BRING_TO_FRONT, "Bring to &Front\tHome");
@@ -584,6 +611,52 @@ void MainFrame::OnEditSelectAll(wxCommandEvent& event) {
 
 void MainFrame::OnEditInvertSelection(wxCommandEvent& event) {
     m_doc.invertSelection();
+    RefreshViewport();
+}
+
+void MainFrame::OnEditSelectByColor(wxCommandEvent& /*event*/) {
+    /* Use the current palette color for selection.
+       Matches VB6 Ctrl+B: select all vertices matching the active palette color. */
+    uint8_t r = 255, g = 255, b = 255;
+    GetPaintColor(r, g, b);
+    m_doc.selectByColor(r, g, b);
+    RefreshViewport();
+}
+
+void MainFrame::OnPolyOperation(wxCommandEvent& event) {
+    if (!m_doc.anySelected()) return;
+
+    m_undoStack.push(m_doc);
+    const int id = event.GetId();
+
+    if (id == ID_POLY_SPLIT_AT_VERTEX) {
+        m_doc.splitAtVertex();
+    } else if (id == ID_POLY_JOIN_VERTICES) {
+        m_doc.joinSelectedVertices();
+    } else if (id == ID_POLY_CREATE_WITH_SELECTED) {
+        m_doc.createPolyFromSelected();
+    } else if (id == ID_POLY_FIX_TEXTURE) {
+        /* Use texture dimensions from the first selected polygon.
+           If the texture is loaded in the viewport, query it; otherwise use a
+           canonical Soldat default of 64×64. */
+        float texW = 64.0f, texH = 64.0f;
+        if (m_viewport) {
+            auto dims = m_viewport->getTextureSize(m_doc);
+            if (dims.first > 0) { texW = static_cast<float>(dims.first); texH = static_cast<float>(dims.second); }
+        }
+        m_doc.fixTextureOnSelected(texW, texH);
+    } else if (id == ID_POLY_UNTEXTURE) {
+        m_doc.untextureSelected();
+    } else if (id == ID_POLY_AVERAGE_COLORS) {
+        m_doc.averageVertexColors();
+    } else {
+        m_undoStack.pop();  /* nothing done */
+        return;
+    }
+
+    m_doc.markModified();
+    UpdateStatusBar();
+    UpdateTitle();
     RefreshViewport();
 }
 

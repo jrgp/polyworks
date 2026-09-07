@@ -5,6 +5,7 @@
 #include <wx/panel.h>
 #include <wx/cursor.h>
 #include <string>
+#include <utility>
 
 #if defined(__has_include)
 #if __has_include(<wx/glcanvas.h>)
@@ -68,6 +69,10 @@ public:
                        float radius = 8.0f);
 
     TextureManager& GetTextureManager() { return m_texMgr; }
+
+    /* Returns the (width, height) in pixels of the texture used by the first
+       selected polygon in doc. Returns {0, 0} if not found. */
+    std::pair<int,int> getTextureSize(const MapDocument& doc);
 
 private:
     /* Event handlers */

@@ -455,7 +455,230 @@ bool MapDocument::removePoly(int index) {
     return true;
 }
 
-/* ---- Undo snapshot (simple: just re-serialize everything) -------------- */
+/* ---- Polygon editing operations --------------------------------------- */
+
+void MapDocument::splitAtVertex() {
+    /* Matches VB6 mnuSplit_Click:
+       For each selected poly with exactly one selected vertex at index j,
+       create a new poly from (j, left, midpoint(left,right));
+       the original poly's left vertex moves to that midpoint.
+       "left" and "right" are the two other vertices in vertex-index order. */
+    const int n = static_cast<int>(polys.size());
+    std::vector<EditorPoly> newPolys;
+
+    for (int i = 0; i < n; ++i) {
+        EditorPoly& orig = polys[i];
+        if (!orig.anySelected()) continue;
+
+        for (int j = 0; j < 3; ++j) {
+            if (!orig.v[j].selected) continue;
+
+            const int left  = (j + 1) % 3;
+            const int right = (j + 2) % 3;
+
+            /* Midpoint of the left–right edge */
+            Vec2 mid;
+            mid.x = (orig.v[left].world.x + orig.v[right].world.x) * 0.5f;
+            mid.y = (orig.v[left].world.y + orig.v[right].world.y) * 0.5f;
+
+            /* New polygon: vertices j, left, mid */
+            EditorPoly np{};
+            np.polyType = orig.polyType;
+
+            np.v[0] = orig.v[j];
+            np.v[1] = orig.v[left];
+
+            /* Build the midpoint vertex */
+            EditorVertex mv{};
+            mv.world = mid;
+            mv.screen = worldToScreen(mid);
+            mv.r     = static_cast<uint8_t>((orig.v[left].r     + orig.v[right].r)     / 2);
+            mv.g     = static_cast<uint8_t>((orig.v[left].g     + orig.v[right].g)     / 2);
+            mv.b     = static_cast<uint8_t>((orig.v[left].b     + orig.v[right].b)     / 2);
+            mv.alpha = static_cast<uint8_t>((orig.v[left].alpha + orig.v[right].alpha) / 2);
+            mv.tu    = (orig.v[left].tu + orig.v[right].tu) * 0.5f;
+            mv.tv    = (orig.v[left].tv + orig.v[right].tv) * 0.5f;
+            np.v[2]  = mv;
+
+            /* Move the original poly's left vertex to the midpoint */
+            orig.v[left].world  = mid;
+            orig.v[left].screen = worldToScreen(mid);
+            orig.v[left].r     = mv.r;     orig.v[left].g     = mv.g;
+            orig.v[left].b     = mv.b;     orig.v[left].alpha = mv.alpha;
+            orig.v[left].tu    = mv.tu;    orig.v[left].tv    = mv.tv;
+
+            newPolys.push_back(np);
+            break;  /* one selected vertex per poly */
+        }
+    }
+
+    for (auto& np : newPolys) {
+        /* Ensure CW winding */
+        const Vec2 ab = {np.v[1].world.x - np.v[0].world.x, np.v[1].world.y - np.v[0].world.y};
+        const Vec2 ac = {np.v[2].world.x - np.v[0].world.x, np.v[2].world.y - np.v[0].world.y};
+        if (ab.x * ac.y - ab.y * ac.x < 0.0f)  /* CCW → swap v1/v2 */
+            std::swap(np.v[1], np.v[2]);
+        polys.push_back(np);
+    }
+
+    rebuildScreenCache();
+    markModified();
+}
+
+void MapDocument::joinSelectedVertices() {
+    /* Matches VB6 mnuJoinVertices_Click:
+       Move all selected vertices to the position of the first selected vertex. */
+    Vec2 target{};
+    bool found = false;
+
+    for (const auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3; ++j) {
+            if (p.v[j].selected) {
+                target = p.v[j].world;
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+    }
+    if (!found) return;
+
+    for (auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3; ++j) {
+            if (p.v[j].selected) {
+                p.v[j].world  = target;
+                p.v[j].screen = worldToScreen(target);
+            }
+        }
+    }
+    markModified();
+}
+
+void MapDocument::createPolyFromSelected() {
+    /* Matches VB6 mnuCreate_Click:
+       Collect up to 3 selected vertices (in poly/vertex iteration order),
+       create a new polygon, enforce CW winding. */
+    EditorPoly np{};
+    int count = 0;
+
+    for (const auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3 && count < 3; ++j) {
+            if (p.v[j].selected) {
+                np.v[count] = p.v[j];
+                np.polyType  = p.polyType;
+                ++count;
+            }
+        }
+        if (count == 3) break;
+    }
+
+    if (count < 3) return;
+
+    /* Ensure CW winding */
+    const Vec2 ab = {np.v[1].world.x - np.v[0].world.x, np.v[1].world.y - np.v[0].world.y};
+    const Vec2 ac = {np.v[2].world.x - np.v[0].world.x, np.v[2].world.y - np.v[0].world.y};
+    if (ab.x * ac.y - ab.y * ac.x < 0.0f)
+        std::swap(np.v[1], np.v[2]);
+
+    addPoly(np);
+}
+
+void MapDocument::fixTextureOnSelected(float texW, float texH) {
+    /* Matches VB6 mnuFixTexture_Click:
+       Set tu = world_x / texW, tv = world_y / texH for each selected vertex. */
+    if (texW <= 0.0f) texW = 1.0f;
+    if (texH <= 0.0f) texH = 1.0f;
+
+    for (auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3; ++j) {
+            if (p.v[j].selected) {
+                p.v[j].tu = p.v[j].world.x / texW;
+                p.v[j].tv = p.v[j].world.y / texH;
+            }
+        }
+    }
+    markModified();
+}
+
+void MapDocument::untextureSelected() {
+    /* Matches VB6 mnuUntexture_Click: set tu=1, tv=1 for each selected vertex. */
+    for (auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3; ++j) {
+            if (p.v[j].selected) {
+                p.v[j].tu = 1.0f;
+                p.v[j].tv = 1.0f;
+            }
+        }
+    }
+    markModified();
+}
+
+void MapDocument::averageVertexColors() {
+    /* Matches VB6 AverageVertices():
+       For each group of coincident vertices (within 2 world-units of each other),
+       average their R/G/B and write the result back. Alpha is preserved.
+       If selection is empty, operates on all vertices; otherwise only operates
+       on selected vertices. */
+    const bool hasSelection = anySelected();
+    const float SNAP = 2.0f;
+
+    /* Build a flat list of (polyIdx, vertIdx) pairs to operate on */
+    struct VRef { int pi, vi; };
+    std::vector<VRef> verts;
+    for (int i = 0; i < static_cast<int>(polys.size()); ++i) {
+        for (int j = 0; j < 3; ++j) {
+            if (!hasSelection || polys[i].v[j].selected)
+                verts.push_back({i, j});
+        }
+    }
+
+    /* Track which have been averaged to avoid double-counting */
+    std::vector<bool> done(verts.size(), false);
+
+    for (size_t k = 0; k < verts.size(); ++k) {
+        if (done[k]) continue;
+
+        const Vec2 pos = polys[verts[k].pi].v[verts[k].vi].world;
+        /* Find all verts at same position */
+        std::vector<size_t> group;
+        group.push_back(k);
+        for (size_t m = k + 1; m < verts.size(); ++m) {
+            if (done[m]) continue;
+            const Vec2 p2 = polys[verts[m].pi].v[verts[m].vi].world;
+            const float dx = std::abs(p2.x - pos.x);
+            const float dy = std::abs(p2.y - pos.y);
+            if (dx <= SNAP && dy <= SNAP)
+                group.push_back(m);
+        }
+
+        if (group.size() <= 1) continue;  /* nothing to average */
+
+        /* Compute average */
+        int sumR = 0, sumG = 0, sumB = 0;
+        for (size_t idx : group) {
+            auto& v = polys[verts[idx].pi].v[verts[idx].vi];
+            sumR += v.r; sumG += v.g; sumB += v.b;
+        }
+        const int n = static_cast<int>(group.size());
+        const uint8_t avgR = static_cast<uint8_t>(sumR / n);
+        const uint8_t avgG = static_cast<uint8_t>(sumG / n);
+        const uint8_t avgB = static_cast<uint8_t>(sumB / n);
+
+        for (size_t idx : group) {
+            auto& v = polys[verts[idx].pi].v[verts[idx].vi];
+            v.r = avgR; v.g = avgG; v.b = avgB;
+            done[idx] = true;
+        }
+    }
+    markModified();
+}
+
+
 
 /* Forward declarations from pms_io.h */
 #include "pms_io.h"
