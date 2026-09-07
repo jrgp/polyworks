@@ -10,6 +10,47 @@
 #include <wx/image.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
+#include <wx/log.h>
+#include <wx/msgdlg.h>
+
+#include <exception>
+#include <cstdio>
+#include <cstdlib>
+#include <csignal>
+#include <cstring>
+
+/* ---- Platform crash signal handler ------------------------------------- */
+namespace {
+
+void crashHandler(int sig) {
+    const char* sigName = "unknown";
+    switch (sig) {
+    case SIGSEGV: sigName = "SIGSEGV (segmentation fault)"; break;
+    case SIGABRT: sigName = "SIGABRT (abort)"; break;
+    case SIGFPE:  sigName = "SIGFPE (floating point exception)"; break;
+    case SIGILL:  sigName = "SIGILL (illegal instruction)"; break;
+    default: break;
+    }
+    char msg[256];
+    std::snprintf(msg, sizeof(msg),
+        "\nPolyWorks fatal crash\n"
+        "Signal: %s (%d)\n"
+        "Please report this with your map and steps to reproduce.\n",
+        sigName, sig);
+    std::fputs(msg, stderr);
+    /* Restore default handler and re-raise to get OS core dump */
+    std::signal(sig, SIG_DFL);
+    std::raise(sig);
+}
+
+void installCrashHandlers() {
+    std::signal(SIGSEGV, crashHandler);
+    std::signal(SIGABRT, crashHandler);
+    std::signal(SIGFPE,  crashHandler);
+    std::signal(SIGILL,  crashHandler);
+}
+
+} // namespace
 
 namespace {
 
@@ -46,6 +87,7 @@ wxString getSoldatPath(const wxString& skinsPath) {
 class PolyWorksApp final : public wxApp {
 public:
     bool OnInit() override {
+        installCrashHandlers();
         SetAppName("PolyWorks");
         wxInitAllImageHandlers();
 
@@ -96,6 +138,36 @@ public:
         /* Don't show by default — user opens via View > Color Palette */
 
         return true;
+    }
+
+    bool OnExceptionInMainLoop() override {
+        try {
+            throw;
+        } catch (const std::exception& e) {
+            wxString msg = wxString::Format(
+                "Unhandled exception in main loop:\n%s\n\n"
+                "PolyWorks must close. Save your work first if possible.",
+                wxString::FromUTF8(e.what()));
+            wxLogError("%s", msg);
+            wxMessageBox(msg, "PolyWorks Internal Error", wxOK | wxICON_ERROR);
+        } catch (...) {
+            wxLogError("Unknown exception in main loop.");
+            wxMessageBox("An unknown internal error occurred.\n"
+                         "PolyWorks must close.",
+                         "PolyWorks Internal Error", wxOK | wxICON_ERROR);
+        }
+        return false; /* terminate */
+    }
+
+    void OnUnhandledException() override {
+        try {
+            throw;
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "PolyWorks: unhandled exception: %s\n", e.what());
+        } catch (...) {
+            std::fprintf(stderr, "PolyWorks: unknown unhandled exception\n");
+        }
+        std::abort();
     }
 };
 
