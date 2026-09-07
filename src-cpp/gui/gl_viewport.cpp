@@ -1,0 +1,468 @@
+#include "gl_viewport.h"
+
+#include "mainframe.h"
+#include "geometry.h"
+#include "undo_stack.h"
+
+#include <wx/dcbuffer.h>
+#include <wx/dcclient.h>
+#include <wx/dcmemory.h>
+#include <wx/settings.h>
+
+#include <cmath>
+
+/* Tool constants (must match mainframe.h / kToolInfo ordering) */
+constexpr int TOOL_MOVE      = 0;
+constexpr int TOOL_CREATE    = 1;
+constexpr int TOOL_VSELECT   = 2;
+constexpr int TOOL_PSELECT   = 3;
+constexpr int TOOL_VCOLOR    = 4;
+constexpr int TOOL_PCOLOR    = 5;
+constexpr int TOOL_TEXTURE   = 6;
+constexpr int TOOL_SCENERY   = 7;
+constexpr int TOOL_WAYPOINT  = 8;
+constexpr int TOOL_OBJECTS   = 9;
+constexpr int TOOL_COLORPICK = 10;
+constexpr int TOOL_SKETCH    = 11;
+constexpr int TOOL_LIGHTS    = 12;
+constexpr int TOOL_DEPTHMAP  = 13;
+
+constexpr float kDragThreshold = 4.0f;
+
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+namespace {
+wxGLAttributes BuildGlAttributes() {
+    wxGLAttributes glAttrs;
+    glAttrs.PlatformDefaults().Defaults().EndList();
+    return glAttrs;
+}
+}  // namespace
+#endif
+
+GlViewport::GlViewport(MainFrame* parent, MapDocument& document, UndoStack& undoStack)
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    : GlViewportBase(parent, BuildGlAttributes(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE),
+#else
+    : GlViewportBase(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE),
+#endif
+      m_mainFrame(parent),
+      m_document(document),
+      m_undoStack(undoStack) {
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
+    SetBackgroundColour(wxColour(0x2B, 0x1A, 0x0E));
+    SetFocus();
+
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    m_renderer.setTextureManager(&m_texMgr);
+    if (IsDisplaySupported(BuildGlAttributes())) {
+        m_glContext = new wxGLContext(this);
+    }
+#endif
+
+    Bind(wxEVT_PAINT,       &GlViewport::OnPaint,      this);
+    Bind(wxEVT_MOTION,      &GlViewport::OnMouseMove,  this);
+    Bind(wxEVT_MOUSEWHEEL,  &GlViewport::OnMouseWheel, this);
+    Bind(wxEVT_LEFT_DOWN,   &GlViewport::OnLeftDown,   this);
+    Bind(wxEVT_LEFT_UP,     &GlViewport::OnLeftUp,     this);
+    Bind(wxEVT_MIDDLE_DOWN, &GlViewport::OnMiddleDown, this);
+    Bind(wxEVT_MIDDLE_UP,   &GlViewport::OnMiddleUp,   this);
+    Bind(wxEVT_RIGHT_DOWN,  &GlViewport::OnRightDown,  this);
+    Bind(wxEVT_KEY_DOWN,    &GlViewport::OnKeyDown,    this);
+}
+
+GlViewport::~GlViewport() {
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    if (m_glContext != nullptr) {
+        m_glContext->SetCurrent(*this);
+        m_texMgr.clear();
+    }
+    delete m_glContext;
+    m_glContext = nullptr;
+#endif
+}
+
+void GlViewport::setSkinsPath(const std::string& path) {
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    m_texMgr.setBasePath(path);
+#else
+    (void)path;
+#endif
+}
+
+void GlViewport::addTexturePath(const std::string& path) {
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    m_texMgr.addSearchPath(path);
+#else
+    (void)path;
+#endif
+}
+
+void GlViewport::setActiveTool(int tool) {
+    if (m_activeTool == tool) return;
+    if (m_state == ViewportState::CreatingPoly)
+        CancelCreation();
+    m_state = ViewportState::Idle;
+    m_activeTool = tool;
+}
+
+/* ---- Paint -------------------------------------------------------------- */
+
+void GlViewport::OnPaint(wxPaintEvent& /*event*/) {
+#if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
+    wxPaintDC dc(this);
+    if (m_glContext == nullptr) {
+        DrawFallback(dc);
+        return;
+    }
+
+    m_glContext->SetCurrent(*this);
+    const wxSize size = GetClientSize();
+    glViewport(0, 0, size.x, size.y);
+    glClearColor(43.0f/255.0f, 26.0f/255.0f, 14.0f/255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, size.x, size.y, 0.0, -1.0, 1.0);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    if (!m_initialized) {
+        m_renderer.initialize();
+        m_initialized = true;
+    }
+
+    m_renderer.renderAll(m_document, size.x, size.y, m_document.viewSettings);
+
+    /* Draw creation vertices */
+    if (m_state == ViewportState::CreatingPoly && m_creationVertCount > 0) {
+        glDisable(GL_TEXTURE_2D);
+        glColor4ub(0, 220, 255, 255);
+        glPointSize(6.0f);
+        glBegin(GL_POINTS);
+        for (int i = 0; i < m_creationVertCount; ++i) {
+            Vec2 s = m_document.worldToScreen(m_creationVerts[i]);
+            glVertex2f(s.x, s.y);
+        }
+        glEnd();
+        glPointSize(1.0f);
+        if (m_creationVertCount > 1) {
+            glBegin(GL_LINE_STRIP);
+            for (int i = 0; i < m_creationVertCount; ++i) {
+                Vec2 s = m_document.worldToScreen(m_creationVerts[i]);
+                glVertex2f(s.x, s.y);
+            }
+            glEnd();
+        }
+    }
+
+    /* Draw rubber-band selection rectangle */
+    if (m_state == ViewportState::RubberBanding && m_didDrag) {
+        Vec2 a = m_document.worldToScreen(m_rubberA);
+        Vec2 b = m_document.worldToScreen(m_rubberB);
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_LINE_STIPPLE);
+        glLineStipple(1, 0xF0F0);
+        glColor4ub(255, 255, 0, 255);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(a.x, a.y);
+        glVertex2f(b.x, a.y);
+        glVertex2f(b.x, b.y);
+        glVertex2f(a.x, b.y);
+        glEnd();
+        glDisable(GL_LINE_STIPPLE);
+    }
+
+    SwapBuffers();
+#else
+    wxAutoBufferedPaintDC dc(this);
+    DrawFallback(dc);
+#endif
+}
+
+/* ---- Mouse events ------------------------------------------------------- */
+
+void GlViewport::OnMouseMove(wxMouseEvent& event) {
+    const Vec2 world = m_document.screenToWorld(
+        {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
+    if (m_mainFrame != nullptr)
+        m_mainFrame->UpdateMouseWorldPosition(world);
+
+    if (m_panning && (event.MiddleIsDown() || IsSpacePanGesture(event))) {
+        UpdatePan(event.GetPosition());
+        return;
+    }
+    if (m_panning && !event.MiddleIsDown() && !event.LeftIsDown())
+        EndPan();
+
+    if (event.LeftIsDown())
+        HandleMouseMoveEdit(event);
+
+    event.Skip();
+}
+
+void GlViewport::OnMouseWheel(wxMouseEvent& event) {
+    const int dir = event.GetWheelRotation() > 0 ? 1 : -1;
+    const float newZoom = snapZoom(m_document.zoom, dir);
+    m_document.setZoom(newZoom, static_cast<float>(event.GetX()), static_cast<float>(event.GetY()));
+    if (m_mainFrame != nullptr)
+        m_mainFrame->UpdateStatusBar();
+    Refresh(false);
+}
+
+void GlViewport::OnLeftDown(wxMouseEvent& event) {
+    SetFocus();
+    if (IsSpacePanGesture(event)) {
+        BeginPan(event.GetPosition());
+        return;
+    }
+    HandleLeftDownEdit(event);
+    event.Skip();
+}
+
+void GlViewport::OnLeftUp(wxMouseEvent& event) {
+    if (m_panning && !event.MiddleIsDown()) {
+        EndPan();
+        return;
+    }
+    HandleLeftUpEdit(event);
+    event.Skip();
+}
+
+void GlViewport::OnMiddleDown(wxMouseEvent& event) {
+    SetFocus();
+    BeginPan(event.GetPosition());
+}
+
+void GlViewport::OnMiddleUp(wxMouseEvent& event) {
+    EndPan();
+    event.Skip();
+}
+
+void GlViewport::OnRightDown(wxMouseEvent& event) {
+    if (m_state == ViewportState::CreatingPoly) {
+        CancelCreation();
+        Refresh(false);
+    }
+    event.Skip();
+}
+
+void GlViewport::OnKeyDown(wxKeyEvent& event) {
+    if (event.GetKeyCode() == WXK_ESCAPE) {
+        if (m_state == ViewportState::CreatingPoly) {
+            CancelCreation();
+            Refresh(false);
+            return;
+        }
+    }
+    event.Skip();
+}
+
+/* ---- Editing interaction ------------------------------------------------ */
+
+float GlViewport::WorldTolerance() const {
+    return 6.0f / m_document.zoom;
+}
+
+void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
+    const Vec2 world = m_document.screenToWorld(
+        {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
+    const bool additive = event.ShiftDown();
+
+    m_dragWorldStart = world;
+    m_dragWorldLast  = world;
+    m_didDrag        = false;
+
+    if (!HasCapture()) CaptureMouse();
+
+    switch (m_activeTool) {
+    case TOOL_CREATE:
+        AddCreationVertex(world);
+        return;
+
+    case TOOL_VSELECT:
+    case TOOL_MOVE: {
+        bool hit = m_document.selectVertexAt(world, WorldTolerance(), additive);
+        if (hit) {
+            m_state = ViewportState::Dragging;
+            m_undoStack.push(m_document);
+        } else {
+            if (!additive) m_document.clearSelection();
+            m_state   = ViewportState::RubberBanding;
+            m_rubberA = world;
+            m_rubberB = world;
+        }
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_PSELECT: {
+        bool hit = m_document.selectPolyAt(world, additive);
+        if (hit) {
+            m_state = ViewportState::Dragging;
+            m_undoStack.push(m_document);
+        } else {
+            if (!additive) m_document.clearSelection();
+            m_state   = ViewportState::RubberBanding;
+            m_rubberA = world;
+            m_rubberB = world;
+        }
+        Refresh(false);
+        return;
+    }
+
+    default:
+        break;
+    }
+}
+
+void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
+    const Vec2 world = m_document.screenToWorld(
+        {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
+
+    float dx = world.x - m_dragWorldStart.x;
+    float dy = world.y - m_dragWorldStart.y;
+    float screenDist = std::sqrt(dx*dx + dy*dy) * m_document.zoom;
+    if (screenDist > kDragThreshold)
+        m_didDrag = true;
+
+    if (m_state == ViewportState::Dragging && m_didDrag) {
+        float moveDx = world.x - m_dragWorldLast.x;
+        float moveDy = world.y - m_dragWorldLast.y;
+        m_document.moveSelected(moveDx, moveDy);
+        if (m_mainFrame != nullptr) {
+            m_mainFrame->UpdateStatusBar();
+            m_mainFrame->UpdateTitle();
+        }
+    }
+
+    if (m_state == ViewportState::RubberBanding)
+        m_rubberB = world;
+
+    m_dragWorldLast = world;
+    if (m_state != ViewportState::Idle)
+        Refresh(false);
+}
+
+void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
+    const Vec2 world = m_document.screenToWorld(
+        {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
+    const bool additive = event.ShiftDown();
+
+    if (HasCapture()) ReleaseMouse();
+
+    if (m_state == ViewportState::RubberBanding && m_didDrag) {
+        if (m_activeTool == TOOL_PSELECT)
+            m_document.selectPolysInRect(m_rubberA, m_rubberB, additive);
+        else
+            m_document.selectVerticesInRect(m_rubberA, m_rubberB, additive);
+    }
+
+    if (m_state == ViewportState::Dragging && !m_didDrag) {
+        /* Click without drag: pop the snapshot we took (nothing moved) */
+        m_undoStack.pop();
+        if (m_activeTool == TOOL_PSELECT)
+            m_document.selectPolyAt(world, additive);
+        else
+            m_document.selectVertexAt(world, WorldTolerance(), additive);
+    }
+
+    m_state   = ViewportState::Idle;
+    m_didDrag = false;
+
+    if (m_mainFrame != nullptr) {
+        m_mainFrame->UpdateStatusBar();
+        m_mainFrame->UpdateTitle();
+    }
+    Refresh(false);
+}
+
+void GlViewport::AddCreationVertex(Vec2 worldPos) {
+    if (m_state != ViewportState::CreatingPoly)
+        m_state = ViewportState::CreatingPoly;
+
+    m_creationVerts[m_creationVertCount++] = worldPos;
+
+    if (m_creationVertCount == kMaxCreationVerts) {
+        m_undoStack.push(m_document);
+        EditorPoly poly;
+        for (int i = 0; i < 3; ++i) {
+            poly.v[i].world = m_creationVerts[i];
+            poly.v[i].r = poly.v[i].g = poly.v[i].b = 200;
+            poly.v[i].alpha = 255;
+            poly.v[i].selected = true;
+        }
+        poly.polyType = POLY_NORMAL;
+        m_document.addPoly(poly);
+        if (m_mainFrame != nullptr)
+            m_mainFrame->UpdateTitle();
+        m_creationVertCount = 0;
+        m_state = ViewportState::Idle;
+    }
+    Refresh(false);
+}
+
+void GlViewport::CancelCreation() {
+    m_creationVertCount = 0;
+    m_state = ViewportState::Idle;
+}
+
+/* ---- Panning ------------------------------------------------------------ */
+
+bool GlViewport::IsSpacePanGesture(const wxMouseEvent& event) const {
+    return event.LeftIsDown() && wxGetKeyState(WXK_SPACE);
+}
+
+void GlViewport::BeginPan(const wxPoint& point) {
+    m_panning      = true;
+    m_lastPanPoint = point;
+    if (!HasCapture()) CaptureMouse();
+}
+
+void GlViewport::UpdatePan(const wxPoint& point) {
+    const wxPoint delta = point - m_lastPanPoint;
+    m_lastPanPoint = point;
+    m_document.scrollX -= static_cast<float>(delta.x) / m_document.zoom;
+    m_document.scrollY -= static_cast<float>(delta.y) / m_document.zoom;
+    m_document.rebuildScreenCache();
+    if (m_mainFrame != nullptr) {
+        const Vec2 world = m_document.screenToWorld(
+            {static_cast<float>(point.x), static_cast<float>(point.y)});
+        m_mainFrame->UpdateMouseWorldPosition(world);
+        m_mainFrame->UpdateStatusBar();
+    }
+    Refresh(false);
+}
+
+void GlViewport::EndPan() {
+    m_panning = false;
+    if (HasCapture()) ReleaseMouse();
+}
+
+/* ---- Fallback ----------------------------------------------------------- */
+
+void GlViewport::DrawFallback(wxDC& dc) {
+    const wxSize size = GetClientSize();
+    dc.SetBackground(wxBrush(wxColour(0x2B, 0x1A, 0x0E)));
+    dc.Clear();
+
+    dc.SetPen(wxPen(wxColour(90, 90, 90)));
+    const int step = 100;
+    const int startX = static_cast<int>(std::floor(m_document.scrollX / step) * step);
+    const int startY = static_cast<int>(std::floor(m_document.scrollY / step) * step);
+    const float right  = m_document.scrollX + static_cast<float>(size.x) / m_document.zoom;
+    const float bottom = m_document.scrollY + static_cast<float>(size.y) / m_document.zoom;
+
+    for (int worldX = startX; worldX <= static_cast<int>(right); worldX += step) {
+        const int screenX = static_cast<int>((static_cast<float>(worldX) - m_document.scrollX) * m_document.zoom);
+        dc.DrawLine(screenX, 0, screenX, size.y);
+    }
+    for (int worldY = startY; worldY <= static_cast<int>(bottom); worldY += step) {
+        const int screenY = static_cast<int>((static_cast<float>(worldY) - m_document.scrollY) * m_document.zoom);
+        dc.DrawLine(0, screenY, size.x, screenY);
+    }
+
+    dc.SetTextForeground(*wxWHITE);
+    dc.DrawText("No OpenGL context - fallback rendering", wxPoint(12, 12));
+}

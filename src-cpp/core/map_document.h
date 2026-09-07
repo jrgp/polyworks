@@ -188,6 +188,27 @@ public:
 
     bool anySelected() const;
 
+    /* ---- Hit testing --------------------------------------------------- */
+    /* Returns flat vertex index (polyIdx * 3 + vertIdx) or -1.
+       tolerance is in world-space units. */
+    int  findNearestVertexIdx(Vec2 worldPos, float tolerance) const;
+
+    /* Returns poly index or -1 (uses point-in-triangle test). */
+    int  findPolyAt(Vec2 worldPos) const;
+
+    /* Selects the nearest vertex within tolerance; returns true if found.
+       With additive=false, clears current selection first. */
+    bool selectVertexAt(Vec2 worldPos, float tolerance, bool additive = false);
+
+    /* Selects the polygon at worldPos; returns true if found. */
+    bool selectPolyAt(Vec2 worldPos, bool additive = false);
+
+    /* Rubber-band selects all vertices inside the world-space rect. */
+    void selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive = false);
+
+    /* Rubber-band selects all polygons whose centroid is inside the rect. */
+    void selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive = false);
+
     /* ---- Editing ------------------------------------------------------- */
     void deleteSelected();
     void duplicateSelected(float offsetX, float offsetY);

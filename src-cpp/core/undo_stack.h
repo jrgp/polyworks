@@ -32,6 +32,10 @@ public:
     /* Reapply the reverted state.  Returns true if successful. */
     bool redo(MapDocument& doc);
 
+    /* Discard the most recently pushed state (used when a potential drag
+       turns out to be just a click and nothing was actually moved). */
+    void pop();
+
     bool canUndo() const { return !m_undoStack.empty(); }
     bool canRedo() const { return !m_redoStack.empty(); }
 

@@ -78,3 +78,8 @@ void UndoStack::clear() {
     m_undoStack.clear();
     m_redoStack.clear();
 }
+
+void UndoStack::pop() {
+    if (!m_undoStack.empty())
+        m_undoStack.pop_back();
+}

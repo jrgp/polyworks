@@ -1,0 +1,551 @@
+#include "renderer.h"
+
+#include "texture_manager.h"
+#include "pms_types.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <unordered_map>
+
+#if defined(__has_include)
+#if __has_include(<GL/gl.h>)
+#include <GL/gl.h>
+#define PW_RENDERER_HAS_OPENGL 1
+#elif __has_include(<OpenGL/gl.h>)
+#include <OpenGL/gl.h>
+#define PW_RENDERER_HAS_OPENGL 1
+#else
+#define PW_RENDERER_HAS_OPENGL 0
+#endif
+#else
+#define PW_RENDERER_HAS_OPENGL 0
+#endif
+
+namespace {
+
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kRadToDeg = 180.0f / kPi;
+
+Vec2 toScreen(const MapDocument& doc, float x, float y) {
+    return doc.worldToScreen({x, y});
+}
+
+#if PW_RENDERER_HAS_OPENGL
+void setArgbColor(uint32_t color) {
+    glColor4ub(argb_r(color), argb_g(color), argb_b(color), argb_a(color));
+}
+
+void drawScreenSquare(float x, float y, float halfSize) {
+    glBegin(GL_QUADS);
+    glVertex2f(x - halfSize, y - halfSize);
+    glVertex2f(x + halfSize, y - halfSize);
+    glVertex2f(x + halfSize, y + halfSize);
+    glVertex2f(x - halfSize, y + halfSize);
+    glEnd();
+}
+
+void drawCircle(float cx, float cy, float radius, int segments, GLenum mode) {
+    glBegin(mode);
+    for (int i = 0; i < segments; ++i) {
+        const float angle = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(segments);
+        glVertex2f(cx + std::cos(angle) * radius, cy + std::sin(angle) * radius);
+    }
+    glEnd();
+}
+
+void drawCrosshair(float cx, float cy, float radius) {
+    glBegin(GL_LINES);
+    glVertex2f(cx - radius, cy);
+    glVertex2f(cx + radius, cy);
+    glVertex2f(cx, cy - radius);
+    glVertex2f(cx, cy + radius);
+    glVertex2f(cx - radius * 0.7f, cy - radius * 0.7f);
+    glVertex2f(cx + radius * 0.7f, cy + radius * 0.7f);
+    glVertex2f(cx - radius * 0.7f, cy + radius * 0.7f);
+    glVertex2f(cx + radius * 0.7f, cy - radius * 0.7f);
+    glEnd();
+}
+#endif
+
+std::array<uint8_t, 4> sceneryTint(const EditorScenery& scenery) {
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+    uint8_t a = scenery.alpha;
+
+    if (scenery.color != -1) {
+        const uint32_t color = static_cast<uint32_t>(scenery.color);
+        r = argb_r(color);
+        g = argb_g(color);
+        b = argb_b(color);
+        a = static_cast<uint8_t>((static_cast<unsigned int>(a) * argb_a(color)) / 255U);
+    }
+
+    return {r, g, b, a};
+}
+
+}  // namespace
+
+void Renderer::setTextureManager(TextureManager* mgr) {
+    m_texMgr = mgr;
+}
+
+void Renderer::initialize() {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    if (m_texMgr != nullptr) {
+        m_texMgr->getNotFoundTexture();
+    }
+#endif
+    m_initialized = true;
+}
+
+void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const ViewSettings& view) {
+#if PW_RENDERER_HAS_OPENGL
+    if (!m_initialized) {
+        initialize();
+    }
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    if (view.showBackground) {
+        renderBackground(doc.options.bgColor1, doc.options.bgColor2, viewW, viewH);
+    }
+
+    if (view.showSceneryBack) {
+        renderScenery(doc, SCENERY_BACK);
+    }
+
+    if (view.showPolys) {
+        GLuint texId = 0;
+        if (view.showTexture && m_texMgr != nullptr && !doc.options.textureName.empty()) {
+            texId = m_texMgr->loadTexture(doc.options.textureName);
+        }
+        renderPolygons(doc, texId);
+    }
+
+    if (view.showSceneryMiddle) {
+        renderScenery(doc, SCENERY_MIDDLE);
+    }
+
+    renderSelectionOverlays(doc);
+
+    if (view.showSceneryFront) {
+        renderScenery(doc, SCENERY_FRONT);
+    }
+
+    if (view.showObjects) {
+        renderSpawns(doc);
+    }
+    if (view.showWaypoints) {
+        renderWaypoints(doc);
+    }
+
+    renderColliders(doc);
+
+    if (view.showLights) {
+        renderLights(doc);
+    }
+    if (view.showSketch) {
+        renderSketchLines(doc);
+    }
+    if (view.showGrid) {
+        renderGrid(doc, viewW, viewH);
+    }
+#else
+    (void)doc;
+    (void)viewW;
+    (void)viewH;
+    (void)view;
+#endif
+}
+
+void Renderer::renderBackground(uint32_t col1, uint32_t col2, int w, int h) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glBegin(GL_QUADS);
+    setArgbColor(col1);
+    glVertex2f(0.0f, 0.0f);
+    glVertex2f(static_cast<float>(w), 0.0f);
+    setArgbColor(col2);
+    glVertex2f(static_cast<float>(w), static_cast<float>(h));
+    glVertex2f(0.0f, static_cast<float>(h));
+    glEnd();
+#else
+    (void)col1;
+    (void)col2;
+    (void)w;
+    (void)h;
+#endif
+}
+
+void Renderer::renderPolygons(const MapDocument& doc, GLuint texId) {
+#if PW_RENDERER_HAS_OPENGL
+    const bool textured = doc.viewSettings.showTexture && texId != 0;
+    if (textured) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, texId);
+    } else {
+        glDisable(GL_TEXTURE_2D);
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    for (const auto& poly : doc.polys) {
+        glBegin(GL_TRIANGLES);
+        for (const auto& vertex : poly.v) {
+            glColor4ub(vertex.r, vertex.g, vertex.b, vertex.alpha);
+            if (textured) {
+                glTexCoord2f(vertex.tu, vertex.tv);
+            }
+            const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+            glVertex2f(screen.x, screen.y);
+        }
+        glEnd();
+    }
+
+    if (doc.viewSettings.showWireframe) {
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+        glColor4ub(32, 32, 32, 255);
+        glLineWidth(1.0f);
+        for (const auto& poly : doc.polys) {
+            glBegin(GL_LINE_LOOP);
+            for (const auto& vertex : poly.v) {
+                const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+                glVertex2f(screen.x, screen.y);
+            }
+            glEnd();
+        }
+    }
+#else
+    (void)doc;
+    (void)texId;
+#endif
+}
+
+void Renderer::renderScenery(const MapDocument& doc, int level) {
+#if PW_RENDERER_HAS_OPENGL
+    if (m_texMgr == nullptr) {
+        return;
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_TEXTURE_2D);
+
+    for (const auto& scenery : doc.scenery) {
+        if (scenery.level != level || scenery.style <= 0 ||
+            scenery.style >= static_cast<int>(doc.sceneryNames.size())) {
+            continue;
+        }
+
+        const std::string& textureName = doc.sceneryNames[scenery.style];
+        const GLuint texId = m_texMgr->loadTexture(textureName);
+        if (texId == 0) {
+            continue;
+        }
+
+        int texW = 0;
+        int texH = 0;
+        m_texMgr->getSize(texId, texW, texH);
+        const float width = static_cast<float>(scenery.width > 0 ? scenery.width : texW);
+        const float height = static_cast<float>(scenery.height > 0 ? scenery.height : texH);
+        if (width <= 0.0f || height <= 0.0f) {
+            continue;
+        }
+
+        const auto tint = sceneryTint(scenery);
+        const Vec2 screen = toScreen(doc, scenery.x, scenery.y);
+        const float halfWidth = width * 0.5f;
+        const float halfHeight = height * 0.5f;
+
+        glBindTexture(GL_TEXTURE_2D, texId);
+        glColor4ub(tint[0], tint[1], tint[2], tint[3]);
+        glPushMatrix();
+        glTranslatef(screen.x, screen.y, 0.0f);
+        glRotatef(scenery.rotation * kRadToDeg, 0.0f, 0.0f, 1.0f);
+        glScalef(scenery.scaleX * doc.zoom, scenery.scaleY * doc.zoom, 1.0f);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f);
+        glVertex2f(-halfWidth, -halfHeight);
+        glTexCoord2f(1.0f, 0.0f);
+        glVertex2f(halfWidth, -halfHeight);
+        glTexCoord2f(1.0f, 1.0f);
+        glVertex2f(halfWidth, halfHeight);
+        glTexCoord2f(0.0f, 1.0f);
+        glVertex2f(-halfWidth, halfHeight);
+        glEnd();
+        glPopMatrix();
+    }
+
+    glDisable(GL_TEXTURE_2D);
+#else
+    (void)doc;
+    (void)level;
+#endif
+}
+
+void Renderer::renderSelectionOverlays(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+
+    glLineWidth(2.0f);
+    glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
+    for (const auto& poly : doc.polys) {
+        if (!poly.anySelected()) {
+            continue;
+        }
+        glBegin(GL_LINE_LOOP);
+        for (const auto& vertex : poly.v) {
+            const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+            glVertex2f(screen.x, screen.y);
+        }
+        glEnd();
+    }
+    glLineWidth(1.0f);
+
+    if (doc.viewSettings.showPoints) {
+        glColor4ub(255, 255, 255, 255);
+        for (const auto& poly : doc.polys) {
+            for (const auto& vertex : poly.v) {
+                const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+                drawScreenSquare(screen.x, screen.y, vertex.selected ? 3.0f : 2.0f);
+            }
+        }
+    }
+
+    for (const auto& poly : doc.polys) {
+        for (const auto& vertex : poly.v) {
+            if (!vertex.selected) {
+                continue;
+            }
+            const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+            glColor4ub(255, 255, 255, 255);
+            drawScreenSquare(screen.x, screen.y, 2.0f);
+            glColor4ub(255, 255, 0, 255);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(screen.x - 3.0f, screen.y - 3.0f);
+            glVertex2f(screen.x + 3.0f, screen.y - 3.0f);
+            glVertex2f(screen.x + 3.0f, screen.y + 3.0f);
+            glVertex2f(screen.x - 3.0f, screen.y + 3.0f);
+            glEnd();
+        }
+    }
+
+    glEnable(GL_LINE_STIPPLE);
+    glLineStipple(1, 0x00FF);
+    glColor4ub(255, 255, 0, 255);
+    for (const auto& scenery : doc.scenery) {
+        if (!scenery.selected) {
+            continue;
+        }
+
+        float width = static_cast<float>(scenery.width);
+        float height = static_cast<float>(scenery.height);
+        if ((width <= 0.0f || height <= 0.0f) && m_texMgr != nullptr && scenery.style > 0 &&
+            scenery.style < static_cast<int>(doc.sceneryNames.size())) {
+            const GLuint texId = m_texMgr->loadTexture(doc.sceneryNames[scenery.style]);
+            int texW = 0;
+            int texH = 0;
+            m_texMgr->getSize(texId, texW, texH);
+            if (width <= 0.0f) {
+                width = static_cast<float>(texW);
+            }
+            if (height <= 0.0f) {
+                height = static_cast<float>(texH);
+            }
+        }
+        if (width <= 0.0f || height <= 0.0f) {
+            continue;
+        }
+
+        const Vec2 screen = toScreen(doc, scenery.x, scenery.y);
+        const float halfWidth = width * 0.5f;
+        const float halfHeight = height * 0.5f;
+        glPushMatrix();
+        glTranslatef(screen.x, screen.y, 0.0f);
+        glRotatef(scenery.rotation * kRadToDeg, 0.0f, 0.0f, 1.0f);
+        glScalef(scenery.scaleX * doc.zoom, scenery.scaleY * doc.zoom, 1.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(-halfWidth, -halfHeight);
+        glVertex2f(halfWidth, -halfHeight);
+        glVertex2f(halfWidth, halfHeight);
+        glVertex2f(-halfWidth, halfHeight);
+        glEnd();
+        glPopMatrix();
+    }
+    glDisable(GL_LINE_STIPPLE);
+#else
+    (void)doc;
+#endif
+}
+
+void Renderer::renderGrid(const MapDocument& doc, int viewW, int viewH) {
+#if PW_RENDERER_HAS_OPENGL
+    const float gridStep = std::max(doc.viewSettings.gridSize, 1.0f);
+    const float left = doc.scrollX;
+    const float top = doc.scrollY;
+    const float right = left + static_cast<float>(viewW) / doc.zoom;
+    const float bottom = top + static_cast<float>(viewH) / doc.zoom;
+    const float startX = std::floor(left / gridStep) * gridStep;
+    const float startY = std::floor(top / gridStep) * gridStep;
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor4ub(90, 90, 90, 255);
+    glBegin(GL_LINES);
+    for (float worldX = startX; worldX <= right; worldX += gridStep) {
+        const float screenX = (worldX - doc.scrollX) * doc.zoom;
+        glVertex2f(screenX, 0.0f);
+        glVertex2f(screenX, static_cast<float>(viewH));
+    }
+    for (float worldY = startY; worldY <= bottom; worldY += gridStep) {
+        const float screenY = (worldY - doc.scrollY) * doc.zoom;
+        glVertex2f(0.0f, screenY);
+        glVertex2f(static_cast<float>(viewW), screenY);
+    }
+    glEnd();
+#else
+    (void)doc;
+    (void)viewW;
+    (void)viewH;
+#endif
+}
+
+void Renderer::renderSpawns(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+
+    for (const auto& spawn : doc.spawns) {
+        if (!spawn.active) {
+            continue;
+        }
+
+        switch (spawn.team) {
+        case SPAWN_ALPHA: glColor4ub(64, 128, 255, 255); break;
+        case SPAWN_BRAVO: glColor4ub(255, 64, 64, 255); break;
+        case SPAWN_CHARLIE: glColor4ub(255, 255, 0, 255); break;
+        case SPAWN_DELTA: glColor4ub(0, 220, 0, 255); break;
+        case SPAWN_FROGGER: glColor4ub(0, 255, 255, 255); break;
+        case SPAWN_YELLOW: glColor4ub(255, 255, 0, 255); break;
+        case SPAWN_RED: glColor4ub(255, 0, 0, 255); break;
+        case SPAWN_GENERAL:
+        default: glColor4ub(160, 160, 160, 255); break;
+        }
+
+        const Vec2 screen = toScreen(doc, spawn.x, spawn.y);
+        drawCircle(screen.x, screen.y, 5.0f, 16, GL_LINE_LOOP);
+    }
+#else
+    (void)doc;
+#endif
+}
+
+void Renderer::renderWaypoints(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+
+    std::unordered_map<int, Vec2> waypointPositions;
+    for (const auto& waypoint : doc.waypoints) {
+        if (waypoint.active) {
+            waypointPositions.emplace(waypoint.id, toScreen(doc, waypoint.x, waypoint.y));
+        }
+    }
+
+    glColor4ub(128, 128, 128, 255);
+    glBegin(GL_LINES);
+    for (const auto& waypoint : doc.waypoints) {
+        if (!waypoint.active) {
+            continue;
+        }
+        const auto fromIt = waypointPositions.find(waypoint.id);
+        if (fromIt == waypointPositions.end()) {
+            continue;
+        }
+        for (int connection : waypoint.connections) {
+            const auto toIt = waypointPositions.find(connection);
+            if (toIt == waypointPositions.end()) {
+                continue;
+            }
+            glVertex2f(fromIt->second.x, fromIt->second.y);
+            glVertex2f(toIt->second.x, toIt->second.y);
+        }
+    }
+    glEnd();
+
+    glColor4ub(160, 160, 160, 255);
+    for (const auto& waypoint : doc.waypoints) {
+        if (!waypoint.active) {
+            continue;
+        }
+        const Vec2 screen = toScreen(doc, waypoint.x, waypoint.y);
+        drawScreenSquare(screen.x, screen.y, 4.0f);
+    }
+#else
+    (void)doc;
+#endif
+}
+
+void Renderer::renderColliders(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor4ub(0, 255, 0, 255);
+    for (const auto& collider : doc.colliders) {
+        if (!collider.active) {
+            continue;
+        }
+        const Vec2 screen = toScreen(doc, collider.x, collider.y);
+        drawCircle(screen.x, screen.y, collider.radius * doc.zoom, 16, GL_LINE_LOOP);
+    }
+#else
+    (void)doc;
+#endif
+}
+
+void Renderer::renderLights(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor4ub(255, 255, 0, 255);
+    for (const auto& light : doc.lights) {
+        const Vec2 screen = toScreen(doc, light.x, light.y);
+        drawCrosshair(screen.x, screen.y, 6.0f);
+    }
+#else
+    (void)doc;
+#endif
+}
+
+void Renderer::renderSketchLines(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor4ub(210, 210, 210, 255);
+    glBegin(GL_LINES);
+    for (const auto& line : doc.sketch) {
+        const Vec2 a = toScreen(doc, line.a.x, line.a.y);
+        const Vec2 b = toScreen(doc, line.b.x, line.b.y);
+        glVertex2f(a.x, a.y);
+        glVertex2f(b.x, b.y);
+    }
+    glEnd();
+#else
+    (void)doc;
+#endif
+}

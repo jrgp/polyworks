@@ -18,6 +18,6 @@
 build/
 *.o
 *.ppu
-# Platform-specific compiled vendor artifacts (rebuilt by build scripts)
-src-fp/vendor/*.a
-src-fp/vendor/*.o
+# Platform-specific compiled vendor artifacts
+vendor/*.a
+vendor/*.o

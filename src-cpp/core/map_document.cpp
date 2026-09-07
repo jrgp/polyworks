@@ -104,6 +104,98 @@ bool MapDocument::anySelected() const {
     return false;
 }
 
+/* ---- Hit testing -------------------------------------------------------- */
+
+int MapDocument::findNearestVertexIdx(Vec2 worldPos, float tolerance) const {
+    float best = tolerance * tolerance;
+    int   bestIdx = -1;
+    for (int pi = 0; pi < static_cast<int>(polys.size()); ++pi) {
+        for (int vi = 0; vi < 3; ++vi) {
+            const Vec2& w = polys[pi].v[vi].world;
+            float dx = w.x - worldPos.x;
+            float dy = w.y - worldPos.y;
+            float d2 = dx*dx + dy*dy;
+            if (d2 < best) {
+                best = d2;
+                bestIdx = pi * 3 + vi;
+            }
+        }
+    }
+    return bestIdx;
+}
+
+int MapDocument::findPolyAt(Vec2 worldPos) const {
+    /* Point-in-triangle using sign of cross products (CW winding, Y-down). */
+    for (int pi = 0; pi < static_cast<int>(polys.size()); ++pi) {
+        const EditorPoly& poly = polys[pi];
+        const Vec2 a = poly.v[0].world;
+        const Vec2 b = poly.v[1].world;
+        const Vec2 c = poly.v[2].world;
+        const Vec2 p = worldPos;
+
+        auto cross = [](Vec2 e0, Vec2 e1, Vec2 pt) {
+            return (e1.x - e0.x) * (pt.y - e0.y) - (e1.y - e0.y) * (pt.x - e0.x);
+        };
+
+        float d1 = cross(a, b, p);
+        float d2 = cross(b, c, p);
+        float d3 = cross(c, a, p);
+
+        bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+        bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+        if (!(hasNeg && hasPos))
+            return pi;
+    }
+    return -1;
+}
+
+bool MapDocument::selectVertexAt(Vec2 worldPos, float tolerance, bool additive) {
+    if (!additive) clearSelection();
+    int idx = findNearestVertexIdx(worldPos, tolerance);
+    if (idx < 0) return false;
+    polys[idx / 3].v[idx % 3].selected = true;
+    return true;
+}
+
+bool MapDocument::selectPolyAt(Vec2 worldPos, bool additive) {
+    if (!additive) clearSelection();
+    int idx = findPolyAt(worldPos);
+    if (idx < 0) return false;
+    for (int i = 0; i < 3; ++i)
+        polys[idx].v[i].selected = true;
+    return true;
+}
+
+void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive) {
+    if (!additive) clearSelection();
+    float x0 = std::min(worldA.x, worldB.x);
+    float x1 = std::max(worldA.x, worldB.x);
+    float y0 = std::min(worldA.y, worldB.y);
+    float y1 = std::max(worldA.y, worldB.y);
+    for (auto& p : polys)
+        for (int i = 0; i < 3; ++i) {
+            const Vec2& w = p.v[i].world;
+            if (w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1)
+                p.v[i].selected = true;
+        }
+}
+
+void MapDocument::selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive) {
+    if (!additive) clearSelection();
+    float x0 = std::min(worldA.x, worldB.x);
+    float x1 = std::max(worldA.x, worldB.x);
+    float y0 = std::min(worldA.y, worldB.y);
+    float y1 = std::max(worldA.y, worldB.y);
+    for (auto& p : polys) {
+        /* Use centroid to decide whether poly is "in" the rect */
+        float cx = (p.v[0].world.x + p.v[1].world.x + p.v[2].world.x) / 3.0f;
+        float cy = (p.v[0].world.y + p.v[1].world.y + p.v[2].world.y) / 3.0f;
+        if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1)
+            for (int i = 0; i < 3; ++i)
+                p.v[i].selected = true;
+    }
+}
+
 /* ---- Editing ------------------------------------------------------------ */
 
 void MapDocument::deleteSelected() {
