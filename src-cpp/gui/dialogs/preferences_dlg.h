@@ -15,6 +15,8 @@
 #include <wx/stattext.h>
 #include <wx/clrpicker.h>
 
+#include <string>
+
 struct AppPrefs {
     /* Zoom */
     float   minZoom      = 0.0625f;

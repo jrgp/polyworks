@@ -7,6 +7,7 @@
 #include "panels/scenery_panel.h"
 #include "panels/waypoint_panel.h"
 #include "dialogs/map_settings_dlg.h"
+#include "dialogs/preferences_dlg.h"
 #include "pms_io.h"
 
 #include <wx/filedlg.h>
@@ -159,6 +160,7 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnEditSelectAll, this, wxID_SELECTALL);
     Bind(wxEVT_MENU, &MainFrame::OnEditInvertSelection, this, ID_EDIT_INVERT_SELECTION);
     Bind(wxEVT_MENU, &MainFrame::OnMapSettings, this, ID_MAP_SETTINGS);
+    Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_MAP_PREFERENCES);
     Bind(wxEVT_MENU, &MainFrame::OnExit, this, wxID_EXIT);
     Bind(wxEVT_CHAR_HOOK, &MainFrame::OnKeyDown, this);
     Bind(wxEVT_SIZE, &MainFrame::OnSize, this);
@@ -488,6 +490,14 @@ void MainFrame::OnMapSettings(wxCommandEvent&) {
         UpdateTitle();
         RefreshViewport();
     }
+}
+
+void MainFrame::OnPreferences(wxCommandEvent&) {
+    /* Preferences dialog — uses a local AppPrefs struct for now; later persisted to ini */
+    AppPrefs prefs;
+    PreferencesDlg dlg(this, prefs);
+    dlg.ShowModal();
+    /* TODO: apply prefs.undoDepth to m_undoStack, propagate grid settings to renderer */
 }
 
 void MainFrame::OnKeyDown(wxKeyEvent& event) {

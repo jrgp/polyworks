@@ -64,6 +64,7 @@ private:
     void OnEditDuplicateSelected(wxCommandEvent& event);
 
     void OnMapSettings(wxCommandEvent& event);
+    void OnPreferences(wxCommandEvent& event);
 
     void OnExit(wxCommandEvent& event);
     void OnKeyDown(wxKeyEvent& event);
