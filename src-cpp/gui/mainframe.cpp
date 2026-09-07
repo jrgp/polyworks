@@ -2,6 +2,8 @@
 
 #include "gl_viewport.h"
 #include "panels/tools_panel.h"
+#include "panels/display_panel.h"
+#include "panels/info_panel.h"
 #include "dialogs/map_settings_dlg.h"
 #include "pms_io.h"
 
@@ -169,6 +171,14 @@ void MainFrame::AttachToolsPanel(ToolsPanel* toolsPanel) {
     if (m_toolsPanel != nullptr) {
         m_toolsPanel->SetActiveTool(m_activeTool);
     }
+}
+
+void MainFrame::AttachDisplayPanel(DisplayPanel* displayPanel) {
+    m_displayPanel = displayPanel;
+}
+
+void MainFrame::AttachInfoPanel(InfoPanel* infoPanel) {
+    m_infoPanel = infoPanel;
 }
 
 void MainFrame::buildMenuBar() {
@@ -525,6 +535,9 @@ void MainFrame::UpdateStatusBar() {
     m_zoomText->SetLabel(wxString::Format("Zoom: %.0f%%", m_doc.zoom * 100.0f));
     m_toolText->SetLabel("Tool: " + GetToolName(m_activeTool));
     layoutStatusBarFields();
+
+    if (m_infoPanel != nullptr)
+        m_infoPanel->Refresh();
 }
 
 void MainFrame::UpdateTitle() {

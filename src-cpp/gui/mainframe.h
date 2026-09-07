@@ -9,6 +9,8 @@
 
 class GlViewport;
 class ToolsPanel;
+class DisplayPanel;
+class InfoPanel;
 class wxCommandEvent;
 class wxKeyEvent;
 class wxSizeEvent;
@@ -21,16 +23,21 @@ public:
     explicit MainFrame(const wxString& skinsPath);
 
     void AttachToolsPanel(ToolsPanel* toolsPanel);
+    void AttachDisplayPanel(DisplayPanel* displayPanel);
+    void AttachInfoPanel(InfoPanel* infoPanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
     void UpdateStatusBar();
     void UpdateTitle();
     void UpdateMouseWorldPosition(const Vec2& world);
+    void RefreshViewport();
 
     MapDocument m_doc;
     UndoStack m_undoStack;
     int m_activeTool = 0;
-    GlViewport* m_viewport = nullptr;
+    GlViewport*    m_viewport     = nullptr;
+    DisplayPanel*  m_displayPanel = nullptr;
+    InfoPanel*     m_infoPanel    = nullptr;
 
 private:
     void buildMenuBar();
@@ -57,7 +64,6 @@ private:
     void OnSize(wxSizeEvent& event);
 
     bool SaveDocumentToPath(const wxString& path);
-    void RefreshViewport();
 
     wxString m_skinsPath;
     wxString m_currentFilePath;
