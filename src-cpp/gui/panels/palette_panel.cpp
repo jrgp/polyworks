@@ -285,6 +285,16 @@ float PalettePanel::GetOpacity()   const { long v = 100; m_txtOpacity->GetValue(
 int   PalettePanel::GetBlendMode() const { return m_cboBlend->GetSelection(); }
 uint8_t PalettePanel::GetColorMode() const { return m_colorModeIdx; }
 
+void PalettePanel::GetCurrentColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
+    long rv = 0, gv = 0, bv = 0;
+    m_txtR->GetValue().ToLong(&rv);
+    m_txtG->GetValue().ToLong(&gv);
+    m_txtB->GetValue().ToLong(&bv);
+    r = static_cast<uint8_t>(rv);
+    g = static_cast<uint8_t>(gv);
+    b = static_cast<uint8_t>(bv);
+}
+
 /* ---- Event handlers ---------------------------------------------------- */
 
 void PalettePanel::OnLoadPalette(wxCommandEvent&) {

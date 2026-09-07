@@ -7,6 +7,7 @@
 #include <cstring>
 #include <sstream>
 #include <cmath>
+#include <limits>
 
 MapDocument::MapDocument() {
     /* Reserve element [0] in sceneryNames so indices are 1-based */
@@ -149,25 +150,48 @@ int MapDocument::findPolyAt(Vec2 worldPos) const {
     return -1;
 }
 
-bool MapDocument::selectVertexAt(Vec2 worldPos, float tolerance, bool additive) {
-    if (!additive) clearSelection();
-    int idx = findNearestVertexIdx(worldPos, tolerance);
-    if (idx < 0) return false;
-    polys[idx / 3].v[idx % 3].selected = true;
+bool MapDocument::selectVertexAt(Vec2 worldPos, float tolerance, SelectMode mode) {
+    if (mode == SelectMode::Replace) clearSelection();
+
+    /* VB6 RegionSelPolys: prefer the poly that contains the click, then pick
+       its nearest vertex.  Fall back to the globally nearest vertex within
+       tolerance when no poly contains the click. */
+    int pi = findPolyAt(worldPos);
+    int bestFlat = -1;
+    if (pi >= 0) {
+        float best = std::numeric_limits<float>::max();
+        for (int vi = 0; vi < 3; ++vi) {
+            const Vec2& w = polys[pi].v[vi].world;
+            float dx = w.x - worldPos.x;
+            float dy = w.y - worldPos.y;
+            float d2 = dx*dx + dy*dy;
+            if (d2 < best) { best = d2; bestFlat = pi * 3 + vi; }
+        }
+    } else {
+        bestFlat = findNearestVertexIdx(worldPos, tolerance);
+    }
+
+    if (bestFlat < 0) return false;
+
+    bool& sel = polys[bestFlat / 3].v[bestFlat % 3].selected;
+    if (mode == SelectMode::Subtract)
+        sel = false;
+    else
+        sel = true;
     return true;
 }
 
-bool MapDocument::selectPolyAt(Vec2 worldPos, bool additive) {
-    if (!additive) clearSelection();
+bool MapDocument::selectPolyAt(Vec2 worldPos, SelectMode mode) {
+    if (mode == SelectMode::Replace) clearSelection();
     int idx = findPolyAt(worldPos);
     if (idx < 0) return false;
     for (int i = 0; i < 3; ++i)
-        polys[idx].v[i].selected = true;
+        polys[idx].v[i].selected = (mode != SelectMode::Subtract);
     return true;
 }
 
-void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive) {
-    if (!additive) clearSelection();
+void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, SelectMode mode) {
+    if (mode == SelectMode::Replace) clearSelection();
     float x0 = std::min(worldA.x, worldB.x);
     float x1 = std::max(worldA.x, worldB.x);
     float y0 = std::min(worldA.y, worldB.y);
@@ -175,13 +199,17 @@ void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive) 
     for (auto& p : polys)
         for (int i = 0; i < 3; ++i) {
             const Vec2& w = p.v[i].world;
-            if (w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1)
-                p.v[i].selected = true;
+            if (w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1) {
+                if (mode == SelectMode::Subtract)
+                    p.v[i].selected = false;
+                else
+                    p.v[i].selected = true;
+            }
         }
 }
 
-void MapDocument::selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive) {
-    if (!additive) clearSelection();
+void MapDocument::selectPolysInRect(Vec2 worldA, Vec2 worldB, SelectMode mode) {
+    if (mode == SelectMode::Replace) clearSelection();
     float x0 = std::min(worldA.x, worldB.x);
     float x1 = std::max(worldA.x, worldB.x);
     float y0 = std::min(worldA.y, worldB.y);
@@ -190,10 +218,88 @@ void MapDocument::selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive) {
         /* Use centroid to decide whether poly is "in" the rect */
         float cx = (p.v[0].world.x + p.v[1].world.x + p.v[2].world.x) / 3.0f;
         float cy = (p.v[0].world.y + p.v[1].world.y + p.v[2].world.y) / 3.0f;
-        if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1)
+        if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) {
+            bool val = (mode != SelectMode::Subtract);
             for (int i = 0; i < 3; ++i)
-                p.v[i].selected = true;
+                p.v[i].selected = val;
+        }
     }
+}
+
+/* ---- Color painting ----------------------------------------------------- */
+
+/*static*/
+void MapDocument::blendColor(uint8_t& dr, uint8_t& dg, uint8_t& db,
+                              uint8_t sr, uint8_t sg, uint8_t sb,
+                              float opacity, int blendMode) {
+    auto blend = [&](uint8_t d, uint8_t s) -> uint8_t {
+        float fd = d / 255.0f;
+        float fs = s / 255.0f;
+        float result;
+        switch (blendMode) {
+        case 0: result = fs * opacity + fd * (1.0f - opacity); break;           /* normal */
+        case 1: result = (fd * fs) * opacity + fd * (1.0f - opacity); break;   /* multiply */
+        case 2: result = (fd - fd*fs + fs) * opacity + fd * (1.0f - opacity); break; /* screen */
+        case 3: result = std::min(fd, fs) * opacity + fd * (1.0f - opacity); break;  /* darken */
+        case 4: result = std::max(fd, fs) * opacity + fd * (1.0f - opacity); break;  /* lighten */
+        case 5: result = std::abs(fd - fs) * opacity + fd * (1.0f - opacity); break; /* difference */
+        default: result = 0; break;
+        }
+        float clamped = result < 0.0f ? 0.0f : (result > 1.0f ? 1.0f : result);
+        return static_cast<uint8_t>(clamped * 255.0f + 0.5f);
+    };
+    dr = blend(dr, sr);
+    dg = blend(dg, sg);
+    db = blend(db, sb);
+}
+
+bool MapDocument::applyColorToSelected(uint8_t r, uint8_t g, uint8_t b,
+                                        float opacity, int blendMode) {
+    bool applied = false;
+    for (auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected) {
+                blendColor(p.v[i].r, p.v[i].g, p.v[i].b, r, g, b, opacity, blendMode);
+                applied = true;
+            }
+    if (applied) markModified();
+    return applied;
+}
+
+bool MapDocument::applyColorToPolyAt(Vec2 worldPos,
+                                      uint8_t r, uint8_t g, uint8_t b,
+                                      float opacity, int blendMode) {
+    int pi = findPolyAt(worldPos);
+    if (pi < 0) return false;
+    for (int i = 0; i < 3; ++i)
+        blendColor(polys[pi].v[i].r, polys[pi].v[i].g, polys[pi].v[i].b,
+                   r, g, b, opacity, blendMode);
+    markModified();
+    return true;
+}
+
+bool MapDocument::applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
+                                            uint8_t r, uint8_t g, uint8_t b,
+                                            float opacity, int blendMode) {
+    float r2 = worldRadius * worldRadius;
+    bool hasSelection = anySelected();
+    bool applied = false;
+    for (auto& p : polys)
+        for (int i = 0; i < 3; ++i) {
+            /* Respect selection: if anything is selected, only paint selected
+               vertices; otherwise paint unselected vertices (VB6 behavior). */
+            if (hasSelection && !p.v[i].selected) continue;
+            if (!hasSelection && p.v[i].selected) continue;
+            const Vec2& w = p.v[i].world;
+            float dx = w.x - worldPos.x;
+            float dy = w.y - worldPos.y;
+            if (dx*dx + dy*dy <= r2) {
+                blendColor(p.v[i].r, p.v[i].g, p.v[i].b, r, g, b, opacity, blendMode);
+                applied = true;
+            }
+        }
+    if (applied) markModified();
+    return applied;
 }
 
 /* ---- Editing ------------------------------------------------------------ */

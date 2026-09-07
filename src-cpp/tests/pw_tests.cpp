@@ -492,6 +492,194 @@ TEST(undo_empty_does_not_crash) {
     EXPECT(!ok);
 }
 
+/* ---- SelectMode tests -------------------------------------------------- */
+
+TEST(select_mode_replace) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[1].world = {100, 0}; p.v[2].world = {50, 100};
+    doc.addPoly(p);
+    /* Select vertex 0 */
+    doc.selectVertexAt({10, 10}, 50.0f, MapDocument::SelectMode::Replace);
+    EXPECT( doc.polys[0].v[0].selected);
+    /* Replace should deselect previous when selecting a different vertex */
+    doc.polys[0].v[1].selected = true;
+    doc.selectVertexAt({90, 10}, 50.0f, MapDocument::SelectMode::Replace);
+    EXPECT(!doc.polys[0].v[0].selected);
+}
+
+TEST(select_mode_add) {
+    MapDocument doc;
+    /* Two separate polygons */
+    EditorPoly a{};
+    a.v[0].world = {0,0}; a.v[1].world = {50,0}; a.v[2].world = {25,50};
+    doc.addPoly(a);
+    EditorPoly b{};
+    b.v[0].world = {200,0}; b.v[1].world = {250,0}; b.v[2].world = {225,50};
+    doc.addPoly(b);
+
+    /* Select vertex in poly A */
+    doc.selectVertexAt({25, 25}, 60.0f, MapDocument::SelectMode::Replace);
+    /* Add vertex in poly B */
+    doc.selectVertexAt({225, 25}, 60.0f, MapDocument::SelectMode::Add);
+    /* Both polys should have a selected vertex */
+    EXPECT(doc.polys[0].anySelected());
+    EXPECT(doc.polys[1].anySelected());
+}
+
+TEST(select_mode_subtract) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    p.v[0].selected = true; p.v[1].selected = true; p.v[2].selected = true;
+    doc.addPoly(p);
+    /* Subtract vertex nearest to {10,10} */
+    doc.selectVertexAt({10, 10}, 50.0f, MapDocument::SelectMode::Subtract);
+    /* v0 should be deselected; v1,v2 remain */
+    EXPECT(!doc.polys[0].v[0].selected);
+    EXPECT( doc.polys[0].v[1].selected);
+    EXPECT( doc.polys[0].v[2].selected);
+}
+
+TEST(select_vertices_rect_subtract) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {5,5}; p.v[1].world = {50,5}; p.v[2].world = {25,50};
+    p.v[0].selected = true; p.v[1].selected = true; p.v[2].selected = true;
+    doc.addPoly(p);
+    /* Subtract vertices within rect that covers v0 only */
+    doc.selectVerticesInRect({0,0}, {10,10}, MapDocument::SelectMode::Subtract);
+    EXPECT(!doc.polys[0].v[0].selected);
+    EXPECT( doc.polys[0].v[1].selected);
+    EXPECT( doc.polys[0].v[2].selected);
+}
+
+TEST(select_vertices_rect_add_multi_poly) {
+    MapDocument doc;
+    EditorPoly a{};
+    a.v[0].world = {0,0}; a.v[1].world = {50,0}; a.v[2].world = {25,50};
+    doc.addPoly(a);
+    EditorPoly b{};
+    b.v[0].world = {200,0}; b.v[1].world = {250,0}; b.v[2].world = {225,50};
+    doc.addPoly(b);
+
+    /* Select poly A vertices */
+    doc.selectVerticesInRect({-10,-10}, {100,100}, MapDocument::SelectMode::Replace);
+    EXPECT(doc.polys[0].anySelected());
+    EXPECT(!doc.polys[1].anySelected());
+
+    /* Add poly B vertices */
+    doc.selectVerticesInRect({150,-10}, {300,100}, MapDocument::SelectMode::Add);
+    EXPECT(doc.polys[0].anySelected());
+    EXPECT(doc.polys[1].anySelected());
+}
+
+/* ---- Color painting tests ---------------------------------------------- */
+
+TEST(blend_color_normal) {
+    /* Normal mode, opacity=1: destination should become source */
+    uint8_t r = 100, g = 150, b = 200;
+    MapDocument::blendColor(r, g, b, 255, 0, 0, 1.0f, 0);
+    EXPECT_EQ(r, 255);
+    EXPECT_EQ(g, 0);
+    EXPECT_EQ(b, 0);
+}
+
+TEST(blend_color_half_opacity) {
+    /* Normal mode, opacity=0.5: mix 50/50 */
+    uint8_t r = 0, g = 0, b = 0;
+    MapDocument::blendColor(r, g, b, 100, 100, 100, 0.5f, 0);
+    EXPECT_NEAR((float)r, 50.0f, 1.0f);
+    EXPECT_NEAR((float)g, 50.0f, 1.0f);
+    EXPECT_NEAR((float)b, 50.0f, 1.0f);
+}
+
+TEST(apply_color_to_selected) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    p.v[0].r = p.v[0].g = p.v[0].b = 100;
+    p.v[1].r = p.v[1].g = p.v[1].b = 100;
+    p.v[2].r = p.v[2].g = p.v[2].b = 100;
+    p.v[0].selected = true;
+    p.v[1].selected = false;
+    doc.addPoly(p);
+
+    bool ok = doc.applyColorToSelected(255, 0, 0, 1.0f, 0);
+    EXPECT(ok);
+    EXPECT_EQ(doc.polys[0].v[0].r, 255);
+    EXPECT_EQ(doc.polys[0].v[0].g, 0);
+    /* v1 not selected: unchanged */
+    EXPECT_EQ(doc.polys[0].v[1].r, 100);
+    EXPECT_EQ(doc.polys[0].v[1].g, 100);
+}
+
+TEST(apply_color_to_selected_nothing_selected) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    doc.addPoly(p);
+    /* No selection: should return false */
+    bool ok = doc.applyColorToSelected(255, 0, 0, 1.0f, 0);
+    EXPECT(!ok);
+}
+
+TEST(apply_color_to_poly_at) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    p.v[0].r = p.v[0].g = p.v[0].b = 50;
+    p.v[1].r = p.v[1].g = p.v[1].b = 50;
+    p.v[2].r = p.v[2].g = p.v[2].b = 50;
+    doc.addPoly(p);
+
+    /* Click inside the triangle (centroid ≈ 50, 33) */
+    bool ok = doc.applyColorToPolyAt({50, 33}, 0, 255, 0, 1.0f, 0);
+    EXPECT(ok);
+    EXPECT_EQ(doc.polys[0].v[0].r, 0);
+    EXPECT_EQ(doc.polys[0].v[0].g, 255);
+    EXPECT_EQ(doc.polys[0].v[0].b, 0);
+}
+
+TEST(apply_color_to_vertices_near) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    p.v[0].r = p.v[0].g = p.v[0].b = 50;
+    p.v[1].r = p.v[1].g = p.v[1].b = 50;
+    p.v[2].r = p.v[2].g = p.v[2].b = 50;
+    doc.addPoly(p);
+
+    /* Paint within radius 30 of vertex 0 — should only reach v0 */
+    bool ok = doc.applyColorToVerticesNear({0,0}, 30.0f, 255, 0, 0, 1.0f, 0);
+    EXPECT(ok);
+    EXPECT_EQ(doc.polys[0].v[0].r, 255);
+    EXPECT_EQ(doc.polys[0].v[0].g, 0);
+    /* v1 at (100,0) is outside radius 30 */
+    EXPECT_EQ(doc.polys[0].v[1].r, 50);
+    EXPECT_EQ(doc.polys[0].v[1].g, 50);
+}
+
+TEST(apply_color_vertices_near_respects_selection) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {10,0}; p.v[2].world = {5,10};
+    p.v[0].r = p.v[0].g = p.v[0].b = 50;
+    p.v[1].r = p.v[1].g = p.v[1].b = 50;
+    p.v[2].r = p.v[2].g = p.v[2].b = 50;
+    /* Mark v1 as selected; v0 and v2 unselected */
+    p.v[1].selected = true;
+    doc.addPoly(p);
+
+    /* Paint within big radius that covers all vertices:
+       selection exists → only selected v1 should be painted */
+    bool ok = doc.applyColorToVerticesNear({5, 5}, 100.0f, 0, 0, 255, 1.0f, 0);
+    EXPECT(ok);
+    EXPECT_EQ(doc.polys[0].v[0].b, 50);   /* unselected: not painted */
+    EXPECT_EQ(doc.polys[0].v[1].b, 255);  /* selected: painted */
+    EXPECT_EQ(doc.polys[0].v[2].b, 50);   /* unselected: not painted */
+}
+
 /* ---- Main -------------------------------------------------------------- */
 
 int main() {

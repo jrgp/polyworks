@@ -60,12 +60,25 @@ static constexpr uint8_t POLY_WEATHER         = 24;
 static constexpr uint8_t POLY_NO_FOOTSTEPS    = 25;
 static constexpr uint8_t POLY_TYPE_MAX        = 25;
 
-/* Spawn team codes */
-static constexpr int SPAWN_GENERAL  = 0;
-static constexpr int SPAWN_ALPHA    = 1;
-static constexpr int SPAWN_BRAVO    = 2;
-static constexpr int SPAWN_CHARLIE  = 3;
-static constexpr int SPAWN_DELTA    = 4;
+/* Spawn team/item codes (match VB6 mnuSpawn index values 0-16) */
+static constexpr int SPAWN_GENERAL         = 0;
+static constexpr int SPAWN_ALPHA           = 1;
+static constexpr int SPAWN_BRAVO           = 2;
+static constexpr int SPAWN_CHARLIE         = 3;
+static constexpr int SPAWN_DELTA           = 4;
+static constexpr int SPAWN_ALPHA_FLAG      = 5;
+static constexpr int SPAWN_BRAVO_FLAG      = 6;
+static constexpr int SPAWN_GRENADE         = 7;
+static constexpr int SPAWN_MEDKIT          = 8;
+static constexpr int SPAWN_CLUSTER_GRENADE = 9;
+static constexpr int SPAWN_VEST            = 10;
+static constexpr int SPAWN_FLAMEKIT        = 11;
+static constexpr int SPAWN_BERSERKER       = 12;
+static constexpr int SPAWN_PREDATOR        = 13;
+static constexpr int SPAWN_POINTMATCH_FLAG = 14;
+static constexpr int SPAWN_RAMBO_BOW       = 15;
+static constexpr int SPAWN_STAT_GUN        = 16;
+/* Legacy aliases for team-only codes */
 static constexpr int SPAWN_FROGGER  = 5;
 static constexpr int SPAWN_YELLOW   = 6;
 static constexpr int SPAWN_RED      = 7;

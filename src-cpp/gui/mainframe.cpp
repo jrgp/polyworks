@@ -220,6 +220,47 @@ void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
 
 void MainFrame::AttachPalettePanel(PalettePanel* palettePanel) {
     m_palettePanel = palettePanel;
+
+    /* Wire palette callbacks → viewport paint color sync */
+    auto syncPaintColor = [this]() {
+        if (!m_viewport || !m_palettePanel) return;
+        uint8_t r, g, b;
+        m_palettePanel->GetCurrentColor(r, g, b);
+        m_viewport->setPaintColor(r, g, b,
+            m_palettePanel->GetOpacity(),
+            m_palettePanel->GetBlendMode(),
+            static_cast<float>(m_palettePanel->GetRadius()));
+    };
+
+    palettePanel->onColorSelected = [syncPaintColor](uint8_t, uint8_t, uint8_t) {
+        syncPaintColor();
+    };
+    palettePanel->onColorChanged = [syncPaintColor](uint8_t, uint8_t, uint8_t) {
+        syncPaintColor();
+    };
+    palettePanel->onChannelChanged = [syncPaintColor](int, int) {
+        syncPaintColor();
+    };
+    palettePanel->onBlendModeChanged = [syncPaintColor](int) {
+        syncPaintColor();
+    };
+    palettePanel->onRadiusChanged = [syncPaintColor](int) {
+        syncPaintColor();
+    };
+}
+
+void MainFrame::GetPaintColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
+    if (m_palettePanel) m_palettePanel->GetCurrentColor(r, g, b);
+    else { r = g = b = 255; }
+}
+float MainFrame::GetPaintOpacity() const {
+    return m_palettePanel ? m_palettePanel->GetOpacity() : 1.0f;
+}
+int MainFrame::GetPaintBlendMode() const {
+    return m_palettePanel ? m_palettePanel->GetBlendMode() : 0;
+}
+float MainFrame::GetPaintRadius() const {
+    return m_palettePanel ? static_cast<float>(m_palettePanel->GetRadius()) : 8.0f;
 }
 
 int MainFrame::GetOrAddSelectedSceneryIndex() {

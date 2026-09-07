@@ -33,15 +33,25 @@ public:
     void AttachPalettePanel(PalettePanel* palettePanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
+    void SetCurrentSpawnTeam(int team) { m_currentSpawnTeam = team; }
+    int GetCurrentSpawnTeam() const { return m_currentSpawnTeam; }
+    void SetSceneryRotate(bool v) { m_sceneryRotate = v; }
+    bool GetSceneryRotate() const { return m_sceneryRotate; }
+    void SetSceneryScale(bool v) { m_sceneryScale = v; }
+    bool GetSceneryScale() const { return m_sceneryScale; }
+    void SetSceneryLevel(int v) { m_sceneryLevel = v; }
+    int GetSceneryLevel() const { return m_sceneryLevel; }
     void UpdateStatusBar();
     void UpdateTitle();
     void UpdateMouseWorldPosition(const Vec2& world);
     void RefreshViewport();
 
-    /* Returns 1-based scenery name index for the currently selected scenery,
-       adding it to the document's name list if not already present.
-       Returns 0 if nothing is selected in the SceneryPanel. */
-    int GetOrAddSelectedSceneryIndex();
+    /* Palette state getters — used by the viewport for color painting tools */
+    void GetPaintColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
+    float GetPaintOpacity() const;
+    int   GetPaintBlendMode() const;
+    float GetPaintRadius() const;
+    int   GetOrAddSelectedSceneryIndex();
 
     MapDocument m_doc;
     UndoStack m_undoStack;
@@ -74,6 +84,13 @@ private:
     void OnMapSettings(wxCommandEvent& event);
     void OnPreferences(wxCommandEvent& event);
 
+    void OnWindowShowAll(wxCommandEvent& event);
+    void OnWindowHideAll(wxCommandEvent& event);
+    void OnWindowTogglePanel(wxCommandEvent& event);
+    void OnWindowLoadWorkspace(wxCommandEvent& event);
+    void OnWindowSaveWorkspace(wxCommandEvent& event);
+    void OnWindowResetLayout(wxCommandEvent& event);
+
     void OnExit(wxCommandEvent& event);
     void OnKeyDown(wxKeyEvent& event);
     void OnSize(wxSizeEvent& event);
@@ -84,6 +101,23 @@ private:
     wxString m_currentFilePath;
     ToolsPanel* m_toolsPanel = nullptr;
     Vec2 m_lastMouseWorld{};
+
+    /* Objects tool state */
+    int m_currentSpawnTeam = 0;   /* currently selected spawn type (0 = general) */
+
+    /* Scenery tool state (persisted across placements) */
+    bool m_sceneryRotate = false;
+    bool m_sceneryScale  = false;
+    int  m_sceneryLevel  = 0;     /* 0=Back, 1=Middle, 2=Front */
+
+    /* Window menu check items (kept to query/update state) */
+    wxMenuItem* m_winItemTools     = nullptr;
+    wxMenuItem* m_winItemDisplay   = nullptr;
+    wxMenuItem* m_winItemPalette   = nullptr;
+    wxMenuItem* m_winItemWaypoints = nullptr;
+    wxMenuItem* m_winItemScenery   = nullptr;
+    wxMenuItem* m_winItemProperties = nullptr;
+    wxMenuItem* m_winItemTexture   = nullptr;
 
     wxStatusBar* m_statusBar = nullptr;
     wxStaticText* m_positionText = nullptr;

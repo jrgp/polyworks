@@ -1,4 +1,374 @@
-# PolyWorks Interaction Port — Audit Checklist
+# PolyWorks Interaction Port — Audit Document
+
+This document records the original VB6 interaction model and the status of each
+behavior in the modern C++/wxWidgets port.
+
+**VB6 source reference:** `src/frmOpenSoldatMapEditor.frm`
+**C++ implementation:** `src-cpp/gui/gl_viewport.cpp`, `src-cpp/core/map_document.cpp`
+
+---
+
+## 1. Modifier-Key → Effective Tool Mapping
+
+VB6 uses two variables: `currentTool` (base tool from toolbar) and `currentFunction`
+(live effective tool, updated on every key event). The C++ port mirrors this with
+`m_activeTool` (base) and `m_currentFunction` (effective).
+
+### Tool constant table
+
+| Constant | Value | Description |
+|---|---|---|
+| TOOL_VSELECT | 1 | Vertex select (base) |
+| TOOL_PSELECT | 2 | Polygon select (base) |
+| TOOL_MOVE | 3 | Move / transform |
+| TOOL_VCOLOR | 6 | Vertex color brush |
+| TOOL_PCOLOR | 7 | Polygon color fill |
+| TOOL_COLORPICK | 8 | Color picker (eyedropper) |
+| TOOL_POLY | 9 | Polygon creation |
+| TOOL_SCENERY | 10 | Scenery placement |
+| TOOL_SPAWN | 11 | Spawn point placement |
+| TOOL_WAYPOINT | 12 | Waypoint placement |
+| TOOL_SKETCH | 13 | Sketch line drawing |
+| TOOL_VSELADD | 14 | Virtual: VSELECT + Shift (add vertices) |
+| TOOL_VSELSUB | 15 | Virtual: VSELECT + Alt (subtract vertices) |
+| TOOL_PSELADD | 16 | Virtual: PSELECT + Shift (add polygons) |
+| TOOL_PSELSUB | 17 | Virtual: PSELECT + Alt (subtract polygons) |
+| TOOL_SCALE | 18 | Virtual: MOVE + Ctrl |
+| TOOL_ROTATE | 19 | Virtual: MOVE + Alt |
+| TOOL_CONNECT | 20 | Virtual: WAYPOINT + Shift |
+| TOOL_HAND | 21 | Virtual: Space pan override |
+
+### VB6 modifier mapping (lines 10715–10793)
+
+| Base tool | Modifier | Effective function | Status |
+|---|---|---|---|
+| VSELECT | Shift | VSELADD | ✅ |
+| VSELECT | Alt | VSELSUB | ✅ |
+| PSELECT | Shift | PSELADD | ✅ |
+| PSELECT | Alt | PSELSUB | ✅ |
+| MOVE | Ctrl | SCALE | ✅ (dispatch exists; interactive scale ⬜) |
+| MOVE | Alt | ROTATE | ✅ (dispatch exists; interactive rotate ⬜) |
+| WAYPOINT | Shift | CONNECT | ✅ |
+| VCOLOR/PCOLOR | Alt | COLORPICK | ✅ |
+| Ctrl + any tool > MOVE | — | Temporarily MOVE | ✅ |
+| Alt + other tools | — | Temporarily VSELECT | ✅ |
+| Space (any tool) | — | HAND (pan) | ✅ |
+
+`ComputeCurrentFunction()` in `gl_viewport.cpp` implements all of the above.
+It is called on every `OnKeyDown` and `OnKeyUp` to keep `m_currentFunction` current.
+
+---
+
+## 2. Selection Model
+
+### 2.1 SelectMode enum (C++ implementation)
+
+```
+SelectMode::Replace   — clear existing selection, then add
+SelectMode::Add       — add to existing selection (Shift modifier)
+SelectMode::Subtract  — remove from existing selection (Alt modifier)
+```
+
+Legacy `bool additive` overloads exist for backward compatibility.
+
+### 2.2 Vertex selection semantics (VB6 `RegionSelPolys`, line 8515)
+
+**Click selection (`selectVertexAt`):**
+1. For each polygon, test `PointInPoly(click, poly)`.
+2. If the click is inside a polygon, pick the nearest vertex of **that polygon only**.
+3. If no polygon contains the click, fall back to global nearest-vertex search within snap radius.
+4. Modifier determines `SelectMode`: Replace (plain), Add (Shift), Subtract (Alt).
+
+This means clicking inside polygon A cannot accidentally select a nearer vertex in polygon B.
+
+**Rubber-band selection (`selectVerticesInRect`):**
+- Tests each vertex in world coordinates against the selection rectangle.
+- Exclusive test (`x > rx1 && x < rx2 && y > ry1 && y < ry2`) — boundary points not included.
+- `SelectMode` controls whether existing selection is replaced, added to, or subtracted from.
+
+### 2.3 Original behavior vs implementation
+
+| Behavior | Original (VB6) | C++ status |
+|---|---|---|
+| Click vertex in polygon | Poly-first hit test → nearest vertex of that poly | ✅ |
+| Click outside all polys | Global nearest vertex (snap radius) | ✅ |
+| Shift+click | Add vertex to selection | ✅ |
+| Alt+click | Remove vertex from selection | ✅ |
+| Rubber-band (plain) | Replace selection | ✅ |
+| Shift+rubber-band | Add to selection | ✅ |
+| Alt+rubber-band | Subtract from selection | ✅ |
+| Cross-polygon rubber-band | Select vertices from multiple polys | ✅ |
+| Cross-polygon modifier-click | Add/subtract vertices across polys | ✅ |
+| Polygon body selection | `selectPolyAt` (PointInPoly) | ✅ |
+| Polygon rubber-band | `selectPolysInRect` | ✅ |
+| Partial-poly selection | Vertices selected independently of polygon | ✅ |
+| Delete with partial selection | Poly deleted only when all 3 vertices selected | ✅ |
+
+### 2.4 Selection visualization
+
+| State | Rendering |
+|---|---|
+| Unselected vertex | Small white dot |
+| Selected vertex | Highlighted (yellow/green accent) |
+| Unselected polygon wire | Semi-transparent color |
+| Selected polygon wire | Brighter / different color |
+| Rubber-band rect | Dashed outline drawn during drag |
+
+---
+
+## 3. Dragging Selected Vertices
+
+### 3.1 Drag lifecycle (C++ `HandleLeftDownEdit` / `HandleMouseMoveEdit` / `HandleLeftUpEdit`)
+
+```
+LMB Down  → identify vertex under cursor → push undo snapshot
+           → set ViewportState::Dragging
+           → record drag start position
+LMB Move  → compute world-space delta from drag start
+           → MapDocument::moveSelectedWorld(dx, dy)
+           → viewport Refresh()
+LMB Up    → if no actual movement → pop undo snapshot (no-op commit)
+           → set ViewportState::Idle
+```
+
+### 3.2 Behavior table
+
+| Behavior | Original | C++ status |
+|---|---|---|
+| Single vertex drag | Move vertex in world coords | ✅ |
+| Multi-vertex drag | All selected vertices move together | ✅ |
+| Cross-polygon multi-drag | All selected verts across polys move | ✅ |
+| Coordinate system | World-space delta (not screen pixels) | ✅ |
+| Zoom-invariant movement | Vertex follows cursor at any zoom level | ✅ |
+| Click without drag | Undo snapshot popped (no change recorded) | ✅ |
+| Arrow key nudge | 1 world unit; Shift = 10 world units | ✅ |
+| Axis-constrained drag (Shift) | Not yet implemented | ⬜ |
+| Snapping during drag | Grid snap via SnapSelectedToGrid | ⬜ (not triggered during drag) |
+
+---
+
+## 4. Color Tools
+
+### 4.1 PCOLOR — Polygon Color Fill (VB6 `ColorFill`, line 9555)
+
+**Behavior:**
+- Single click on a polygon.
+- If any vertices are currently selected → color ALL selected vertices.
+- If nothing selected → color all 3 vertices of the clicked polygon.
+- Uses blend formula from palette (Normal/Multiply/Screen/Darken/Lighten/Difference).
+- Uses opacity from palette (0–100%).
+- One undo entry per click.
+
+**C++ implementation:** `MapDocument::applyColorToSelected()` and `applyColorToPolyAt()`,
+dispatched from `HandleLeftDownEdit` when `m_currentFunction == TOOL_PCOLOR`.
+
+| Behavior | Original | C++ status |
+|---|---|---|
+| Click → color polygon | ✅ | ✅ |
+| Selection → color all selected | ✅ | ✅ |
+| Palette blend mode | ✅ | ✅ (all 6 modes) |
+| Palette opacity | ✅ | ✅ |
+| Undo | ✅ | ✅ |
+
+### 4.2 VCOLOR — Vertex Color Brush (VB6 `VertexColoring`, line 7496)
+
+**Behavior:**
+- Click-and-drag paint brush.
+- Paints all vertices within `paintRadius / zoom` world units of the cursor.
+- If any vertices are selected → only paints selected vertices (session-aware).
+- If nothing selected → paints unselected vertices.
+- Continuous painting while dragging (no delay between strokes).
+- Uses palette color, opacity, blend mode, and radius.
+
+**C++ implementation:** `MapDocument::applyColorToVerticesNear()`, triggered in
+`HandleMouseMoveEdit` while `m_currentFunction == TOOL_VCOLOR` and state is `Dragging`.
+
+| Behavior | Original | C++ status |
+|---|---|---|
+| Drag → paint vertices | ✅ | ✅ |
+| Paint radius from palette | ✅ | ✅ |
+| Respects selection (selected-only mode) | ✅ | ✅ |
+| Respects selection (unselected-only mode) | ✅ | ✅ |
+| Palette blend mode | ✅ | ✅ (all 6 modes) |
+| Alt → COLORPICK (eyedropper) | ✅ | ✅ (virtual tool switch) |
+| Undo one entry per drag session | ✅ | ✅ |
+
+### 4.3 BlendColor formula (VB6 `ApplyBlend`, line 9653)
+
+```
+result_channel = blend_fn(dest, src) * opacity + dest * (1 - opacity)
+```
+
+| Mode | Formula |
+|---|---|
+| 0 Normal | result = src |
+| 1 Multiply | result = (dest × src) / 255 |
+| 2 Screen | result = 255 - ((255-dest) × (255-src)) / 255 |
+| 3 Darken | result = min(dest, src) |
+| 4 Lighten | result = max(dest, src) |
+| 5 Difference | result = abs(dest - src) |
+
+All 6 modes implemented in `MapDocument::blendColor()`.
+
+### 4.4 Palette → Viewport color sync
+
+**Flow:**
+```
+PalettePanel (color/opacity/blend/radius change)
+    → onColorSelected / onColorChanged / onChannelChanged / onBlendModeChanged / onRadiusChanged callback
+    → MainFrame::AttachPalettePanel lambda
+    → GlViewport::setPaintColor(r, g, b, opacity, blendMode, radius)
+    → m_paintR/G/B/Opacity/BlendMode/Radius stored in GlViewport
+    → used by applyColorToVerticesNear / applyColorToSelected / applyColorToPolyAt
+```
+
+**Status:** ✅ fully wired in `mainframe.cpp::AttachPalettePanel`.
+
+---
+
+## 5. Undo / Redo Semantics
+
+### 5.1 Pre-save pattern
+
+Undo snapshots are pushed **before** the destructive operation (not after):
+
+```cpp
+m_undoStack.push(m_document);   // snapshot current state
+// ... perform edit ...
+// if no actual change happened: m_undoStack.pop()  (click-without-drag)
+```
+
+### 5.2 Granularity
+
+| Operation | Undo entries |
+|---|---|
+| Move N vertices (any drag) | 1 entry (pushed at LMB down) |
+| PCOLOR click | 1 entry per click |
+| VCOLOR drag session | 1 entry per mouse-down (entire drag = 1 entry) |
+| Polygon creation | 1 entry per polygon |
+| Spawn/scenery/waypoint placement | 1 entry per placement |
+| Delete selected | 1 entry |
+| Multi-polygon move | 1 entry |
+
+### 5.3 What undo does NOT restore (matching VB6)
+
+- Zoom level
+- Scroll position
+
+---
+
+## 6. Keyboard Shortcuts
+
+### 6.1 File / Application
+
+| Key | Action | Status |
+|---|---|---|
+| Ctrl+N | New map | ✅ |
+| Ctrl+O | Open map | ✅ |
+| Ctrl+S | Save | ✅ |
+| Ctrl+Shift+S | Save As | ✅ |
+| F9 | Save and Compile | ✅ |
+| F8 / Shift+F8 | Run Soldat/OpenSoldat | ⬜ N/A (platform feature) |
+| Alt+F4 | Exit | ✅ |
+| F1 | Help | ⬜ TODO |
+
+### 6.2 Edit
+
+| Key | Action | Status |
+|---|---|---|
+| Ctrl+Z | Undo | ✅ |
+| Ctrl+Y | Redo | ✅ |
+| Ctrl+A | Select All | ✅ |
+| Ctrl+D | Deselect All | ✅ |
+| Delete | Delete selected | ✅ |
+| Ctrl+C / V | Copy / Paste | ⬜ TODO |
+| Ctrl+I | Invert Selection | ⬜ TODO |
+| Shift+Insert | Duplicate | ⬜ TODO |
+
+### 6.3 Tool hotkeys (default VB6 key bindings)
+
+| Key | Tool | Status |
+|---|---|---|
+| M | MOVE / Transform | ✅ |
+| C | Polygon Creation | ✅ |
+| Y | Scenery | ✅ |
+| O | Spawn / Objects | ✅ |
+| T | Waypoints | ✅ |
+| L | Lights | ✅ |
+| . | Sketch | ✅ |
+
+### 6.4 Navigation
+
+| Key | Action | Status |
+|---|---|---|
+| Arrow keys (no selection) | Scroll viewport | ✅ |
+| Arrow keys (with selection) | Nudge 1 world unit | ✅ |
+| Shift+Arrow | Nudge 10 world units | ✅ |
+| Space (held) | Pan cursor | ✅ |
+| Space + LMB drag | Pan viewport | ✅ |
+| Escape | Cancel / deselect | ✅ |
+| Ctrl+= / Ctrl+- | Zoom in/out | ✅ |
+| Ctrl+0 | Reset zoom | ✅ |
+
+---
+
+## 7. Mouse Hit Testing Priority
+
+When objects overlap, the original VB6 hit-test priority (inferred from code order):
+
+1. Vertices (nearest within snap radius)
+2. Polygon body (PointInPoly)
+3. Scenery
+4. Spawn points
+5. Colliders
+6. Waypoints
+7. Lights
+
+The C++ implementation checks in approximately this order, dispatched per-tool.
+
+---
+
+## 8. Custom Cursors
+
+All `.cur` files from `installer/skins/default/cursors/`.
+
+| Cursor | Tool | Status |
+|---|---|---|
+| `vselect.cur` | VSELECT | ✅ Windows; fallback on Linux/macOS |
+| `create.cur` | POLY | ✅ Windows; fallback on Linux/macOS |
+| `hand.cur` | Pan (Space/Middle) | ✅ Windows; fallback on Linux/macOS |
+| `scenery.cur` | SCENERY | ✅ Windows; fallback on Linux/macOS |
+| `objects.cur` | SPAWN/COLLIDER | ✅ Windows; fallback on Linux/macOS |
+| `waypoint.cur` | WAYPOINT | ✅ Windows; fallback on Linux/macOS |
+| `light.cur` | LIGHT | ✅ Windows; fallback on Linux/macOS |
+| `sketch.cur` | SKETCH | ✅ Windows; fallback on Linux/macOS |
+| `vseladd.cur` | VSELADD | ⬜ TODO (uses vselect fallback) |
+| `vselsub.cur` | VSELSUB | ⬜ TODO (uses vselect fallback) |
+| `pseladd.cur` | PSELADD | ⬜ TODO (uses vselect fallback) |
+| `pselsub.cur` | PSELSUB | ⬜ TODO (uses vselect fallback) |
+| `vcolor.cur` | VCOLOR | ⬜ TODO |
+| `pcolor.cur` | PCOLOR | ⬜ TODO |
+| `scale.cur` | SCALE | ⬜ TODO |
+| `rotate.cur` | ROTATE | ⬜ TODO |
+| `texture.cur` | TEXTURE | ⬜ TODO |
+| `connect.cur` | CONNECT | ⬜ TODO |
+| `pixpicker.cur` | COLORPICK | ⬜ TODO |
+| `litpicker.cur` | LITPICK | ⬜ TODO |
+| `depthmap.cur` | DEPTHMAP | ⬜ TODO |
+| `smudge.cur` | SMUDGE | ⬜ TODO |
+| `eraser.cur` | ERASER | ⬜ TODO |
+
+---
+
+## 9. Legend
+
+| Symbol | Meaning |
+|---|---|
+| ✅ | Implemented and wired |
+| ⚠️ | Partially implemented / simplified from original |
+| ⬜ TODO | Not yet implemented |
+| ⬜ N/A | Not applicable (platform-specific feature not being ported) |
+
 
 This document catalogs every keyboard shortcut, mouse interaction, and cursor behavior
 from the original VB6 source (`src/frmOpenSoldatMapEditor.frm` and related forms) and

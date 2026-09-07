@@ -62,6 +62,11 @@ public:
     void addTexturePath(const std::string& path);
     void setActiveTool(int tool);
 
+    /* Paint color used by VCOLOR / PCOLOR tools */
+    void setPaintColor(uint8_t r, uint8_t g, uint8_t b,
+                       float opacity = 1.0f, int blendMode = 0,
+                       float radius = 8.0f);
+
     TextureManager& GetTextureManager() { return m_texMgr; }
 
 private:
@@ -75,6 +80,7 @@ private:
     void OnMiddleUp(wxMouseEvent& event);
     void OnRightDown(wxMouseEvent& event);
     void OnKeyDown(wxKeyEvent& event);
+    void OnKeyUp(wxKeyEvent& event);
 
     /* Panning helpers */
     bool IsSpacePanGesture(const wxMouseEvent& event) const;
@@ -91,12 +97,18 @@ private:
     void CancelCreation();
     float WorldTolerance() const;  /* ~5 screen pixels in world space */
 
+    /* Compute the effective tool from m_activeTool + held modifier keys.
+       Matches the VB6 currentFunction mapping exactly. */
+    int ComputeCurrentFunction(bool shiftDown, bool ctrlDown, bool altDown) const;
+
     void DrawFallback(wxDC& dc);
 
     MainFrame*    m_mainFrame  = nullptr;
     MapDocument&  m_document;
     UndoStack&    m_undoStack;
-    int           m_activeTool = 0;
+    int           m_activeTool     = 0;
+    int           m_currentFunction = 0;   /* effective tool (modifier-adjusted) */
+    bool          m_spaceDown      = false; /* track space for pan */
 
     /* Panning state */
     bool          m_panning      = false;
@@ -113,6 +125,12 @@ private:
     static constexpr int kMaxCreationVerts = 3;
     Vec2 m_creationVerts[kMaxCreationVerts];
     int  m_creationVertCount = 0;
+
+    /* Paint color state (used by VCOLOR / PCOLOR) */
+    uint8_t m_paintR = 255, m_paintG = 255, m_paintB = 255;
+    float   m_paintOpacity  = 1.0f;
+    int     m_paintBlendMode = 0;
+    float   m_paintRadius   = 8.0f;
 
     /* Cursor management */
     void loadCursors(const std::string& skinsPath);

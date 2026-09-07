@@ -30,6 +30,16 @@ constexpr int TOOL_SKETCH    = 11;
 constexpr int TOOL_LIGHTS    = 12;
 constexpr int TOOL_DEPTHMAP  = 13;
 
+/* Virtual tool constants — active tool as modified by held keys */
+constexpr int TOOL_HAND      = 14;  /* Space: temporary pan */
+constexpr int TOOL_VSELADD   = 15;  /* Shift + VSELECT: add to vertex selection */
+constexpr int TOOL_VSELSUB   = 16;  /* Alt  + VSELECT: subtract from vertex selection */
+constexpr int TOOL_PSELADD   = 17;  /* Shift + PSELECT: add to poly selection */
+constexpr int TOOL_PSELSUB   = 18;  /* Alt  + PSELECT: subtract from poly selection */
+constexpr int TOOL_SCALE     = 19;  /* Ctrl + MOVE: scale selection */
+constexpr int TOOL_ROTATE    = 20;  /* Alt  + MOVE: rotate selection */
+constexpr int TOOL_CONNECT   = 21;  /* Shift + WAYPOINT: connect waypoints */
+
 constexpr float kDragThreshold = 4.0f;
 
 #if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
@@ -71,6 +81,7 @@ GlViewport::GlViewport(MainFrame* parent, MapDocument& document, UndoStack& undo
     Bind(wxEVT_MIDDLE_UP,   &GlViewport::OnMiddleUp,   this);
     Bind(wxEVT_RIGHT_DOWN,  &GlViewport::OnRightDown,  this);
     Bind(wxEVT_KEY_DOWN,    &GlViewport::OnKeyDown,    this);
+    Bind(wxEVT_KEY_UP,      &GlViewport::OnKeyUp,      this);
 }
 
 GlViewport::~GlViewport() {
@@ -152,7 +163,61 @@ void GlViewport::setActiveTool(int tool) {
         CancelCreation();
     m_state = ViewportState::Idle;
     m_activeTool = tool;
+    m_currentFunction = tool;
     applyToolCursor();
+}
+
+void GlViewport::setPaintColor(uint8_t r, uint8_t g, uint8_t b,
+                                float opacity, int blendMode, float radius) {
+    m_paintR = r; m_paintG = g; m_paintB = b;
+    m_paintOpacity   = opacity;
+    m_paintBlendMode = blendMode;
+    m_paintRadius    = radius;
+}
+
+int GlViewport::ComputeCurrentFunction(bool shiftDown, bool ctrlDown, bool altDown) const {
+    /* Replicates VB6 frmOpenSoldatMapEditor lines 10715–10793: modifier keys
+       dynamically change the effective tool (currentFunction).  Space-pan is
+       handled separately as it never reaches this path. */
+    if (!shiftDown && !ctrlDown && !altDown)
+        return m_activeTool;
+
+    switch (m_activeTool) {
+    case TOOL_VSELECT:
+        if (shiftDown) return TOOL_VSELADD;
+        if (altDown)   return TOOL_VSELSUB;
+        break;
+    case TOOL_PSELECT:
+        if (shiftDown) return TOOL_PSELADD;
+        if (altDown)   return TOOL_PSELSUB;
+        break;
+    case TOOL_MOVE:
+        if (ctrlDown) return TOOL_SCALE;
+        if (altDown)  return TOOL_ROTATE;
+        break;
+    case TOOL_WAYPOINT:
+        if (shiftDown) return TOOL_CONNECT;
+        break;
+    case TOOL_SKETCH:
+        /* Ctrl+sketch and Alt+sketch have VB6 equivalents but are not
+           implemented yet; fall through to default behaviour. */
+        break;
+    case TOOL_VCOLOR:
+    case TOOL_PCOLOR:
+    case TOOL_DEPTHMAP:
+        if (altDown) return TOOL_COLORPICK;
+        break;
+    case TOOL_COLORPICK:
+        if (altDown) return TOOL_COLORPICK; /* litpicker; keep as colorpick for now */
+        break;
+    default:
+        /* Ctrl on any tool > MOVE → temporary MOVE */
+        if (ctrlDown && m_activeTool > TOOL_MOVE) return TOOL_MOVE;
+        /* Alt on most other tools → temporary VSELECT */
+        if (altDown) return TOOL_VSELECT;
+        break;
+    }
+    return m_activeTool;
 }
 
 /* ---- Paint -------------------------------------------------------------- */
@@ -492,16 +557,69 @@ void GlViewport::OnRightDown(wxMouseEvent& event) {
 }
 
 void GlViewport::OnKeyDown(wxKeyEvent& event) {
-    if (event.GetKeyCode() == WXK_ESCAPE) {
+    const int key = event.GetKeyCode();
+
+    if (key == WXK_ESCAPE) {
         if (m_state == ViewportState::CreatingPoly) {
             CancelCreation();
         } else {
-            /* ESC when idle → deselect all */
             m_document.clearSelection();
         }
         Refresh(false);
         return;
     }
+
+    if (key == WXK_SPACE) {
+        m_spaceDown = true;
+        SetCursor(wxCursor(wxCURSOR_HAND));
+        event.Skip();
+        return;
+    }
+
+    /* Arrow-key nudge of selected vertices */
+    float nudge = 1.0f / m_document.zoom;
+    if (event.ShiftDown()) nudge *= 10.0f;
+    bool nudged = false;
+    if (key == WXK_LEFT)  { m_document.nudgeSelectedVertices(-nudge, 0); nudged = true; }
+    if (key == WXK_RIGHT) { m_document.nudgeSelectedVertices( nudge, 0); nudged = true; }
+    if (key == WXK_UP)    { m_document.nudgeSelectedVertices(0, -nudge); nudged = true; }
+    if (key == WXK_DOWN)  { m_document.nudgeSelectedVertices(0,  nudge); nudged = true; }
+    if (nudged) {
+        if (m_mainFrame != nullptr) {
+            m_mainFrame->UpdateStatusBar();
+            m_mainFrame->UpdateTitle();
+        }
+        Refresh(false);
+        return;
+    }
+
+    /* Recompute effective function when modifier state changes */
+    int fn = ComputeCurrentFunction(event.ShiftDown(), event.ControlDown(), event.AltDown());
+    if (fn != m_currentFunction) {
+        m_currentFunction = fn;
+        applyToolCursor();
+    }
+
+    event.Skip();
+}
+
+void GlViewport::OnKeyUp(wxKeyEvent& event) {
+    const int key = event.GetKeyCode();
+
+    if (key == WXK_SPACE) {
+        m_spaceDown = false;
+        applyToolCursor();
+        event.Skip();
+        return;
+    }
+
+    /* Restore effective function when modifier is released */
+    int fn = ComputeCurrentFunction(event.ShiftDown(), event.ControlDown(), event.AltDown());
+    if (fn != m_currentFunction) {
+        m_currentFunction = fn;
+        applyToolCursor();
+    }
+
     event.Skip();
 }
 
@@ -514,7 +632,10 @@ float GlViewport::WorldTolerance() const {
 void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     const Vec2 world = m_document.screenToWorld(
         {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
-    const bool additive = event.ShiftDown();
+
+    /* Compute effective function from held modifiers */
+    m_currentFunction = ComputeCurrentFunction(
+        event.ShiftDown(), event.ControlDown(), event.AltDown());
 
     m_dragWorldStart = world;
     m_dragWorldLast  = world;
@@ -522,19 +643,33 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
 
     if (!HasCapture()) CaptureMouse();
 
-    switch (m_activeTool) {
+    /* Map current function to SelectMode for selection tools */
+    auto selectMode = [this]() -> MapDocument::SelectMode {
+        if (m_currentFunction == TOOL_VSELADD || m_currentFunction == TOOL_PSELADD)
+            return MapDocument::SelectMode::Add;
+        if (m_currentFunction == TOOL_VSELSUB || m_currentFunction == TOOL_PSELSUB)
+            return MapDocument::SelectMode::Subtract;
+        return MapDocument::SelectMode::Replace;
+    };
+
+    switch (m_currentFunction) {
+
     case TOOL_CREATE:
         AddCreationVertex(world);
         return;
 
     case TOOL_VSELECT:
+    case TOOL_VSELADD:
+    case TOOL_VSELSUB:
     case TOOL_MOVE: {
-        bool hit = m_document.selectVertexAt(world, WorldTolerance(), additive);
+        MapDocument::SelectMode mode = selectMode();
+        bool hit = m_document.selectVertexAt(world, WorldTolerance(), mode);
         if (hit) {
             m_state = ViewportState::Dragging;
             m_undoStack.push(m_document);
         } else {
-            if (!additive) m_document.clearSelection();
+            if (mode == MapDocument::SelectMode::Replace)
+                m_document.clearSelection();
             m_state   = ViewportState::RubberBanding;
             m_rubberA = world;
             m_rubberB = world;
@@ -543,17 +678,47 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         return;
     }
 
-    case TOOL_PSELECT: {
-        bool hit = m_document.selectPolyAt(world, additive);
+    case TOOL_PSELECT:
+    case TOOL_PSELADD:
+    case TOOL_PSELSUB: {
+        MapDocument::SelectMode mode = selectMode();
+        bool hit = m_document.selectPolyAt(world, mode);
         if (hit) {
             m_state = ViewportState::Dragging;
             m_undoStack.push(m_document);
         } else {
-            if (!additive) m_document.clearSelection();
+            if (mode == MapDocument::SelectMode::Replace)
+                m_document.clearSelection();
             m_state   = ViewportState::RubberBanding;
             m_rubberA = world;
             m_rubberB = world;
         }
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_PCOLOR: {
+        /* ColorFill: colors all selected vertices, or all vertices of clicked poly */
+        m_undoStack.push(m_document);
+        bool applied = m_document.applyColorToSelected(
+            m_paintR, m_paintG, m_paintB, m_paintOpacity, m_paintBlendMode);
+        if (!applied)
+            m_document.applyColorToPolyAt(world, m_paintR, m_paintG, m_paintB,
+                                           m_paintOpacity, m_paintBlendMode);
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_VCOLOR: {
+        /* VertexColoring: initiate a paint-drag session */
+        m_undoStack.push(m_document);
+        m_state = ViewportState::Dragging;  /* re-use Dragging state for continuous paint */
+        float worldRadius = m_paintRadius / m_document.zoom;
+        m_document.applyColorToVerticesNear(world, worldRadius,
+                                             m_paintR, m_paintG, m_paintB,
+                                             m_paintOpacity, m_paintBlendMode);
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
         Refresh(false);
         return;
     }
@@ -561,7 +726,6 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     case TOOL_OBJECTS: {
         const int team = (m_mainFrame != nullptr) ? m_mainFrame->GetCurrentSpawnTeam() : 0;
         if (team < 0) {
-            /* Negative team means place collider */
             m_undoStack.push(m_document);
             m_document.addCollider(world.x, world.y);
         } else {
@@ -593,7 +757,7 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     case TOOL_SCENERY: {
         if (m_mainFrame == nullptr) return;
         int idx = m_mainFrame->GetOrAddSelectedSceneryIndex();
-        if (idx == 0) return; /* nothing selected in SceneryPanel */
+        if (idx == 0) return;
         m_undoStack.push(m_document);
         const int level = m_mainFrame->GetSceneryLevel();
         m_document.addSceneryInstance(idx, world.x, world.y, level);
@@ -605,7 +769,6 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     }
 
     case TOOL_SKETCH:
-        /* Sketch: left-drag to draw a line — handled via drag state */
         m_state = ViewportState::Sketching;
         m_rubberA = world;
         m_rubberB = world;
@@ -620,6 +783,14 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
     const Vec2 world = m_document.screenToWorld(
         {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
 
+    /* Update effective tool when modifiers change during a move */
+    int newFn = ComputeCurrentFunction(
+        event.ShiftDown(), event.ControlDown(), event.AltDown());
+    if (newFn != m_currentFunction) {
+        m_currentFunction = newFn;
+        applyToolCursor();
+    }
+
     float dx = world.x - m_dragWorldStart.x;
     float dy = world.y - m_dragWorldStart.y;
     float screenDist = std::sqrt(dx*dx + dy*dy) * m_document.zoom;
@@ -627,12 +798,21 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
         m_didDrag = true;
 
     if (m_state == ViewportState::Dragging && m_didDrag) {
-        float moveDx = world.x - m_dragWorldLast.x;
-        float moveDy = world.y - m_dragWorldLast.y;
-        m_document.moveSelected(moveDx, moveDy);
-        if (m_mainFrame != nullptr) {
-            m_mainFrame->UpdateStatusBar();
-            m_mainFrame->UpdateTitle();
+        if (m_currentFunction == TOOL_VCOLOR) {
+            /* Continuous vertex color painting while dragging */
+            float worldRadius = m_paintRadius / m_document.zoom;
+            m_document.applyColorToVerticesNear(world, worldRadius,
+                                                 m_paintR, m_paintG, m_paintB,
+                                                 m_paintOpacity, m_paintBlendMode);
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        } else {
+            float moveDx = world.x - m_dragWorldLast.x;
+            float moveDy = world.y - m_dragWorldLast.y;
+            m_document.moveSelected(moveDx, moveDy);
+            if (m_mainFrame != nullptr) {
+                m_mainFrame->UpdateStatusBar();
+                m_mainFrame->UpdateTitle();
+            }
         }
     }
 
@@ -648,15 +828,26 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
 void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
     const Vec2 world = m_document.screenToWorld(
         {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
-    const bool additive = event.ShiftDown();
 
     if (HasCapture()) ReleaseMouse();
 
+    /* Determine select mode for rubber-band completion */
+    auto rubberMode = [this]() -> MapDocument::SelectMode {
+        if (m_currentFunction == TOOL_VSELADD || m_currentFunction == TOOL_PSELADD)
+            return MapDocument::SelectMode::Add;
+        if (m_currentFunction == TOOL_VSELSUB || m_currentFunction == TOOL_PSELSUB)
+            return MapDocument::SelectMode::Subtract;
+        return MapDocument::SelectMode::Replace;
+    };
+
     if (m_state == ViewportState::RubberBanding && m_didDrag) {
-        if (m_activeTool == TOOL_PSELECT)
-            m_document.selectPolysInRect(m_rubberA, m_rubberB, additive);
+        bool isPoly = (m_currentFunction == TOOL_PSELECT ||
+                       m_currentFunction == TOOL_PSELADD ||
+                       m_currentFunction == TOOL_PSELSUB);
+        if (isPoly)
+            m_document.selectPolysInRect(m_rubberA, m_rubberB, rubberMode());
         else
-            m_document.selectVerticesInRect(m_rubberA, m_rubberB, additive);
+            m_document.selectVerticesInRect(m_rubberA, m_rubberB, rubberMode());
     }
 
     if (m_state == ViewportState::Sketching && m_didDrag) {
@@ -666,17 +857,27 @@ void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
         if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
     }
 
-    if (m_state == ViewportState::Dragging && !m_didDrag) {
+    /* VCOLOR drag ends: undo was pushed at drag start, no extra action needed */
+
+    if (m_state == ViewportState::Dragging && !m_didDrag &&
+        m_currentFunction != TOOL_VCOLOR && m_currentFunction != TOOL_PCOLOR) {
         /* Click without drag: pop the snapshot we took (nothing moved) */
         m_undoStack.pop();
-        if (m_activeTool == TOOL_PSELECT)
-            m_document.selectPolyAt(world, additive);
+        bool isPoly = (m_currentFunction == TOOL_PSELECT ||
+                       m_currentFunction == TOOL_PSELADD ||
+                       m_currentFunction == TOOL_PSELSUB);
+        if (isPoly)
+            m_document.selectPolyAt(world, rubberMode());
         else
-            m_document.selectVertexAt(world, WorldTolerance(), additive);
+            m_document.selectVertexAt(world, WorldTolerance(), rubberMode());
     }
 
     m_state   = ViewportState::Idle;
     m_didDrag = false;
+
+    /* Restore effective function after drag ends */
+    m_currentFunction = ComputeCurrentFunction(
+        event.ShiftDown(), event.ControlDown(), event.AltDown());
 
     if (m_mainFrame != nullptr) {
         m_mainFrame->UpdateStatusBar();

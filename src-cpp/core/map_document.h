@@ -181,6 +181,14 @@ public:
     void setZoom(float newZoom, float cx, float cy);
 
     /* ---- Selection ----------------------------------------------------- */
+
+    /* Controls how a selection operation combines with existing selection. */
+    enum class SelectMode {
+        Replace,   /* clear existing selection, then add */
+        Add,       /* add to existing selection (Shift) */
+        Subtract,  /* remove from existing selection (Alt) */
+    };
+
     void clearSelection();
     void selectAll();
     void invertSelection();
@@ -196,18 +204,71 @@ public:
     /* Returns poly index or -1 (uses point-in-triangle test). */
     int  findPolyAt(Vec2 worldPos) const;
 
-    /* Selects the nearest vertex within tolerance; returns true if found.
-       With additive=false, clears current selection first. */
-    bool selectVertexAt(Vec2 worldPos, float tolerance, bool additive = false);
+    /* Selects the vertex nearest to worldPos within tolerance.
+       Matches VB6 RegionSelPolys: first tries the poly under the cursor and
+       picks its nearest vertex; falls back to global nearest within tolerance.
+       Returns true if a vertex was affected. */
+    bool selectVertexAt(Vec2 worldPos, float tolerance, SelectMode mode = SelectMode::Replace);
+
+    /* Legacy overload kept for tests that pass a bool. */
+    bool selectVertexAt(Vec2 worldPos, float tolerance, bool additive) {
+        return selectVertexAt(worldPos, tolerance,
+                              additive ? SelectMode::Add : SelectMode::Replace);
+    }
 
     /* Selects the polygon at worldPos; returns true if found. */
-    bool selectPolyAt(Vec2 worldPos, bool additive = false);
+    bool selectPolyAt(Vec2 worldPos, SelectMode mode = SelectMode::Replace);
+
+    /* Legacy overload. */
+    bool selectPolyAt(Vec2 worldPos, bool additive) {
+        return selectPolyAt(worldPos,
+                            additive ? SelectMode::Add : SelectMode::Replace);
+    }
 
     /* Rubber-band selects all vertices inside the world-space rect. */
-    void selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive = false);
+    void selectVerticesInRect(Vec2 worldA, Vec2 worldB, SelectMode mode = SelectMode::Replace);
+
+    /* Legacy overload. */
+    void selectVerticesInRect(Vec2 worldA, Vec2 worldB, bool additive) {
+        selectVerticesInRect(worldA, worldB,
+                             additive ? SelectMode::Add : SelectMode::Replace);
+    }
 
     /* Rubber-band selects all polygons whose centroid is inside the rect. */
-    void selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive = false);
+    void selectPolysInRect(Vec2 worldA, Vec2 worldB, SelectMode mode = SelectMode::Replace);
+
+    /* Legacy overload. */
+    void selectPolysInRect(Vec2 worldA, Vec2 worldB, bool additive) {
+        selectPolysInRect(worldA, worldB,
+                          additive ? SelectMode::Add : SelectMode::Replace);
+    }
+
+    /* ---- Color painting ------------------------------------------------ */
+
+    /* Blend formula matching VB6 ApplyBlend: blendMode 0=Normal, 1=Multiply,
+       2=Screen, 3=Darken, 4=Lighten, 5=Difference. */
+    static void blendColor(uint8_t& dr, uint8_t& dg, uint8_t& db,
+                           uint8_t sr, uint8_t sg, uint8_t sb,
+                           float opacity, int blendMode);
+
+    /* Apply color to all selected vertices across all polygons.
+       If nothing is selected, does nothing and returns false. */
+    bool applyColorToSelected(uint8_t r, uint8_t g, uint8_t b,
+                              float opacity = 1.0f, int blendMode = 0);
+
+    /* Apply color to all 3 vertices of the polygon under worldPos.
+       If no polygon is hit, returns false. */
+    bool applyColorToPolyAt(Vec2 worldPos,
+                            uint8_t r, uint8_t g, uint8_t b,
+                            float opacity = 1.0f, int blendMode = 0);
+
+    /* Paint color onto vertices within worldRadius of worldPos.
+       If any vertices are selected, only paints selected vertices in range.
+       If nothing is selected, paints all unselected vertices in range.
+       Returns true if any vertex was painted. */
+    bool applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
+                                  uint8_t r, uint8_t g, uint8_t b,
+                                  float opacity = 1.0f, int blendMode = 0);
 
     /* ---- Editing ------------------------------------------------------- */
     void deleteSelected();

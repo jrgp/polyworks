@@ -52,6 +52,7 @@ public:
     float GetOpacity() const;
     int  GetBlendMode() const;
     uint8_t GetColorMode() const;
+    void GetCurrentColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
 
     /* Callbacks into the main editor */
     std::function<void(uint8_t r, uint8_t g, uint8_t b)> onColorSelected;
