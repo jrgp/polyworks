@@ -8,6 +8,8 @@
 #include <wx/dcclient.h>
 #include <wx/dcmemory.h>
 #include <wx/settings.h>
+#include <wx/filename.h>
+#include <wx/image.h>
 
 #include <cmath>
 
@@ -87,6 +89,52 @@ void GlViewport::setSkinsPath(const std::string& path) {
 #else
     (void)path;
 #endif
+    loadCursors(path);
+}
+
+/* Maps tool index to cursor filename (no extension). */
+static const char* kToolCursorNames[14] = {
+    "move",        /* TOOL_MOVE      = 0 */
+    "create",      /* TOOL_CREATE    = 1 */
+    "vselect",     /* TOOL_VSELECT   = 2 */
+    "pselect",     /* TOOL_PSELECT   = 3 */
+    "vcolor",      /* TOOL_VCOLOR    = 4 */
+    "pcolor",      /* TOOL_PCOLOR    = 5 */
+    "texture",     /* TOOL_TEXTURE   = 6 */
+    "scenery",     /* TOOL_SCENERY   = 7 */
+    "waypoint",    /* TOOL_WAYPOINT  = 8 */
+    "objects",     /* TOOL_OBJECTS   = 9 */
+    "colorpicker", /* TOOL_COLORPICK = 10 */
+    "sketch",      /* TOOL_SKETCH    = 11 */
+    "light",       /* TOOL_LIGHTS    = 12 */
+    "depthmap",    /* TOOL_DEPTHMAP  = 13 */
+};
+
+void GlViewport::loadCursors(const std::string& skinsPath) {
+    if (skinsPath.empty()) return;
+    const wxString cursorDir = wxString::FromUTF8(skinsPath) + wxFILE_SEP_PATH + "cursors";
+    for (int i = 0; i < kNumTools; ++i) {
+        wxString curPath = cursorDir + wxFILE_SEP_PATH
+                           + wxString::FromUTF8(kToolCursorNames[i]) + ".cur";
+        if (wxFileExists(curPath)) {
+            wxImage img(curPath, wxBITMAP_TYPE_CUR);
+            if (img.IsOk()) {
+                m_toolCursors[i] = wxCursor(img);
+            }
+        }
+    }
+    applyToolCursor();
+}
+
+void GlViewport::applyToolCursor() {
+    if (m_activeTool >= 0 && m_activeTool < kNumTools) {
+        const wxCursor& c = m_toolCursors[m_activeTool];
+        if (c.IsOk()) {
+            SetCursor(c);
+            return;
+        }
+    }
+    SetCursor(wxNullCursor);
 }
 
 void GlViewport::addTexturePath(const std::string& path) {
@@ -103,6 +151,7 @@ void GlViewport::setActiveTool(int tool) {
         CancelCreation();
     m_state = ViewportState::Idle;
     m_activeTool = tool;
+    applyToolCursor();
 }
 
 /* ---- Paint -------------------------------------------------------------- */

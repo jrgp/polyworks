@@ -3,6 +3,8 @@
 #include "map_document.h"
 
 #include <wx/panel.h>
+#include <wx/cursor.h>
+#include <string>
 
 #if defined(__has_include)
 #if __has_include(<wx/glcanvas.h>)
@@ -108,6 +110,13 @@ private:
     static constexpr int kMaxCreationVerts = 3;
     Vec2 m_creationVerts[kMaxCreationVerts];
     int  m_creationVertCount = 0;
+
+    /* Cursor management */
+    void loadCursors(const std::string& skinsPath);
+    void applyToolCursor();
+    /* Index matches tool constants TOOL_MOVE..TOOL_DEPTHMAP (14 tools) */
+    static constexpr int kNumTools = 14;
+    wxCursor m_toolCursors[kNumTools];
 
 #if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
     wxGLContext*  m_glContext   = nullptr;
