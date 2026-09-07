@@ -5,13 +5,16 @@ unit frmdisplay;
 interface
 
 uses
-  Classes, Controls, StdCtrls, ExtCtrls, Spin, renderer;
+  Classes, Forms, Controls, StdCtrls, ExtCtrls, Spin,
+  renderer, pw.titlepanel;
 
 type
-  TDisplayPanel = class(TPanel)
+  TDisplayForm = class(TForm)
   private
     FOnChange: TNotifyEvent;
     FLoading: Boolean;
+    FTitleBar: TPWTitlePanel;
+    FContent: TPanel;
     FShowPolys: TCheckBox;
     FShowWireframe: TCheckBox;
     FShowPoints: TCheckBox;
@@ -24,7 +27,8 @@ type
     FShowBackground: TCheckBox;
     FShowScenery: TCheckBox;
     FGridSize: TSpinEdit;
-    function AddCheckBox(const ACaption: string; TopPos: Integer): TCheckBox;
+    procedure HandleHide(Sender: TObject);
+    function AddCheckBox(const ACaption: string; LeftPos, TopPos: Integer): TCheckBox;
     procedure ControlChanged(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
@@ -35,18 +39,22 @@ type
 
 implementation
 
-function TDisplayPanel.AddCheckBox(const ACaption: string; TopPos: Integer): TCheckBox;
+uses
+  pw.theme;
+
+function TDisplayForm.AddCheckBox(const ACaption: string; LeftPos,
+  TopPos: Integer): TCheckBox;
 begin
   Result := TCheckBox.Create(Self);
-  Result.Parent := Self;
-  Result.Left := 8;
+  Result.Parent := FContent;
+  Result.Left := LeftPos;
   Result.Top := TopPos;
-  Result.Width := 180;
+  Result.Width := 94;
   Result.Caption := ACaption;
   Result.OnChange := @ControlChanged;
 end;
 
-procedure TDisplayPanel.ControlChanged(Sender: TObject);
+procedure TDisplayForm.ControlChanged(Sender: TObject);
 begin
   if FLoading then
     Exit;
@@ -54,48 +62,70 @@ begin
     FOnChange(Self);
 end;
 
-constructor TDisplayPanel.Create(AOwner: TComponent);
+constructor TDisplayForm.Create(AOwner: TComponent);
 var
   GridLabel: TLabel;
 begin
-  inherited Create(AOwner);
-  BevelOuter := bvNone;
+  inherited CreateNew(AOwner, 1);
+  BorderStyle := bsNone;
+  BorderIcons := [];
+  FormStyle := fsStayOnTop;
+  ShowInTaskBar := stNever;
+  Position := poDesigned;
   Caption := '';
-  Width := 220;
-  Height := 312;
+  Color := PW_COLOR_BG;
+  ClientWidth := 208;
+  ClientHeight := 160;
 
-  FShowPolys := AddCheckBox('Show polygons', 8);
-  FShowWireframe := AddCheckBox('Show wireframe', 30);
-  FShowPoints := AddCheckBox('Show points', 52);
-  FShowGrid := AddCheckBox('Show grid', 74);
-  FShowObjects := AddCheckBox('Show objects', 96);
-  FShowWaypoints := AddCheckBox('Show waypoints', 118);
-  FShowLights := AddCheckBox('Show lights', 140);
-  FShowSketch := AddCheckBox('Show sketch', 162);
-  FShowTexture := AddCheckBox('Show texture', 184);
-  FShowBackground := AddCheckBox('Show background', 206);
-  FShowScenery := AddCheckBox('Show scenery', 228);
+  FTitleBar := TPWTitlePanel.Create(Self, 'titlebar_display.bmp');
+  FTitleBar.Parent := Self;
+  FTitleBar.OnHideClick := @HandleHide;
+
+  FContent := TPanel.Create(Self);
+  FContent.Parent := Self;
+  FContent.Align := alClient;
+  FContent.BevelOuter := bvNone;
+  FContent.Caption := '';
+
+  FShowPolys := AddCheckBox('Polygons', 8, 6);
+  FShowWireframe := AddCheckBox('Wireframe', 8, 24);
+  FShowPoints := AddCheckBox('Points', 8, 42);
+  FShowGrid := AddCheckBox('Grid', 8, 60);
+  FShowObjects := AddCheckBox('Objects', 8, 78);
+  FShowWaypoints := AddCheckBox('Waypoints', 8, 96);
+
+  FShowLights := AddCheckBox('Lights', 108, 6);
+  FShowSketch := AddCheckBox('Sketch', 108, 24);
+  FShowTexture := AddCheckBox('Texture', 108, 42);
+  FShowBackground := AddCheckBox('Backdrop', 108, 60);
+  FShowScenery := AddCheckBox('Scenery', 108, 78);
 
   GridLabel := TLabel.Create(Self);
-  GridLabel.Parent := Self;
+  GridLabel.Parent := FContent;
   GridLabel.Left := 8;
-  GridLabel.Top := 258;
+  GridLabel.Top := 118;
   GridLabel.Caption := 'Grid size:';
 
   FGridSize := TSpinEdit.Create(Self);
-  FGridSize.Parent := Self;
-  FGridSize.Left := 80;
-  FGridSize.Top := 254;
-  FGridSize.Width := 72;
+  FGridSize.Parent := FContent;
+  FGridSize.Left := 66;
+  FGridSize.Top := 114;
+  FGridSize.Width := 56;
   FGridSize.MinValue := 1;
   FGridSize.MaxValue := 1024;
   FGridSize.Value := 10;
   FGridSize.OnChange := @ControlChanged;
 
+  ApplyDarkTheme(Self);
   SetViewSettings(DefaultViewSettings);
 end;
 
-procedure TDisplayPanel.GetViewSettings(out VS: TViewSettings);
+procedure TDisplayForm.HandleHide(Sender: TObject);
+begin
+  Hide;
+end;
+
+procedure TDisplayForm.GetViewSettings(out VS: TViewSettings);
 begin
   VS := DefaultViewSettings;
   VS.ShowPolys := FShowPolys.Checked;
@@ -112,7 +142,7 @@ begin
   VS.GridSize := FGridSize.Value;
 end;
 
-procedure TDisplayPanel.SetViewSettings(const VS: TViewSettings);
+procedure TDisplayForm.SetViewSettings(const VS: TViewSettings);
 begin
   FLoading := True;
   try

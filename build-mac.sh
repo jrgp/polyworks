@@ -305,6 +305,9 @@ BUILT_BIN="$BUILD_DIR/polyworks"
 [[ -f "$BUILT_BIN" ]] || pw_die "Build appeared to succeed but binary not found: $BUILT_BIN"
 pw_ok "Binary: $BUILT_BIN"
 
+rm -rf "$BUILD_DIR/skins"
+cp -r "$REPO/installer/skins" "$BUILD_DIR/"
+
 # ===========================================================================
 # 10. Create macOS .app bundle
 # ===========================================================================
@@ -322,6 +325,10 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 # Copy binary
 cp "$BUILT_BIN" "$APP_MACOS/polyworks"
 chmod +x "$APP_MACOS/polyworks"
+
+# Copy UI skins
+rm -rf "$APP_RESOURCES/skins"
+cp -r "$REPO/installer/skins" "$APP_RESOURCES/"
 
 # Write Info.plist
 cat > "$APP_CONTENTS/Info.plist" <<'PLIST'

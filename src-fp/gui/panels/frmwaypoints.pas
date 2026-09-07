@@ -5,14 +5,17 @@ unit frmwaypoints;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, pw.map;
+  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls,
+  pw.map, pw.titlepanel;
 
 type
-  TWaypointsPanel = class(TPanel)
+  TWaypointForm = class(TForm)
   private
     FOnWaypointSelect: TNotifyEvent;
-    FTitleLabel: TLabel;
+    FTitleBar: TPWTitlePanel;
+    FContent: TPanel;
     FListBox: TListBox;
+    procedure HandleHide(Sender: TObject);
     procedure ListBoxClick(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
@@ -24,36 +27,55 @@ type
 
 implementation
 
-procedure TWaypointsPanel.ListBoxClick(Sender: TObject);
+uses
+  pw.theme;
+
+procedure TWaypointForm.HandleHide(Sender: TObject);
+begin
+  Hide;
+end;
+
+procedure TWaypointForm.ListBoxClick(Sender: TObject);
 begin
   if Assigned(FOnWaypointSelect) then
     FOnWaypointSelect(Self);
 end;
 
-constructor TWaypointsPanel.Create(AOwner: TComponent);
+constructor TWaypointForm.Create(AOwner: TComponent);
 begin
-  inherited Create(AOwner);
-  BevelOuter := bvNone;
+  inherited CreateNew(AOwner, 1);
+  BorderStyle := bsNone;
+  BorderIcons := [];
+  FormStyle := fsStayOnTop;
+  ShowInTaskBar := stNever;
+  Position := poDesigned;
   Caption := '';
-  Width := 260;
-  Height := 300;
+  Color := PW_COLOR_BG;
+  ClientWidth := 208;
+  ClientHeight := 160;
 
-  FTitleLabel := TLabel.Create(Self);
-  FTitleLabel.Parent := Self;
-  FTitleLabel.Left := 8;
-  FTitleLabel.Top := 8;
-  FTitleLabel.Caption := 'Waypoints';
+  FTitleBar := TPWTitlePanel.Create(Self, 'titlebar_waypoints.bmp');
+  FTitleBar.Parent := Self;
+  FTitleBar.OnHideClick := @HandleHide;
+
+  FContent := TPanel.Create(Self);
+  FContent.Parent := Self;
+  FContent.Align := alClient;
+  FContent.BevelOuter := bvNone;
+  FContent.Caption := '';
 
   FListBox := TListBox.Create(Self);
-  FListBox.Parent := Self;
+  FListBox.Parent := FContent;
   FListBox.Left := 8;
-  FListBox.Top := 28;
-  FListBox.Width := 240;
-  FListBox.Height := 260;
+  FListBox.Top := 8;
+  FListBox.Width := 192;
+  FListBox.Height := 128;
   FListBox.OnClick := @ListBoxClick;
+
+  ApplyDarkTheme(Self);
 end;
 
-procedure TWaypointsPanel.Refresh(const Doc: TMapDocument);
+procedure TWaypointForm.Refresh(const Doc: TMapDocument);
 var
   I: Integer;
 begin
@@ -70,7 +92,7 @@ begin
   FListBox.ItemIndex := -1;
 end;
 
-function TWaypointsPanel.GetSelectedWaypoint: Integer;
+function TWaypointForm.GetSelectedWaypoint: Integer;
 begin
   Result := FListBox.ItemIndex;
 end;

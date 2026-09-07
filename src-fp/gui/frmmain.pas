@@ -5,11 +5,11 @@ unit frmmain;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Dialogs, Menus, ComCtrls, ExtCtrls,
-  LCLType,
+  Classes, SysUtils, Forms, Controls, Dialogs, Menus, ComCtrls, LCLType,
   viewport, tools, renderer,
   pw.types, pw.utils, pw.map, pw.undo, pw.pms, pw.config,
-  frmmap, frmpreferences;
+  frmmap, frmpreferences, frmtools, frminfo, frmdisplay, frmscenery,
+  frmwaypoints;
 
 type
   TMainForm = class(TForm)
@@ -21,15 +21,21 @@ type
     FCurrentFilename: string;
 
     FViewport: TMapViewport;
-    FToolbarPanel: TPanel;
-    FToolbar: TToolBar;
     FStatusBar: TStatusBar;
     FMainMenu: TMainMenu;
     FOpenDialog: TOpenDialog;
     FSaveDialog: TSaveDialog;
 
+    FToolsForm: TWToolsForm;
+    FInfoForm: TInfoForm;
+    FDisplayForm: TDisplayForm;
+    FSceneryForm: TSceneryForm;
+    FWaypointForm: TWaypointForm;
+    FPanelsPositioned: Boolean;
+    FLastWaypointCount: Integer;
+    FLastSceneryNameCount: Integer;
+
     FToolMenuItems: array[0..TOOL_SKETCH] of TMenuItem;
-    FToolButtons: array[0..TOOL_SKETCH] of TToolButton;
 
     FShowPolysItem: TMenuItem;
     FShowWireframeItem: TMenuItem;
@@ -46,14 +52,18 @@ type
     function AddMenuItem(AParent: TMenuItem; const ACaption: string;
       AOnClick: TNotifyEvent; AShortCut: TShortCut = 0; ATag: PtrInt = 0;
       ACheckable: Boolean = False): TMenuItem;
-    function AddToolButton(AToolID: Integer; const ACaption: string): TToolButton;
     function HasSelection: Boolean;
     function SaveDocumentTo(const AFilename: string; CompileMode: Boolean): Boolean;
+    function TryGetSelectedSceneryToolInfo(out StyleIndex, ItemWidth, ItemHeight: Integer): Boolean;
     procedure ApplyConfigToViewSettings;
     procedure ApplyViewSettingsToConfig;
     procedure BuildMenus;
-    procedure BuildToolbar;
+    procedure DisplaySettingsChanged(Sender: TObject);
+    procedure FloatingToolSelect(Sender: TObject; ToolID: Integer);
+    procedure InvalidatePanelCaches;
     procedure LoadDocumentTextures;
+    procedure PositionFloatingForms;
+    procedure RefreshFloatingPanels;
     procedure SelectAll;
     procedure SetCurrentFile(const AFilename: string);
     procedure SyncToolUI;
@@ -61,6 +71,7 @@ type
     procedure UpdateStatus(Sender: TObject);
     procedure ViewportChanged(Sender: TObject);
 
+    procedure HandleFirstShow(Sender: TObject);
     procedure NewFile(Sender: TObject);
     procedure OpenFile(Sender: TObject);
     procedure SaveFile(Sender: TObject);
@@ -93,6 +104,9 @@ var
 
 implementation
 
+uses
+  Graphics, pw.theme;
+
 const
   VIEW_SHOW_POLYS      = 1;
   VIEW_SHOW_WIREFRAME  = 2;
@@ -111,6 +125,7 @@ begin
   case ToolID of
     TOOL_SELECT:   Result := 'Select';
     TOOL_POLY:     Result := 'Add Polygon';
+    TOOL_SCENERY:  Result := 'Add Scenery';
     TOOL_SPAWN:    Result := 'Add Spawn';
     TOOL_WAYPOINT: Result := 'Add Waypoint';
     TOOL_COLLIDER: Result := 'Add Collider';
@@ -129,6 +144,10 @@ begin
   Height := 800;
   Position := poScreenCenter;
   KeyPreview := True;
+  Color := PW_COLOR_MAIN_BG;
+  Font.Name := PW_PANEL_FONT_NAME;
+  Font.Height := PW_MAIN_FONT_HEIGHT;
+  OnShow := @HandleFirstShow;
 
   FIniPath := ChangeFileExt(ParamStr(0), '.ini');
   LoadConfig(FIniPath, FCfg);
@@ -147,35 +166,46 @@ begin
 
   BuildMenus;
 
-  FToolbarPanel := TPanel.Create(Self);
-  FToolbarPanel.Parent := Self;
-  FToolbarPanel.Align := alTop;
-  FToolbarPanel.Height := 34;
-  FToolbarPanel.BevelOuter := bvNone;
-
-  BuildToolbar;
-
   FStatusBar := TStatusBar.Create(Self);
   FStatusBar.Parent := Self;
   FStatusBar.Align := alBottom;
   FStatusBar.SimplePanel := True;
+  FStatusBar.Color := PW_COLOR_BG;
+  FStatusBar.ParentFont := False;
+  FStatusBar.Font.Name := PW_PANEL_FONT_NAME;
+  FStatusBar.Font.Height := PW_PANEL_FONT_HEIGHT;
+  FStatusBar.Font.Color := PW_COLOR_TEXT;
 
   FViewport := TMapViewport.Create(Self);
   FViewport.Parent := Self;
   FViewport.Align := alClient;
+  FViewport.Color := PW_COLOR_MAIN_BG;
   FViewport.SetDocument(FDoc);
   FViewport.UndoStack := FUndo;
   FViewport.OnViewChanged := @ViewportChanged;
 
+  FToolsForm := TWToolsForm.Create(Self);
+  FToolsForm.OnToolSelect := @FloatingToolSelect;
+
+  FInfoForm := TInfoForm.Create(Self);
+  FDisplayForm := TDisplayForm.Create(Self);
+  FDisplayForm.OnChange := @DisplaySettingsChanged;
+  FSceneryForm := TSceneryForm.Create(Self);
+  FWaypointForm := TWaypointForm.Create(Self);
+
+  SetSceneryToolProvider(@TryGetSelectedSceneryToolInfo);
+  InvalidatePanelCaches;
   ApplyConfigToViewSettings;
   FViewport.SetActiveTool(TOOL_SELECT);
   SyncToolUI;
+  RefreshFloatingPanels;
   UpdateCaption;
   UpdateStatus(nil);
 end;
 
 destructor TMainForm.Destroy;
 begin
+  ClearSceneryToolProvider;
   ApplyViewSettingsToConfig;
   SaveConfig(FIniPath, FCfg);
   FUndo.Free;
@@ -196,17 +226,6 @@ begin
     Result.Checked := True;
   Result.OnClick := AOnClick;
   AParent.Add(Result);
-end;
-
-function TMainForm.AddToolButton(AToolID: Integer; const ACaption: string): TToolButton;
-begin
-  Result := TToolButton.Create(Self);
-  Result.Parent := FToolbar;
-  Result.Caption := ACaption;
-  Result.Style := tbsCheck;
-  Result.Grouped := True;
-  Result.Tag := AToolID;
-  Result.OnClick := @SelectTool;
 end;
 
 function TMainForm.HasSelection: Boolean;
@@ -258,6 +277,28 @@ begin
   UpdateStatus(nil);
 end;
 
+function TMainForm.TryGetSelectedSceneryToolInfo(out StyleIndex, ItemWidth,
+  ItemHeight: Integer): Boolean;
+begin
+  Result := False;
+  StyleIndex := 0;
+  ItemWidth := 64;
+  ItemHeight := 64;
+  if FSceneryForm = nil then
+    Exit;
+
+  StyleIndex := FSceneryForm.GetSelectedStyle;
+  if StyleIndex <= 0 then
+    Exit;
+
+  if not FViewport.Renderer.GetSceneryTextureSize(StyleIndex, ItemWidth, ItemHeight) then
+  begin
+    ItemWidth := 64;
+    ItemHeight := 64;
+  end;
+  Result := True;
+end;
+
 procedure TMainForm.ApplyConfigToViewSettings;
 begin
   FViewport.ViewSettings := DefaultViewSettings;
@@ -282,6 +323,8 @@ begin
   FShowTextureItem.Checked := FViewport.ViewSettings.ShowTexture;
   FShowBackgroundItem.Checked := FViewport.ViewSettings.ShowBackground;
   FShowSceneryItem.Checked := FViewport.ViewSettings.ShowScenery;
+  if FDisplayForm <> nil then
+    FDisplayForm.SetViewSettings(FViewport.ViewSettings);
 end;
 
 procedure TMainForm.ApplyViewSettingsToConfig;
@@ -352,28 +395,47 @@ begin
   ToolsMenu := TMenuItem.Create(Self);
   ToolsMenu.Caption := '&Tools';
   FMainMenu.Items.Add(ToolsMenu);
-  for ToolID in [TOOL_SELECT, TOOL_POLY, TOOL_SPAWN, TOOL_WAYPOINT,
-                 TOOL_COLLIDER, TOOL_LIGHT, TOOL_SKETCH] do
+  for ToolID in [TOOL_SELECT, TOOL_POLY, TOOL_SCENERY, TOOL_SPAWN,
+                 TOOL_WAYPOINT, TOOL_COLLIDER, TOOL_LIGHT, TOOL_SKETCH] do
   begin
     FToolMenuItems[ToolID] := AddMenuItem(ToolsMenu, ToolCaption(ToolID), @SelectTool, 0, ToolID, True);
     FToolMenuItems[ToolID].AutoCheck := False;
   end;
 end;
 
-procedure TMainForm.BuildToolbar;
+procedure TMainForm.DisplaySettingsChanged(Sender: TObject);
+var
+  VS: TViewSettings;
 begin
-  FToolbar := TToolBar.Create(Self);
-  FToolbar.Parent := FToolbarPanel;
-  FToolbar.Align := alClient;
-  FToolbar.ShowCaptions := True;
+  FDisplayForm.GetViewSettings(VS);
+  FViewport.ViewSettings := VS;
+  FShowPolysItem.Checked := VS.ShowPolys;
+  FShowWireframeItem.Checked := VS.ShowWireframe;
+  FShowPointsItem.Checked := VS.ShowPoints;
+  FShowGridItem.Checked := VS.ShowGrid;
+  FShowObjectsItem.Checked := VS.ShowObjects;
+  FShowWaypointsItem.Checked := VS.ShowWaypoints;
+  FShowLightsItem.Checked := VS.ShowLights;
+  FShowSketchItem.Checked := VS.ShowSketch;
+  FShowTextureItem.Checked := VS.ShowTexture;
+  FShowBackgroundItem.Checked := VS.ShowBackground;
+  FShowSceneryItem.Checked := VS.ShowScenery;
+  ApplyViewSettingsToConfig;
+  FViewport.RequestRepaint;
+  UpdateStatus(nil);
+end;
 
-  FToolButtons[TOOL_SELECT] := AddToolButton(TOOL_SELECT, 'Select');
-  FToolButtons[TOOL_POLY] := AddToolButton(TOOL_POLY, 'Polygon');
-  FToolButtons[TOOL_SPAWN] := AddToolButton(TOOL_SPAWN, 'Spawn');
-  FToolButtons[TOOL_WAYPOINT] := AddToolButton(TOOL_WAYPOINT, 'Waypoint');
-  FToolButtons[TOOL_COLLIDER] := AddToolButton(TOOL_COLLIDER, 'Collider');
-  FToolButtons[TOOL_LIGHT] := AddToolButton(TOOL_LIGHT, 'Light');
-  FToolButtons[TOOL_SKETCH] := AddToolButton(TOOL_SKETCH, 'Sketch');
+procedure TMainForm.FloatingToolSelect(Sender: TObject; ToolID: Integer);
+begin
+  FViewport.SetActiveTool(ToolID);
+  SyncToolUI;
+  FViewport.SetFocus;
+end;
+
+procedure TMainForm.InvalidatePanelCaches;
+begin
+  FLastWaypointCount := -1;
+  FLastSceneryNameCount := -1;
 end;
 
 procedure TMainForm.LoadDocumentTextures;
@@ -401,6 +463,46 @@ begin
           SceneryPath := SoldatPath + 'scenery/gfx/' + FDoc.SceneryNames[I];
         FViewport.Renderer.LoadSceneryTexture(I, SceneryPath);
       end;
+end;
+
+procedure TMainForm.PositionFloatingForms;
+var
+  RightX: Integer;
+  RightX2: Integer;
+  TopY: Integer;
+begin
+  RightX := Left + Width - FInfoForm.Width - 24;
+  RightX2 := RightX - FSceneryForm.Width - 12;
+  TopY := Top + 56;
+
+  FToolsForm.SetBounds(Left + 8, TopY, FToolsForm.Width, FToolsForm.Height);
+  FInfoForm.SetBounds(RightX, TopY, FInfoForm.Width, FInfoForm.Height);
+  FDisplayForm.SetBounds(RightX, TopY + FInfoForm.Height + 12,
+    FDisplayForm.Width, FDisplayForm.Height);
+  FSceneryForm.SetBounds(RightX2, TopY, FSceneryForm.Width, FSceneryForm.Height);
+  FWaypointForm.SetBounds(RightX2, TopY + FSceneryForm.Height + 12,
+    FWaypointForm.Width, FWaypointForm.Height);
+end;
+
+procedure TMainForm.RefreshFloatingPanels;
+begin
+  if FInfoForm <> nil then
+    FInfoForm.Refresh(FDoc);
+
+  if (FDisplayForm <> nil) and not FDisplayForm.Visible then
+    FDisplayForm.SetViewSettings(FViewport.ViewSettings);
+
+  if (FWaypointForm <> nil) and (FLastWaypointCount <> FDoc.WaypointCount) then
+  begin
+    FWaypointForm.Refresh(FDoc);
+    FLastWaypointCount := FDoc.WaypointCount;
+  end;
+
+  if (FSceneryForm <> nil) and (FLastSceneryNameCount <> FDoc.ScenNameCount) then
+  begin
+    FSceneryForm.RefreshList(FDoc);
+    FLastSceneryNameCount := FDoc.ScenNameCount;
+  end;
 end;
 
 procedure TMainForm.SelectAll;
@@ -438,9 +540,8 @@ begin
   for I := Low(FToolMenuItems) to High(FToolMenuItems) do
     if FToolMenuItems[I] <> nil then
       FToolMenuItems[I].Checked := I = ActiveTool;
-  for I := Low(FToolButtons) to High(FToolButtons) do
-    if FToolButtons[I] <> nil then
-      FToolButtons[I].Down := I = ActiveTool;
+  if FToolsForm <> nil then
+    FToolsForm.SetActiveTool(ActiveTool);
 end;
 
 procedure TMainForm.UpdateCaption;
@@ -455,6 +556,7 @@ end;
 
 procedure TMainForm.UpdateStatus(Sender: TObject);
 begin
+  RefreshFloatingPanels;
   FStatusBar.SimpleText := Format('Polys: %d | Scenery: %d | Spawns: %d | Zoom: %d%%',
     [FDoc.PolyCount, FDoc.SceneryCount, FDoc.SpawnCount, Round(FDoc.Zoom * 100)]);
   UpdateCaption;
@@ -465,6 +567,19 @@ begin
   UpdateStatus(Sender);
 end;
 
+procedure TMainForm.HandleFirstShow(Sender: TObject);
+begin
+  if FPanelsPositioned then
+    Exit;
+  PositionFloatingForms;
+  FToolsForm.Show;
+  FInfoForm.Show;
+  FDisplayForm.Show;
+  FSceneryForm.Show;
+  FWaypointForm.Show;
+  FPanelsPositioned := True;
+end;
+
 procedure TMainForm.NewFile(Sender: TObject);
 begin
   FDoc.NewMap;
@@ -472,6 +587,7 @@ begin
   FUndo.Clear;
   FViewport.Renderer.FreeTextures;
   SetCurrentFile('');
+  InvalidatePanelCaches;
   FViewport.RequestRepaint;
   UpdateStatus(nil);
 end;
@@ -494,6 +610,7 @@ begin
   FUndo.Clear;
   SetCurrentFile(FOpenDialog.FileName);
   LoadDocumentTextures;
+  InvalidatePanelCaches;
   FViewport.RequestRepaint;
   UpdateStatus(nil);
 end;
@@ -531,6 +648,8 @@ procedure TMainForm.UndoAction(Sender: TObject);
 begin
   if FUndo.Undo(FDoc) then
   begin
+    InvalidatePanelCaches;
+    LoadDocumentTextures;
     FViewport.RequestRepaint;
     UpdateStatus(nil);
   end;
@@ -540,6 +659,8 @@ procedure TMainForm.RedoAction(Sender: TObject);
 begin
   if FUndo.Redo(FDoc) then
   begin
+    InvalidatePanelCaches;
+    LoadDocumentTextures;
     FViewport.RequestRepaint;
     UpdateStatus(nil);
   end;
@@ -565,6 +686,7 @@ begin
     Exit;
   FUndo.Push(FDoc);
   FDoc.DeleteSelected;
+  InvalidatePanelCaches;
   FViewport.RequestRepaint;
   UpdateStatus(nil);
 end;
@@ -587,6 +709,8 @@ begin
     VIEW_SHOW_BACKGROUND: FViewport.ViewSettings.ShowBackground := Item.Checked;
     VIEW_SHOW_SCENERY:    FViewport.ViewSettings.ShowScenery := Item.Checked;
   end;
+  if FDisplayForm <> nil then
+    FDisplayForm.SetViewSettings(FViewport.ViewSettings);
   ApplyViewSettingsToConfig;
   FViewport.RequestRepaint;
   UpdateStatus(nil);
@@ -630,6 +754,7 @@ begin
     FDoc.Modified := True;
     FDoc.RebuildScreenCache;
     LoadDocumentTextures;
+    InvalidatePanelCaches;
     FViewport.RequestRepaint;
     UpdateStatus(nil);
   end;
@@ -644,6 +769,7 @@ begin
     FViewport.UndoStack := FUndo;
     ApplyConfigToViewSettings;
     FViewport.RequestRepaint;
+    UpdateStatus(nil);
   end;
 end;
 

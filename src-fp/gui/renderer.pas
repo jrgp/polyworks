@@ -89,6 +89,7 @@ type
     procedure LoadMapTexture(const Path: string);
     procedure LoadSceneryTexture(Index: Integer; const Path: string);
     procedure FreeTextures;
+    function GetSceneryTextureSize(Index: Integer; out Width, Height: Integer): Boolean;
 
     { Called with a valid OpenGL context active. }
     procedure Render(const Doc: TMapDocument; const VS: TViewSettings;
@@ -239,6 +240,21 @@ begin
     FreeTexInfo(FScenTex[I]);
   SetLength(FScenTex, 0);
   FScenTexCount := 0;
+end;
+
+function TRenderer.GetSceneryTextureSize(Index: Integer; out Width, Height: Integer): Boolean;
+begin
+  Result := (Index >= 1) and (Index < FScenTexCount) and FScenTex[Index].Loaded;
+  if Result then
+  begin
+    Width := FScenTex[Index].Width;
+    Height := FScenTex[Index].Height;
+  end
+  else
+  begin
+    Width := 0;
+    Height := 0;
+  end;
 end;
 
 procedure TRenderer.SetOrtho(W, H: Integer);

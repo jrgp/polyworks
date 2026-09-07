@@ -5,14 +5,17 @@ unit frmscenery;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, pw.map;
+  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls,
+  pw.map, pw.titlepanel;
 
 type
-  TSceneryPanel = class(TPanel)
+  TSceneryForm = class(TForm)
   private
-    FTitleLabel: TLabel;
+    FTitleBar: TPWTitlePanel;
+    FContent: TPanel;
     FSelectedLabel: TLabel;
     FListBox: TListBox;
+    procedure HandleHide(Sender: TObject);
     procedure ListBoxClick(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
@@ -22,7 +25,15 @@ type
 
 implementation
 
-procedure TSceneryPanel.ListBoxClick(Sender: TObject);
+uses
+  pw.theme;
+
+procedure TSceneryForm.HandleHide(Sender: TObject);
+begin
+  Hide;
+end;
+
+procedure TSceneryForm.ListBoxClick(Sender: TObject);
 var
   StyleIdx: Integer;
 begin
@@ -33,37 +44,49 @@ begin
     FSelectedLabel.Caption := 'Selected: None';
 end;
 
-constructor TSceneryPanel.Create(AOwner: TComponent);
+constructor TSceneryForm.Create(AOwner: TComponent);
 begin
-  inherited Create(AOwner);
-  BevelOuter := bvNone;
+  inherited CreateNew(AOwner, 1);
+  BorderStyle := bsNone;
+  BorderIcons := [];
+  FormStyle := fsStayOnTop;
+  ShowInTaskBar := stNever;
+  Position := poDesigned;
   Caption := '';
-  Width := 240;
-  Height := 300;
+  Color := PW_COLOR_BG;
+  ClientWidth := 208;
+  ClientHeight := 170;
 
-  FTitleLabel := TLabel.Create(Self);
-  FTitleLabel.Parent := Self;
-  FTitleLabel.Left := 8;
-  FTitleLabel.Top := 8;
-  FTitleLabel.Caption := 'Scenery Styles';
+  FTitleBar := TPWTitlePanel.Create(Self, 'titlebar_scenery.bmp');
+  FTitleBar.Parent := Self;
+  FTitleBar.OnHideClick := @HandleHide;
+
+  FContent := TPanel.Create(Self);
+  FContent.Parent := Self;
+  FContent.Align := alClient;
+  FContent.BevelOuter := bvNone;
+  FContent.Caption := '';
 
   FListBox := TListBox.Create(Self);
-  FListBox.Parent := Self;
+  FListBox.Parent := FContent;
   FListBox.Left := 8;
-  FListBox.Top := 28;
-  FListBox.Width := 220;
-  FListBox.Height := 228;
+  FListBox.Top := 8;
+  FListBox.Width := 192;
+  FListBox.Height := 112;
   FListBox.OnClick := @ListBoxClick;
 
   FSelectedLabel := TLabel.Create(Self);
-  FSelectedLabel.Parent := Self;
+  FSelectedLabel.Parent := FContent;
   FSelectedLabel.Left := 8;
-  FSelectedLabel.Top := 264;
-  FSelectedLabel.Width := 220;
+  FSelectedLabel.Top := 128;
+  FSelectedLabel.Width := 192;
+  FSelectedLabel.AutoSize := False;
   FSelectedLabel.Caption := 'Selected: None';
+
+  ApplyDarkTheme(Self);
 end;
 
-procedure TSceneryPanel.RefreshList(const Doc: TMapDocument);
+procedure TSceneryForm.RefreshList(const Doc: TMapDocument);
 var
   I: Integer;
 begin
@@ -81,7 +104,7 @@ begin
   FSelectedLabel.Caption := 'Selected: None';
 end;
 
-function TSceneryPanel.GetSelectedStyle: Integer;
+function TSceneryForm.GetSelectedStyle: Integer;
 begin
   if FListBox.ItemIndex >= 0 then
     Result := FListBox.ItemIndex + 1

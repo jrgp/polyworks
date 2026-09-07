@@ -41,9 +41,17 @@ type
     procedure RenderOverlay(Doc: TMapDocument; ViewW, ViewH: Integer);
   end;
 
+type
+  TSceneryToolProvider = function(out StyleIndex, Width, Height: Integer): Boolean of object;
+
 function CreateToolByID(ToolID: Integer): ITool;
+procedure SetSceneryToolProvider(AProvider: TSceneryToolProvider);
+procedure ClearSceneryToolProvider;
 
 implementation
+
+var
+  GSceneryToolProvider: TSceneryToolProvider = nil;
 
 type
   THitKind = (hkNone, hkPolyVertex, hkPolygon, hkScenery, hkSpawn,
@@ -110,6 +118,14 @@ type
     procedure Cancel(Doc: TMapDocument); override;
     function CursorForState: TCursor; override;
     procedure RenderOverlay(Doc: TMapDocument; ViewW, ViewH: Integer);
+  end;
+
+  TSceneryTool = class(TBaseTool)
+  public
+    procedure MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+                        WX, WY: Single; Button: TMouseButton;
+                        Shift: TShiftState; Repaint: TNotifyEvent); override;
+    function CursorForState: TCursor; override;
   end;
 
   TSpawnTool = class(TBaseTool)
@@ -200,6 +216,7 @@ begin
   case ToolID of
     TOOL_SELECT:   Result := TSelectTool.Create;
     TOOL_POLY:     Result := TPolyTool.Create;
+    TOOL_SCENERY:  Result := TSceneryTool.Create;
     TOOL_SPAWN:    Result := TSpawnTool.Create;
     TOOL_WAYPOINT: Result := TWaypointTool.Create;
     TOOL_COLLIDER: Result := TColliderTool.Create;
@@ -562,6 +579,42 @@ begin
   end;
 
   glDisable(GL_LINE_STIPPLE);
+end;
+
+procedure SetSceneryToolProvider(AProvider: TSceneryToolProvider);
+begin
+  GSceneryToolProvider := AProvider;
+end;
+
+procedure ClearSceneryToolProvider;
+begin
+  GSceneryToolProvider := nil;
+end;
+
+procedure TSceneryTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;
+  WX, WY: Single; Button: TMouseButton; Shift: TShiftState; Repaint: TNotifyEvent);
+var
+  StyleIndex: Integer;
+  ItemWidth: Integer;
+  ItemHeight: Integer;
+begin
+  if (Doc = nil) or (Button <> mbLeft) or (not Assigned(GSceneryToolProvider)) then
+    Exit;
+  if not GSceneryToolProvider(StyleIndex, ItemWidth, ItemHeight) then
+    Exit;
+  if UndoStack <> nil then
+    UndoStack.Push(Doc);
+  if ItemWidth <= 0 then
+    ItemWidth := 64;
+  if ItemHeight <= 0 then
+    ItemHeight := 64;
+  Doc.AddScenery(StyleIndex, WX, WY, 1.0, 1.0, 0.0, ItemWidth, ItemHeight);
+  DoRepaint(Repaint);
+end;
+
+function TSceneryTool.CursorForState: TCursor;
+begin
+  Result := crCross;
 end;
 
 procedure TSpawnTool.MouseDown(Doc: TMapDocument; UndoStack: TUndoStack;

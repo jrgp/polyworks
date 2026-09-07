@@ -5,13 +5,14 @@ unit frminfo;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, Graphics,
-  pw.types, pw.utils, pw.map;
+  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls,
+  pw.map, pw.titlepanel;
 
 type
-  TInfoPanel = class(TPanel)
+  TInfoForm = class(TForm)
   private
-    FTitleLabel: TLabel;
+    FTitleBar: TPWTitlePanel;
+    FContent: TPanel;
     FMapNameValue: TLabel;
     FTextureValue: TLabel;
     FStartJetValue: TLabel;
@@ -22,6 +23,7 @@ type
     FPolyCountValue: TLabel;
     FSceneryCountValue: TLabel;
     FSpawnCountValue: TLabel;
+    procedure HandleHide(Sender: TObject);
     function AddRow(const ACaption: string; TopPos: Integer): TLabel;
     function WeatherName(AValue: Byte): string;
     function StepsName(AValue: Byte): string;
@@ -32,24 +34,29 @@ type
 
 implementation
 
-function TInfoPanel.AddRow(const ACaption: string; TopPos: Integer): TLabel;
+uses
+  pw.types, pw.utils, pw.theme;
+
+function TInfoForm.AddRow(const ACaption: string; TopPos: Integer): TLabel;
 var
   NameLabel: TLabel;
 begin
   NameLabel := TLabel.Create(Self);
-  NameLabel.Parent := Self;
+  NameLabel.Parent := FContent;
   NameLabel.Left := 8;
   NameLabel.Top := TopPos;
   NameLabel.Caption := ACaption;
 
   Result := TLabel.Create(Self);
-  Result.Parent := Self;
-  Result.Left := 128;
+  Result.Parent := FContent;
+  Result.Left := 106;
   Result.Top := TopPos;
+  Result.Width := 94;
+  Result.AutoSize := False;
   Result.Caption := '-';
 end;
 
-function TInfoPanel.WeatherName(AValue: Byte): string;
+function TInfoForm.WeatherName(AValue: Byte): string;
 begin
   case AValue of
     1: Result := 'Rain';
@@ -60,7 +67,7 @@ begin
   end;
 end;
 
-function TInfoPanel.StepsName(AValue: Byte): string;
+function TInfoForm.StepsName(AValue: Byte): string;
 begin
   case AValue of
     0: Result := 'Hard';
@@ -71,34 +78,49 @@ begin
   end;
 end;
 
-constructor TInfoPanel.Create(AOwner: TComponent);
+constructor TInfoForm.Create(AOwner: TComponent);
 begin
-  inherited Create(AOwner);
-  BevelOuter := bvNone;
+  inherited CreateNew(AOwner, 1);
+  BorderStyle := bsNone;
+  BorderIcons := [];
+  FormStyle := fsStayOnTop;
+  ShowInTaskBar := stNever;
+  Position := poDesigned;
   Caption := '';
-  Width := 280;
-  Height := 248;
+  Color := PW_COLOR_BG;
+  ClientWidth := 208;
+  ClientHeight := 208;
 
-  FTitleLabel := TLabel.Create(Self);
-  FTitleLabel.Parent := Self;
-  FTitleLabel.Left := 8;
-  FTitleLabel.Top := 8;
-  FTitleLabel.Caption := 'Map Information';
-  FTitleLabel.Font.Style := [fsBold];
+  FTitleBar := TPWTitlePanel.Create(Self, 'titlebar_properties.bmp');
+  FTitleBar.Parent := Self;
+  FTitleBar.OnHideClick := @HandleHide;
 
-  FMapNameValue := AddRow('Map Name:', 32);
-  FTextureValue := AddRow('Texture:', 52);
-  FStartJetValue := AddRow('Start Jet:', 72);
-  FGrenadesValue := AddRow('Grenades:', 92);
-  FMedikitsValue := AddRow('Medikits:', 112);
-  FWeatherValue := AddRow('Weather:', 132);
-  FStepsValue := AddRow('Steps:', 152);
-  FPolyCountValue := AddRow('Polygons:', 172);
-  FSceneryCountValue := AddRow('Scenery:', 192);
-  FSpawnCountValue := AddRow('Spawns:', 212);
+  FContent := TPanel.Create(Self);
+  FContent.Parent := Self;
+  FContent.Align := alClient;
+  FContent.BevelOuter := bvNone;
+  FContent.Caption := '';
+
+  FMapNameValue := AddRow('Map Name:', 8);
+  FTextureValue := AddRow('Texture:', 24);
+  FStartJetValue := AddRow('Start Jet:', 40);
+  FGrenadesValue := AddRow('Grenades:', 56);
+  FMedikitsValue := AddRow('Medikits:', 72);
+  FWeatherValue := AddRow('Weather:', 88);
+  FStepsValue := AddRow('Steps:', 104);
+  FPolyCountValue := AddRow('Polygons:', 120);
+  FSceneryCountValue := AddRow('Scenery:', 136);
+  FSpawnCountValue := AddRow('Spawns:', 152);
+
+  ApplyDarkTheme(Self);
 end;
 
-procedure TInfoPanel.Refresh(const Doc: TMapDocument);
+procedure TInfoForm.HandleHide(Sender: TObject);
+begin
+  Hide;
+end;
+
+procedure TInfoForm.Refresh(const Doc: TMapDocument);
 begin
   if Doc = nil then
   begin

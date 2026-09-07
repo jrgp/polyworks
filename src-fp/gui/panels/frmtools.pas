@@ -5,196 +5,222 @@ unit frmtools;
 interface
 
 uses
-  Classes, Controls, StdCtrls, ExtCtrls, Spin, tools;
-
-const
-  POLY_TYPE_NAMES: array[0..25] of string = (
-    'Normal', 'Only Bullets Collide', 'Only Players Collide',
-    'No Collide', 'Ice', 'Deadly', 'Bloody Deadly', 'Hurts',
-    'Regenerates', 'Lava', 'Alpha Bullets Only', 'Alpha Players Only',
-    'Bravo Bullets Only', 'Bravo Players Only', 'Charlie Bullets Only',
-    'Charlie Players Only', 'Delta Bullets Only', 'Delta Players Only',
-    'Bouncy', 'Explosive', 'Hurt Flaggers', 'Flagger Collide',
-    'Non Flagger Collide', 'Flag Collide', 'Background', 'Background Transition'
-  );
+  Classes, SysUtils, Forms, Controls, ExtCtrls, Graphics,
+  tools, pw.titlepanel;
 
 type
-  TToolOptionsPanel = class(TPanel)
+  TToolSelectEvent = procedure(Sender: TObject; ToolID: Integer) of object;
+
+  TPWToolButton = class(TCustomControl)
   private
-    FActiveToolLabel: TLabel;
-    FToolNameLabel: TLabel;
-    FPolyTypeLabel: TLabel;
-    FSpawnTeamLabel: TLabel;
-    FColliderRadiusLabel: TLabel;
-    FLightRangeLabel: TLabel;
-    FPolyTypeCombo: TComboBox;
-    FSpawnTeamCombo: TComboBox;
-    FColliderRadiusSpin: TSpinEdit;
-    FLightRangeSpin: TSpinEdit;
-    function ToolCaption(ToolID: Integer): string;
-    function GetPolyType: Integer;
-    function GetSpawnTeam: Integer;
-    function GetColliderRadius: Integer;
-    function GetLightRange: Integer;
+    FSkin: TBitmap;
+    FSlotIndex: Integer;
+    FToolID: Integer;
+    FRowIndex: Integer;
+    FHovered: Boolean;
+    FSelected: Boolean;
+    FOnToolSelect: TToolSelectEvent;
+    procedure SetSelected(AValue: Boolean);
+  protected
+    procedure Click; override;
+    procedure MouseEnter; override;
+    procedure MouseLeave; override;
+    procedure Paint; override;
+  public
+    constructor Create(AOwner: TComponent; ASkin: TBitmap; ASlotIndex,
+      AToolID, ARowIndex: Integer); reintroduce;
+    property ToolID: Integer read FToolID;
+    property Selected: Boolean read FSelected write SetSelected;
+    property OnToolSelect: TToolSelectEvent read FOnToolSelect write FOnToolSelect;
+  end;
+
+  TWToolsForm = class(TForm)
+  private
+    FTitleBar: TPWTitlePanel;
+    FToolBitmap: TBitmap;
+    FButtons: array of TPWToolButton;
+    FActiveTool: Integer;
+    FOnToolSelect: TToolSelectEvent;
+    procedure HandleHide(Sender: TObject);
+    procedure HandleToolSelect(Sender: TObject; ToolID: Integer);
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
     procedure SetActiveTool(ToolID: Integer);
-    property PolyType: Integer read GetPolyType;
-    property SpawnTeam: Integer read GetSpawnTeam;
-    property ColliderRadius: Integer read GetColliderRadius;
-    property LightRange: Integer read GetLightRange;
+    property OnToolSelect: TToolSelectEvent read FOnToolSelect write FOnToolSelect;
   end;
 
 implementation
 
-function TToolOptionsPanel.ToolCaption(ToolID: Integer): string;
+uses
+  Types, pw.theme;
+
+type
+  TToolLayout = record
+    ToolID: Integer;
+    SlotIndex: Integer;
+    RowIndex: Integer;
+  end;
+
+const
+  TOOL_LAYOUTS: array[0..6] of TToolLayout = (
+    (ToolID: TOOL_SELECT;   SlotIndex: 0;  RowIndex: 0),
+    (ToolID: TOOL_POLY;     SlotIndex: 1;  RowIndex: 1),
+    (ToolID: TOOL_SCENERY;  SlotIndex: 7;  RowIndex: 7),
+    (ToolID: TOOL_WAYPOINT; SlotIndex: 8;  RowIndex: 8),
+    (ToolID: TOOL_SPAWN;    SlotIndex: 9;  RowIndex: 9),
+    (ToolID: TOOL_SKETCH;   SlotIndex: 11; RowIndex: 11),
+    (ToolID: TOOL_LIGHT;    SlotIndex: 12; RowIndex: 12)
+  );
+
+constructor TPWToolButton.Create(AOwner: TComponent; ASkin: TBitmap;
+  ASlotIndex, AToolID, ARowIndex: Integer);
 begin
-  case ToolID of
-    TOOL_SELECT: Result := 'Select';
-    TOOL_POLY: Result := 'Polygon';
-    TOOL_SCENERY: Result := 'Scenery';
-    TOOL_SPAWN: Result := 'Spawn';
-    TOOL_WAYPOINT: Result := 'Waypoint';
-    TOOL_CONNECTION: Result := 'Connection';
-    TOOL_COLLIDER: Result := 'Collider';
-    TOOL_LIGHT: Result := 'Light';
-    TOOL_SKETCH: Result := 'Sketch';
+  inherited Create(AOwner);
+  ControlStyle := ControlStyle + [csOpaque];
+  Color := PW_COLOR_BG;
+  Width := PW_TOOL_SIZE;
+  Height := PW_TOOL_SIZE;
+  FSkin := ASkin;
+  FSlotIndex := ASlotIndex;
+  FToolID := AToolID;
+  FRowIndex := ARowIndex;
+  Left := (FSlotIndex mod 2) * PW_TOOL_SIZE;
+  Top := PW_TITLEBAR_HEIGHT + (FSlotIndex div 2) * PW_TOOL_SIZE;
+  Cursor := crHandPoint;
+end;
+
+procedure TPWToolButton.SetSelected(AValue: Boolean);
+begin
+  if FSelected = AValue then
+    Exit;
+  FSelected := AValue;
+  Invalidate;
+end;
+
+procedure TPWToolButton.Click;
+begin
+  inherited Click;
+  if Assigned(FOnToolSelect) then
+    FOnToolSelect(Self, FToolID);
+end;
+
+procedure TPWToolButton.MouseEnter;
+begin
+  inherited MouseEnter;
+  FHovered := True;
+  Invalidate;
+end;
+
+procedure TPWToolButton.MouseLeave;
+begin
+  inherited MouseLeave;
+  FHovered := False;
+  Invalidate;
+end;
+
+procedure TPWToolButton.Paint;
+var
+  DestRect: TRect;
+  SrcRect: TRect;
+  StateCol: Integer;
+begin
+  Canvas.Brush.Color := PW_COLOR_BG;
+  Canvas.FillRect(ClientRect);
+
+  if FSelected then
+    StateCol := 2
+  else if FHovered then
+    StateCol := 1
   else
-    Result := 'Unknown';
+    StateCol := 0;
+
+  if (FSkin <> nil) and (FSkin.Width >= 96) and
+     (FSkin.Height >= (FRowIndex + 1) * PW_TOOL_SIZE) then
+  begin
+    DestRect := Rect(0, 0, PW_TOOL_SIZE, PW_TOOL_SIZE);
+    SrcRect := Rect(StateCol * PW_TOOL_SIZE, FRowIndex * PW_TOOL_SIZE,
+      StateCol * PW_TOOL_SIZE + PW_TOOL_SIZE,
+      FRowIndex * PW_TOOL_SIZE + PW_TOOL_SIZE);
+    Canvas.CopyRect(DestRect, FSkin.Canvas, SrcRect);
+  end
+  else
+  begin
+    Canvas.Brush.Color := PW_COLOR_ACCENT;
+    Canvas.FillRect(ClientRect);
   end;
 end;
 
-constructor TToolOptionsPanel.Create(AOwner: TComponent);
+constructor TWToolsForm.Create(AOwner: TComponent);
 var
   I: Integer;
+  Button: TPWToolButton;
+  SkinPath: string;
 begin
-  inherited Create(AOwner);
-  BevelOuter := bvNone;
+  inherited CreateNew(AOwner, 1);
+  BorderStyle := bsNone;
+  BorderIcons := [];
+  FormStyle := fsStayOnTop;
+  ShowInTaskBar := stNever;
+  Position := poDesigned;
   Caption := '';
-  Width := 260;
-  Height := 180;
+  Color := PW_COLOR_BG;
+  ClientWidth := 64;
+  ClientHeight := 241;
+  Constraints.MinWidth := ClientWidth;
+  Constraints.MaxWidth := ClientWidth;
+  Constraints.MinHeight := ClientHeight;
+  Constraints.MaxHeight := ClientHeight;
 
-  FActiveToolLabel := TLabel.Create(Self);
-  FActiveToolLabel.Parent := Self;
-  FActiveToolLabel.Left := 8;
-  FActiveToolLabel.Top := 8;
-  FActiveToolLabel.Caption := 'Active Tool:';
+  FTitleBar := TPWTitlePanel.Create(Self, 'titlebar_tools.bmp');
+  FTitleBar.Parent := Self;
+  FTitleBar.OnHideClick := @HandleHide;
 
-  FToolNameLabel := TLabel.Create(Self);
-  FToolNameLabel.Parent := Self;
-  FToolNameLabel.Left := 88;
-  FToolNameLabel.Top := 8;
-  FToolNameLabel.Caption := 'Select';
+  FToolBitmap := TBitmap.Create;
+  SkinPath := PWAssetPath('tool_gfx.bmp');
+  if FileExists(SkinPath) then
+    FToolBitmap.LoadFromFile(SkinPath);
 
-  FPolyTypeLabel := TLabel.Create(Self);
-  FPolyTypeLabel.Parent := Self;
-  FPolyTypeLabel.Left := 8;
-  FPolyTypeLabel.Top := 40;
-  FPolyTypeLabel.Caption := 'Poly Type:';
+  SetLength(FButtons, Length(TOOL_LAYOUTS));
+  for I := Low(TOOL_LAYOUTS) to High(TOOL_LAYOUTS) do
+  begin
+    Button := TPWToolButton.Create(Self, FToolBitmap, TOOL_LAYOUTS[I].SlotIndex,
+      TOOL_LAYOUTS[I].ToolID, TOOL_LAYOUTS[I].RowIndex);
+    Button.Parent := Self;
+    Button.OnToolSelect := @HandleToolSelect;
+    FButtons[I] := Button;
+  end;
 
-  FPolyTypeCombo := TComboBox.Create(Self);
-  FPolyTypeCombo.Parent := Self;
-  FPolyTypeCombo.Left := 88;
-  FPolyTypeCombo.Top := 36;
-  FPolyTypeCombo.Width := 160;
-  FPolyTypeCombo.Style := csDropDownList;
-  for I := Low(POLY_TYPE_NAMES) to High(POLY_TYPE_NAMES) do
-    FPolyTypeCombo.Items.Add(POLY_TYPE_NAMES[I]);
-  FPolyTypeCombo.ItemIndex := 0;
-
-  FSpawnTeamLabel := TLabel.Create(Self);
-  FSpawnTeamLabel.Parent := Self;
-  FSpawnTeamLabel.Left := 8;
-  FSpawnTeamLabel.Top := 72;
-  FSpawnTeamLabel.Caption := 'Spawn Team:';
-
-  FSpawnTeamCombo := TComboBox.Create(Self);
-  FSpawnTeamCombo.Parent := Self;
-  FSpawnTeamCombo.Left := 88;
-  FSpawnTeamCombo.Top := 68;
-  FSpawnTeamCombo.Width := 160;
-  FSpawnTeamCombo.Style := csDropDownList;
-  FSpawnTeamCombo.Items.Add('General');
-  FSpawnTeamCombo.Items.Add('Alpha');
-  FSpawnTeamCombo.Items.Add('Bravo');
-  FSpawnTeamCombo.Items.Add('Charlie');
-  FSpawnTeamCombo.Items.Add('Delta');
-  FSpawnTeamCombo.Items.Add('Frogger');
-  FSpawnTeamCombo.Items.Add('Yellow');
-  FSpawnTeamCombo.Items.Add('Red');
-  FSpawnTeamCombo.ItemIndex := 0;
-
-  FColliderRadiusLabel := TLabel.Create(Self);
-  FColliderRadiusLabel.Parent := Self;
-  FColliderRadiusLabel.Left := 8;
-  FColliderRadiusLabel.Top := 104;
-  FColliderRadiusLabel.Caption := 'Radius:';
-
-  FColliderRadiusSpin := TSpinEdit.Create(Self);
-  FColliderRadiusSpin.Parent := Self;
-  FColliderRadiusSpin.Left := 88;
-  FColliderRadiusSpin.Top := 100;
-  FColliderRadiusSpin.Width := 80;
-  FColliderRadiusSpin.MinValue := 1;
-  FColliderRadiusSpin.MaxValue := 1000;
-  FColliderRadiusSpin.Value := 25;
-
-  FLightRangeLabel := TLabel.Create(Self);
-  FLightRangeLabel.Parent := Self;
-  FLightRangeLabel.Left := 8;
-  FLightRangeLabel.Top := 136;
-  FLightRangeLabel.Caption := 'Light Range:';
-
-  FLightRangeSpin := TSpinEdit.Create(Self);
-  FLightRangeSpin.Parent := Self;
-  FLightRangeSpin.Left := 88;
-  FLightRangeSpin.Top := 132;
-  FLightRangeSpin.Width := 80;
-  FLightRangeSpin.MinValue := 1;
-  FLightRangeSpin.MaxValue := 4096;
-  FLightRangeSpin.Value := 100;
-
+  ApplyDarkTheme(Self);
   SetActiveTool(TOOL_SELECT);
 end;
 
-procedure TToolOptionsPanel.SetActiveTool(ToolID: Integer);
+destructor TWToolsForm.Destroy;
+begin
+  FToolBitmap.Free;
+  inherited Destroy;
+end;
+
+procedure TWToolsForm.HandleHide(Sender: TObject);
+begin
+  Hide;
+end;
+
+procedure TWToolsForm.HandleToolSelect(Sender: TObject; ToolID: Integer);
+begin
+  SetActiveTool(ToolID);
+  if Assigned(FOnToolSelect) then
+    FOnToolSelect(Self, ToolID);
+end;
+
+procedure TWToolsForm.SetActiveTool(ToolID: Integer);
 var
-  ShowPoly, ShowSpawn, ShowCollider, ShowLight: Boolean;
+  I: Integer;
 begin
-  FToolNameLabel.Caption := ToolCaption(ToolID);
-  ShowPoly := ToolID = TOOL_POLY;
-  ShowSpawn := ToolID = TOOL_SPAWN;
-  ShowCollider := ToolID = TOOL_COLLIDER;
-  ShowLight := ToolID = TOOL_LIGHT;
-
-  FPolyTypeLabel.Visible := ShowPoly;
-  FPolyTypeCombo.Visible := ShowPoly;
-  FSpawnTeamLabel.Visible := ShowSpawn;
-  FSpawnTeamCombo.Visible := ShowSpawn;
-  FColliderRadiusLabel.Visible := ShowCollider;
-  FColliderRadiusSpin.Visible := ShowCollider;
-  FLightRangeLabel.Visible := ShowLight;
-  FLightRangeSpin.Visible := ShowLight;
-end;
-
-function TToolOptionsPanel.GetPolyType: Integer;
-begin
-  Result := FPolyTypeCombo.ItemIndex;
-end;
-
-function TToolOptionsPanel.GetSpawnTeam: Integer;
-begin
-  Result := FSpawnTeamCombo.ItemIndex;
-end;
-
-function TToolOptionsPanel.GetColliderRadius: Integer;
-begin
-  Result := FColliderRadiusSpin.Value;
-end;
-
-function TToolOptionsPanel.GetLightRange: Integer;
-begin
-  Result := FLightRangeSpin.Value;
+  FActiveTool := ToolID;
+  for I := Low(FButtons) to High(FButtons) do
+    if FButtons[I] <> nil then
+      FButtons[I].Selected := FButtons[I].ToolID = ToolID;
 end;
 
 end.

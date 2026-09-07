@@ -54,5 +54,7 @@ pw_print "Building PolyWorks"
 mkdir -p "$BUILD_DIR"
 "$LAZBUILD" "$REPO/polyworks.lpi" 2>&1
 
-pw_ok "Binary: $BUILD_DIR/polyworks"
+rm -rf "$BUILD_DIR/skins"
+cp -r "$REPO/installer/skins" "$BUILD_DIR/"
 
+pw_ok "Binary: $BUILD_DIR/polyworks"
