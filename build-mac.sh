@@ -39,8 +39,18 @@ source "$REPO/scripts/common.sh"
 # ===========================================================================
 # 1. Architecture
 # ===========================================================================
-ARCH=$(uname -m)   # arm64 on Apple Silicon, x86_64 on Intel
-pw_print "Architecture: $ARCH"
+# uname -m on Apple Silicon returns "arm64" (Apple's name).
+# FPC and lazbuild use LLVM/GNU naming: "aarch64".
+# clang -arch uses Apple's naming: "arm64".
+# We keep both so each tool gets the name it expects.
+UNAME_ARCH=$(uname -m)   # arm64 | x86_64
+case "$UNAME_ARCH" in
+    arm64)   CLANG_ARCH="arm64";  FPC_CPU="aarch64" ;;
+    x86_64)  CLANG_ARCH="x86_64"; FPC_CPU="x86_64"  ;;
+    aarch64) CLANG_ARCH="arm64";  FPC_CPU="aarch64" ;;
+    *)       CLANG_ARCH="$UNAME_ARCH"; FPC_CPU="$UNAME_ARCH" ;;
+esac
+pw_print "Architecture: uname=$UNAME_ARCH  clang=-arch $CLANG_ARCH  fpc/lazbuild --cpu=$FPC_CPU"
 
 # ===========================================================================
 # 2. Homebrew — detect or install
@@ -157,14 +167,39 @@ LAZBUILD_VERSION="$("$LAZBUILD" --version 2>/dev/null | head -1 || echo "unknown
 pw_ok "Lazarus: $LAZBUILD (version $LAZBUILD_VERSION)"
 
 # ===========================================================================
-# 5. Validate FPC / Lazarus version compatibility
+# 5. Validate and fix FPC / Lazarus configuration
 # ===========================================================================
-pw_print "Validating FPC / Lazarus compatibility"
+pw_print "Validating FPC / Lazarus configuration"
 
-# Lazarus stores its compiler path in environmentoptions.xml; we override it
-# by passing --compiler= to lazbuild so the script-detected FPC is always used.
+# lazbuild reads Lazarus's environmentoptions.xml which stores the last-used
+# target CPU.  On Apple Silicon the Lazarus installer may have written "arm64"
+# (Apple's uname name) whereas FPC 3.x uses the LLVM/GNU name "aarch64".
+# When lazbuild detects the mismatch it picks up the wrong name and passes
+# -Parm64 to FPC, which fails with "Illegal processor type".
+#
+# Fix: patch environmentoptions.xml before every build so that the stored
+# target matches what FPC actually expects.  We look in the two standard
+# Lazarus config locations on macOS.
+_fix_env_options() {
+    local xml="$1"
+    [[ -f "$xml" ]] || return 0
+    # Replace arm64-darwin with aarch64-darwin in the stored target triple
+    if grep -q 'arm64-darwin' "$xml" 2>/dev/null; then
+        pw_warn "  Patching $xml: arm64-darwin → aarch64-darwin"
+        # Use perl for in-place sed on macOS (avoids -i '' portability issues)
+        perl -pi -e 's/arm64-darwin/aarch64-darwin/g' "$xml"
+    fi
+}
 
-pw_ok "Will compile with: $FPC"
+# Lazarus config dirs (macOS standard locations)
+_fix_env_options "$HOME/.lazarus/environmentoptions.xml"
+_fix_env_options "$HOME/Library/Application Support/lazarus/environmentoptions.xml"
+# Also check next to the Lazarus.app bundle
+_fix_env_options "$LAZARUS_DIR/environmentoptions.xml"
+# And project-level override if it exists
+_fix_env_options "$REPO/environmentoptions.xml"
+
+pw_ok "Will compile with: $FPC  cpu=$FPC_CPU  os=darwin"
 
 # ===========================================================================
 # 6. Rebuild stale Lazarus packages
@@ -181,7 +216,7 @@ _rebuild_package() {
         "$LAZBUILD" \
             --compiler="$FPC" \
             --os=darwin \
-            --cpu="$ARCH" \
+            --cpu="$FPC_CPU" \
             --build-all \
             "$lpk" 2>&1 | grep -v "^Hint:" | grep -v "^Note:" | tail -5 || true
     else
@@ -207,7 +242,7 @@ _rebuild_package "$_OGL_PKG"
 # ===========================================================================
 # 7. Build stb_image C wrapper
 # ===========================================================================
-build_stb_wrapper "clang" "-arch $ARCH"
+build_stb_wrapper "clang" "-arch $CLANG_ARCH"
 
 # ===========================================================================
 # 8. Headless tests
@@ -228,7 +263,7 @@ mkdir -p "$BUILD_DIR"
 "$LAZBUILD" \
     --compiler="$FPC" \
     --os=darwin \
-    --cpu="$ARCH" \
+    --cpu="$FPC_CPU" \
     "$REPO/polyworks.lpi" 2>&1
 
 BUILT_BIN="$BUILD_DIR/polyworks"
