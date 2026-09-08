@@ -21,8 +21,14 @@ public:
     void setMoveToolActive(bool active) { m_moveToolActive = active; }
 
 private:
-    void renderBackground(uint32_t col1, uint32_t col2, int w, int h);
-    void renderPolygons(const MapDocument& doc, GLuint texId);
+    /* World-anchored background quad, sized from the map bounds like the
+       original's mnuRefreshBG_Click (frm:14057). */
+    void renderBackgroundQuad(const MapDocument& doc);
+    /* backgroundPass=true draws only polygon types 24/25 (Background and
+       Background Transition), which the original renders *before* back
+       scenery; false draws every other type afterwards
+       (frmOpenSoldatMapEditor.frm:2916-3062). */
+    void renderPolygons(const MapDocument& doc, GLuint texId, bool backgroundPass);
     void renderScenery(const MapDocument& doc, int level);
     void renderSelectionOverlays(const MapDocument& doc);
     void renderGrid(const MapDocument& doc, int viewW, int viewH);

@@ -59,9 +59,9 @@ wxGLAttributes BuildGlAttributes() {
 
 GlViewport::GlViewport(MainFrame* parent, MapDocument& document, UndoStack& undoStack)
 #if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
-    : GlViewportBase(parent, BuildGlAttributes(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE),
+    : GlViewportBase(parent, BuildGlAttributes(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE | wxWANTS_CHARS),
 #else
-    : GlViewportBase(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE),
+    : GlViewportBase(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE | wxWANTS_CHARS),
 #endif
       m_mainFrame(parent),
       m_document(document),
@@ -716,6 +716,13 @@ void GlViewport::OnKeyDown(wxKeyEvent& event) {
             m_document.clearSelection();
         }
         Refresh(false);
+        return;
+    }
+
+    if (key == WXK_TAB) {
+        /* VB6 frm:10951 -> TabPressed: cycle the single selected polygon /
+           vertex / scenery item.  Shift reverses direction. */
+        if (m_document.cycleSelection(event.ShiftDown())) Refresh(false);
         return;
     }
 
@@ -1388,6 +1395,8 @@ bool GlViewport::IsSpacePanGesture(const wxMouseEvent& event) const {
 void GlViewport::BeginPan(const wxPoint& point) {
     m_panning      = true;
     m_lastPanPoint = point;
+    /* VB6 frm:11101 sets the hand cursor for the duration of a middle-drag. */
+    SetCursor(wxCursor(wxCURSOR_HAND));
     if (!HasCapture()) CaptureMouse();
 }
 
@@ -1409,6 +1418,7 @@ void GlViewport::UpdatePan(const wxPoint& point) {
 void GlViewport::EndPan() {
     m_panning = false;
     if (HasCapture()) ReleaseMouse();
+    if (!m_spaceDown) applyToolCursor();
 }
 
 /* ---- Fallback ----------------------------------------------------------- */

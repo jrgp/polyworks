@@ -119,7 +119,19 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
     glDisable(GL_TEXTURE_2D);
 
     if (view.showBackground) {
-        renderBackground(doc.options.bgColor1, doc.options.bgColor2, viewW, viewH);
+        renderBackgroundQuad(doc);
+    }
+
+    GLuint mapTexId = 0;
+    if (view.showTexture && m_texMgr != nullptr &&
+        !doc.options.textureName.empty()) {
+        mapTexId = m_texMgr->loadTexture(doc.options.textureName);
+    }
+
+    /* Background polygons are drawn first so that back scenery sits on top of
+       them, exactly as the original does (frm:2916). */
+    if (view.showPolys) {
+        renderPolygons(doc, mapTexId, true);
     }
 
     if (view.showSceneryBack) {
@@ -127,11 +139,7 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
     }
 
     if (view.showPolys) {
-        GLuint texId = 0;
-        if (view.showTexture && m_texMgr != nullptr && !doc.options.textureName.empty()) {
-            texId = m_texMgr->loadTexture(doc.options.textureName);
-        }
-        renderPolygons(doc, texId);
+        renderPolygons(doc, mapTexId, false);
     }
 
     if (view.showSceneryMiddle) {
@@ -175,27 +183,72 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
 #endif
 }
 
-void Renderer::renderBackground(uint32_t col1, uint32_t col2, int w, int h) {
+void Renderer::renderBackgroundQuad(const MapDocument& doc) {
 #if PW_RENDERER_HAS_OPENGL
+    /* frm:14057 mnuRefreshBG_Click: the gradient quad is anchored in world
+       space and spans the map bounds (measured against the origin) padded by
+       640 units, so panning far outside the map reveals the clear colour. */
+    float maxX = 0.0f, maxY = 0.0f, minX = 0.0f, minY = 0.0f;
+    for (const auto& p : doc.polys) {
+        for (const auto& v : p.v) {
+            if (v.world.x > maxX) maxX = v.world.x;
+            if (v.world.x < minX) minX = v.world.x;
+            if (v.world.y > maxY) maxY = v.world.y;
+            if (v.world.y < minY) minY = v.world.y;
+        }
+    }
+    const float xOffset = std::floor((maxX + minX) * 0.5f);
+    const float yOffset = std::floor((maxY + minY) * 0.5f);
+    /* The original uses xOffset in both branches (frm:14084-14088). */
+    const float bgSize = ((maxX - minX) > (maxY - minY)) ? (maxX - xOffset)
+                                                         : (maxY - xOffset);
+    const float ext = bgSize + 640.0f;
+
+    const float left   = (xOffset - ext - doc.scrollX) * doc.zoom;
+    const float right  = (xOffset + ext - doc.scrollX) * doc.zoom;
+    const float top    = (yOffset - ext - doc.scrollY) * doc.zoom;
+    const float bottom = (yOffset + ext - doc.scrollY) * doc.zoom;
+
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_BLEND);
     glBegin(GL_QUADS);
-    setArgbColor(col1);
-    glVertex2f(0.0f, 0.0f);
-    glVertex2f(static_cast<float>(w), 0.0f);
-    setArgbColor(col2);
-    glVertex2f(static_cast<float>(w), static_cast<float>(h));
-    glVertex2f(0.0f, static_cast<float>(h));
+    setArgbColor(doc.options.bgColor1);
+    glVertex2f(left, top);
+    glVertex2f(right, top);
+    setArgbColor(doc.options.bgColor2);
+    glVertex2f(right, bottom);
+    glVertex2f(left, bottom);
     glEnd();
 #else
-    (void)col1;
-    (void)col2;
-    (void)w;
-    (void)h;
+    (void)doc;
 #endif
 }
 
-void Renderer::renderPolygons(const MapDocument& doc, GLuint texId) {
+namespace {
+/* Preferences store blend factors as indices into the original's combo list
+   (frmPreferences.frx:0x172): ZERO, ONE, SRCCOLOR, INVSRCCOLOR, DESTCOLOR,
+   INVDESTCOLOR, SRCALPHA, INVSRCALPHA. */
+GLenum blendFactor(int index) {
+#if PW_RENDERER_HAS_OPENGL
+    switch (index) {
+    case 0: return GL_ZERO;
+    case 1: return GL_ONE;
+    case 2: return GL_SRC_COLOR;
+    case 3: return GL_ONE_MINUS_SRC_COLOR;
+    case 4: return GL_DST_COLOR;
+    case 5: return GL_ONE_MINUS_DST_COLOR;
+    case 6: return GL_SRC_ALPHA;
+    case 7: default: return GL_ONE_MINUS_SRC_ALPHA;
+    }
+#else
+    (void)index;
+    return 0;
+#endif
+}
+}  // namespace
+
+void Renderer::renderPolygons(const MapDocument& doc, GLuint texId,
+                              bool backgroundPass) {
 #if PW_RENDERER_HAS_OPENGL
     const bool textured = doc.viewSettings.showTexture && texId != 0;
     if (textured) {
@@ -206,9 +259,20 @@ void Renderer::renderPolygons(const MapDocument& doc, GLuint texId) {
     }
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    /* "Blend Polys" swaps in the user-configured factors (frm:2952-2955). */
+    if (doc.viewSettings.blendPolys)
+        glBlendFunc(blendFactor(doc.viewSettings.polyBlendSrc),
+                    blendFactor(doc.viewSettings.polyBlendDest));
+    else
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    auto inPass = [backgroundPass](const EditorPoly& p) {
+        const bool isBackground = (p.polyType == 24 || p.polyType == 25);
+        return isBackground == backgroundPass;
+    };
 
     for (const auto& poly : doc.polys) {
+        if (!inPass(poly)) continue;
         glBegin(GL_TRIANGLES);
         for (const auto& vertex : poly.v) {
             glColor4ub(vertex.r, vertex.g, vertex.b, vertex.alpha);
@@ -223,10 +287,17 @@ void Renderer::renderPolygons(const MapDocument& doc, GLuint texId) {
 
     if (doc.viewSettings.showWireframe) {
         glDisable(GL_TEXTURE_2D);
-        glDisable(GL_BLEND);
+        if (doc.viewSettings.blendWireframe) {
+            glEnable(GL_BLEND);
+            glBlendFunc(blendFactor(doc.viewSettings.wireBlendSrc),
+                        blendFactor(doc.viewSettings.wireBlendDest));
+        } else {
+            glDisable(GL_BLEND);
+        }
         glColor4ub(32, 32, 32, 255);
         glLineWidth(1.0f);
         for (const auto& poly : doc.polys) {
+            if (!inPass(poly)) continue;
             glBegin(GL_LINE_LOOP);
             for (const auto& vertex : poly.v) {
                 const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
@@ -489,28 +560,53 @@ void Renderer::renderMoveSelectionRect(const MapDocument& doc) {
 void Renderer::renderGrid(const MapDocument& doc, int viewW, int viewH) {
 #if PW_RENDERER_HAS_OPENGL
     const float gridStep = std::max(doc.viewSettings.gridSize, 1.0f);
+    const int   divisions = std::max(doc.viewSettings.gridDivisions, 1);
+    const float minorStep = gridStep / static_cast<float>(divisions);
     const float left = doc.scrollX;
     const float top = doc.scrollY;
     const float right = left + static_cast<float>(viewW) / doc.zoom;
     const float bottom = top + static_cast<float>(viewH) / doc.zoom;
-    const float startX = std::floor(left / gridStep) * gridStep;
-    const float startY = std::floor(top / gridStep) * gridStep;
 
     glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    /* Two passes: minor subdivision lines first, then the major lines on top,
+       matching the original's colour1/colour2 + opacity1/opacity2 scheme
+       (frm:5990-6007). */
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool major = (pass == 1);
+        if (!major && divisions < 2) continue;
+        const unsigned col = major ? doc.viewSettings.gridColor1
+                                   : doc.viewSettings.gridColor2;
+        const float alpha = major ? doc.viewSettings.gridAlpha1
+                                  : doc.viewSettings.gridAlpha2;
+        glColor4ub(static_cast<GLubyte>((col >> 16) & 0xFF),
+                   static_cast<GLubyte>((col >> 8) & 0xFF),
+                   static_cast<GLubyte>(col & 0xFF),
+                   static_cast<GLubyte>(std::max(0.0f, std::min(1.0f, alpha)) * 255.0f));
+        const float step = major ? gridStep : minorStep;
+        const float startX = std::floor(left / step) * step;
+        const float startY = std::floor(top / step) * step;
+        glBegin(GL_LINES);
+        for (float worldX = startX; worldX <= right; worldX += step) {
+            /* Skip positions already covered by the major pass. */
+            if (!major && std::fabs(worldX / gridStep - std::round(worldX / gridStep)) < 1e-4f)
+                continue;
+            const float screenX = (worldX - doc.scrollX) * doc.zoom;
+            glVertex2f(screenX, 0.0f);
+            glVertex2f(screenX, static_cast<float>(viewH));
+        }
+        for (float worldY = startY; worldY <= bottom; worldY += step) {
+            if (!major && std::fabs(worldY / gridStep - std::round(worldY / gridStep)) < 1e-4f)
+                continue;
+            const float screenY = (worldY - doc.scrollY) * doc.zoom;
+            glVertex2f(0.0f, screenY);
+            glVertex2f(static_cast<float>(viewW), screenY);
+        }
+        glEnd();
+    }
     glDisable(GL_BLEND);
-    glColor4ub(90, 90, 90, 255);
-    glBegin(GL_LINES);
-    for (float worldX = startX; worldX <= right; worldX += gridStep) {
-        const float screenX = (worldX - doc.scrollX) * doc.zoom;
-        glVertex2f(screenX, 0.0f);
-        glVertex2f(screenX, static_cast<float>(viewH));
-    }
-    for (float worldY = startY; worldY <= bottom; worldY += gridStep) {
-        const float screenY = (worldY - doc.scrollY) * doc.zoom;
-        glVertex2f(0.0f, screenY);
-        glVertex2f(static_cast<float>(viewW), screenY);
-    }
-    glEnd();
 #else
     (void)doc;
     (void)viewW;

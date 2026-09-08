@@ -203,6 +203,8 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnEditUndo, this, wxID_UNDO);
     Bind(wxEVT_MENU, &MainFrame::OnEditRedo, this, wxID_REDO);
     Bind(wxEVT_MENU, &MainFrame::OnEditDuplicateSelected, this, ID_EDIT_DUPLICATE);
+    Bind(wxEVT_MENU, &MainFrame::OnEditCopy,  this, wxID_COPY);
+    Bind(wxEVT_MENU, &MainFrame::OnEditPaste, this, wxID_PASTE);
     Bind(wxEVT_MENU, &MainFrame::OnEditDeleteSelected, this, ID_EDIT_DELETE_SELECTED);
     Bind(wxEVT_MENU, &MainFrame::OnEditSelectAll, this, wxID_SELECTALL);
     Bind(wxEVT_MENU, &MainFrame::OnEditInvertSelection, this, ID_EDIT_INVERT_SELECTION);
@@ -1163,6 +1165,39 @@ void MainFrame::OnFileCompileAs(wxCommandEvent&) {
         wxMessageBox(wxString::FromUTF8(error.c_str()), "Compile failed", wxOK | wxICON_ERROR, this);
 }
 
+wxString MainFrame::ClipboardPrefabPath() const {
+    /* The original wrote the clipboard prefab to <app>\Temp\copy.PFB
+       (frm:11769 / frm:12062).  The install directory is read-only on modern
+       platforms, so use the per-user temp directory instead. */
+    return wxFileName::GetTempDir() + wxFileName::GetPathSeparator() +
+           "polyworks-copy.PFB";
+}
+
+void MainFrame::OnEditCopy(wxCommandEvent&) {
+    if (!m_doc.anySelected()) return;
+    std::string error;
+    if (!savePrefab(ClipboardPrefabPath().ToStdString(), m_doc, error))
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Copy failed",
+                     wxOK | wxICON_ERROR, this);
+}
+
+void MainFrame::OnEditPaste(wxCommandEvent&) {
+    const wxString path = ClipboardPrefabPath();
+    if (!wxFileExists(path)) return;
+    m_undoStack.push(m_doc);
+    std::string error;
+    if (!loadPrefab(path.ToStdString(), m_doc, error)) {
+        m_undoStack.pop();
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Paste failed",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    m_doc.markModified();
+    UpdateStatusBar();
+    UpdateTitle();
+    RefreshViewport();
+}
+
 void MainFrame::OnFileExport(wxCommandEvent&) {
     if (!m_doc.anySelected()) {
         wxMessageBox("Select objects to export as a prefab.", "Export Prefab",
@@ -1171,7 +1206,7 @@ void MainFrame::OnFileExport(wxCommandEvent&) {
     }
     wxFileDialog dialog(this,
                         "Export Prefab",
-                        wxEmptyString,
+                        wxString(m_prefs.prefabsDir),
                         wxEmptyString,
                         "PolyWorks Prefab (*.pwf)|*.pwf|All files (*)|*",
                         wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
@@ -1185,7 +1220,7 @@ void MainFrame::OnFileExport(wxCommandEvent&) {
 void MainFrame::OnFileImport(wxCommandEvent&) {
     wxFileDialog dialog(this,
                         "Import Prefab",
-                        wxEmptyString,
+                        wxString(m_prefs.prefabsDir),
                         wxEmptyString,
                         "PolyWorks Prefab (*.pwf)|*.pwf|All files (*)|*",
                         wxFD_OPEN | wxFD_FILE_MUST_EXIST);
@@ -1208,13 +1243,26 @@ void MainFrame::OnFileRunSoldat(wxCommandEvent& event) {
     /* For now, show a message pointing to Preferences if nothing is configured. */
     const wxString key = (event.GetId() == ID_FILE_RUN_OPENSOLDAT)
         ? "/Soldat/OpenSoldatExe" : "/Soldat/SoldatExe";
+    const bool wantOpen = (event.GetId() == ID_FILE_RUN_OPENSOLDAT);
     wxConfig cfg("PolyWorks");
     wxString exe;
     cfg.Read(key, &exe);
+    if (exe.IsEmpty() && !m_prefs.soldatDir.empty()) {
+        /* The original launched <game dir>\soldat.exe directly; fall back to
+           the configured game directory rather than requiring a second
+           setting. */
+        const char* names[] = {"soldat.exe", "Soldat.exe", "soldat"};
+        const char* openNames[] = {"opensoldat.exe", "OpenSoldat.exe", "opensoldat"};
+        for (const char* n : (wantOpen ? openNames : names)) {
+            const wxString candidate = wxString(m_prefs.soldatDir) +
+                                       wxFileName::GetPathSeparator() + n;
+            if (wxFileExists(candidate)) { exe = candidate; break; }
+        }
+    }
     if (exe.IsEmpty()) {
         wxMessageBox(
-            "No Soldat executable configured.\n"
-            "Set the path in Edit > Preferences.",
+            "No Soldat executable found.\n"
+            "Set the game directory in Edit > Preferences.",
             "Run Soldat", wxOK | wxICON_INFORMATION, this);
         return;
     }
@@ -1445,6 +1493,12 @@ void MainFrame::LoadPrefs() {
     if (cfg.Read("Snap/Enabled", &l)) m_prefs.snapEnabled = (l != 0);
     if (cfg.Read("Snap/Radius",  &d)) m_prefs.snapRadius  = static_cast<float>(d);
     if (cfg.Read("Undo/Depth",   &l)) m_prefs.undoDepth   = static_cast<int>(l);
+    if (cfg.Read("Grid/Alpha1", &d)) m_prefs.gridAlpha1 = static_cast<float>(d);
+    if (cfg.Read("Grid/Alpha2", &d)) m_prefs.gridAlpha2 = static_cast<float>(d);
+    if (cfg.Read("Blend/PolySrc",  &l)) m_prefs.polyBlendSrc  = static_cast<int>(l);
+    if (cfg.Read("Blend/PolyDest", &l)) m_prefs.polyBlendDest = static_cast<int>(l);
+    if (cfg.Read("Blend/WireSrc",  &l)) m_prefs.wireBlendSrc  = static_cast<int>(l);
+    if (cfg.Read("Blend/WireDest", &l)) m_prefs.wireBlendDest = static_cast<int>(l);
     if (cfg.Read("Colors/Point",     &l)) m_prefs.pointColor     = static_cast<unsigned>(l);
     if (cfg.Read("Colors/Selection", &l)) m_prefs.selectionColor = static_cast<unsigned>(l);
 
@@ -1477,6 +1531,12 @@ void MainFrame::SavePrefs() {
     cfg.Write("Snap/Enabled", static_cast<long>(m_prefs.snapEnabled ? 1 : 0));
     cfg.Write("Snap/Radius",  static_cast<double>(m_prefs.snapRadius));
     cfg.Write("Undo/Depth",   static_cast<long>(m_prefs.undoDepth));
+    cfg.Write("Grid/Alpha1", static_cast<double>(m_prefs.gridAlpha1));
+    cfg.Write("Grid/Alpha2", static_cast<double>(m_prefs.gridAlpha2));
+    cfg.Write("Blend/PolySrc",  static_cast<long>(m_prefs.polyBlendSrc));
+    cfg.Write("Blend/PolyDest", static_cast<long>(m_prefs.polyBlendDest));
+    cfg.Write("Blend/WireSrc",  static_cast<long>(m_prefs.wireBlendSrc));
+    cfg.Write("Blend/WireDest", static_cast<long>(m_prefs.wireBlendDest));
     cfg.Write("Colors/Point",     static_cast<long>(m_prefs.pointColor));
     cfg.Write("Colors/Selection", static_cast<long>(m_prefs.selectionColor));
     cfg.Write("Paths/SoldatDir",  wxString(m_prefs.soldatDir));
@@ -1487,7 +1547,16 @@ void MainFrame::SavePrefs() {
 
 void MainFrame::ApplyPrefs() {
     m_undoStack.setMaxDepth(m_prefs.undoDepth);
-    m_doc.viewSettings.gridSize = static_cast<float>(m_prefs.gridSpacing);
+    m_doc.viewSettings.gridSize      = static_cast<float>(m_prefs.gridSpacing);
+    m_doc.viewSettings.gridDivisions = m_prefs.gridDivisions;
+    m_doc.viewSettings.gridColor1    = m_prefs.gridColor1;
+    m_doc.viewSettings.gridColor2    = m_prefs.gridColor2;
+    m_doc.viewSettings.gridAlpha1    = m_prefs.gridAlpha1;
+    m_doc.viewSettings.gridAlpha2    = m_prefs.gridAlpha2;
+    m_doc.viewSettings.polyBlendSrc  = m_prefs.polyBlendSrc;
+    m_doc.viewSettings.polyBlendDest = m_prefs.polyBlendDest;
+    m_doc.viewSettings.wireBlendSrc  = m_prefs.wireBlendSrc;
+    m_doc.viewSettings.wireBlendDest = m_prefs.wireBlendDest;
     if (m_viewport != nullptr) {
         m_viewport->setSnapRadius(m_prefs.snapRadius);
         if (!m_prefs.soldatDir.empty()) {
@@ -1504,6 +1573,22 @@ void MainFrame::OnPreferences(wxCommandEvent&) {
     ApplyPrefs();
     SavePrefs();
     RefreshViewport();
+}
+
+void MainFrame::ToggleWaypointTypeKey(int idx) {
+    SetWaypointType(idx, !GetWaypointType(idx));
+    UpdateStatusBar();
+}
+
+void MainFrame::ToggleLayerById(int id) {
+    wxMenuBar* mb = GetMenuBar();
+    if (mb == nullptr) return;
+    wxMenuItem* item = mb->FindItem(id);
+    if (item == nullptr || !item->IsCheckable()) return;
+    item->Check(!item->IsChecked());
+    wxCommandEvent evt(wxEVT_MENU, id);
+    evt.SetInt(item->IsChecked() ? 1 : 0);
+    OnViewLayerToggle(evt);
 }
 
 void MainFrame::OnKeyDown(wxKeyEvent& event) {
@@ -1524,9 +1609,28 @@ void MainFrame::OnKeyDown(wxKeyEvent& event) {
         case 'G': SetActiveTool(8); return;
         case 'T': SetActiveTool(9); return;
         case 'H': SetActiveTool(10); return;
-        case 'Z': SetActiveTool(11); return;
+        case 'Y': SetActiveTool(11); return;  /* Sketch (DIK_Y = 21) */
         case 'J': SetActiveTool(12); return;
         case 'U': SetActiveTool(13); return;
+
+        /* Waypoint direction keys (modConfig.bas:179-183 -- DIK scancodes
+           J/K/I/M/N).  The original checked tool hotkeys first, so 'J' is
+           consumed by the Lights tool and never reaches the waypoint
+           handler; that ordering is preserved above. */
+        case 'K': ToggleWaypointTypeKey(1); return;
+        case 'I': ToggleWaypointTypeKey(2); return;
+        case 'M': ToggleWaypointTypeKey(3); return;
+        case 'N': ToggleWaypointTypeKey(4); return;
+
+        /* Display-layer keys (modConfig.bas:186-193 -- numpad 1..8). */
+        case WXK_NUMPAD1: ToggleLayerById(ID_VIEW_BACKGROUND);     return;
+        case WXK_NUMPAD2: ToggleLayerById(ID_VIEW_POLYGONS);       return;
+        case WXK_NUMPAD3: ToggleLayerById(ID_VIEW_TEXTURES);       return;
+        case WXK_NUMPAD4: ToggleLayerById(ID_VIEW_WIREFRAME);      return;
+        case WXK_NUMPAD5: ToggleLayerById(ID_VIEW_POINTS);         return;
+        case WXK_NUMPAD6: ToggleLayerById(ID_VIEW_SCENERY_MIDDLE); return;
+        case WXK_NUMPAD7: ToggleLayerById(ID_VIEW_OBJECTS);        return;
+        case WXK_NUMPAD8: ToggleLayerById(ID_VIEW_WAYPOINTS);      return;
 
         /* Delete selected */
         case WXK_DELETE:

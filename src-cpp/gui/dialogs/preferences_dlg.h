@@ -24,12 +24,12 @@ struct AppPrefs {
     float   resetZoom    = 1.0f;
 
     /* Grid */
-    int     gridSpacing  = 10;
+    int     gridSpacing  = 32;
     int     gridDivisions = 4;
-    unsigned int gridColor1 = 0xFF606060;
-    unsigned int gridColor2 = 0xFF404040;
-    float   gridAlpha1   = 0.5f;
-    float   gridAlpha2   = 0.3f;
+    unsigned int gridColor1 = 0xFF000000;
+    unsigned int gridColor2 = 0xFF000000;
+    float   gridAlpha1   = 1.0f;
+    float   gridAlpha2   = 0.2f;
 
     /* Snap */
     bool    snapEnabled  = false;
@@ -46,6 +46,13 @@ struct AppPrefs {
     /* Colors */
     unsigned int pointColor     = 0xFFFFFFFF;
     unsigned int selectionColor = 0xFFFFFF00;
+
+    /* Blending (frmPreferences cboPolySrc / cboPolyDest / cboWireSrc /
+       cboWireDest).  Indices into the original's blend-factor list. */
+    int polyBlendSrc  = 6;
+    int polyBlendDest = 7;
+    int wireBlendSrc  = 6;
+    int wireBlendDest = 7;
 };
 
 class PreferencesDlg final : public wxDialog {
@@ -71,6 +78,13 @@ private:
     wxTextCtrl*  m_txtSnapRadius = nullptr;
     wxTextCtrl*  m_txtSoldatDir  = nullptr;
     wxTextCtrl*  m_txtPrefabsDir = nullptr;
+    wxTextCtrl*  m_txtUncompDir  = nullptr;
+    wxTextCtrl*  m_txtGridAlpha1 = nullptr;
+    wxTextCtrl*  m_txtGridAlpha2 = nullptr;
+    wxChoice*    m_choPolySrc    = nullptr;
+    wxChoice*    m_choPolyDest   = nullptr;
+    wxChoice*    m_choWireSrc    = nullptr;
+    wxChoice*    m_choWireDest   = nullptr;
     wxColourPickerCtrl* m_cpkGrid1     = nullptr;
     wxColourPickerCtrl* m_cpkGrid2     = nullptr;
     wxColourPickerCtrl* m_cpkPoint     = nullptr;

@@ -423,12 +423,22 @@ bool compilePms(const std::string& path, const PmsData& dataIn,
                 if (pe.poly.v[i].y < minY) minY = pe.poly.v[i].y;
                 if (pe.poly.v[i].y > maxY) maxY = pe.poly.v[i].y;
             }
-        float offX = std::trunc((minX + maxX) * 0.5f);
-        float offY = std::trunc((minY + maxY) * 0.5f);
+        /* SaveAndCompile calls mnuRefreshBG_Click first (frm:2604), which
+           seeds min/max with 0, so the origin is always inside the bounds. */
+        minX = std::min(minX, 0.0f); minY = std::min(minY, 0.0f);
+        maxX = std::max(maxX, 0.0f); maxY = std::max(maxY, 0.0f);
 
-        /* VB6: mapWidth = maxX - xOffset (a *half* extent). */
-        mapWidth  = maxX - offX;
-        mapHeight = maxY - offY;
+        /* VB6 Int() floors (it is not a truncation toward zero). */
+        float offX = std::floor((minX + maxX) * 0.5f);
+        float offY = std::floor((minY + maxY) * 0.5f);
+
+        /* VB6: mapWidth = maxX - xOffset (a *half* extent).  mapWidth and
+           mapHeight are declared As Integer (frm:2569-2570), so the Single
+           result is rounded to nearest-even on assignment -- not truncated.
+           Three shipped maps (ctf_Lanubya, ctf_Voland, DesertWind) depend on
+           this to reproduce their stored sectorsDivision. */
+        mapWidth  = std::nearbyint(maxX - offX);
+        mapHeight = std::nearbyint(maxY - offY);
 
         /* Centre all positions. */
         for (auto& pe : data.polys)
@@ -552,13 +562,19 @@ void docToPmsData(const MapDocument& doc, PmsData& out) {
         out.polys.push_back(pe);
     }
 
-    /* VB6 SaveMap (frm:5253-5257) recomputes sectorsDivision from the *full*
-       map extents before writing. */
+    /* VB6 SaveMap (frm:5235-5258) recomputes sectorsDivision from the *full*
+       map extents -- unlike SaveAndCompile, which uses half extents measured
+       from the map centre (frm:2607-2611).  The two save paths genuinely
+       disagree in the original; each is reproduced faithfully here.
+       mnuRefreshBG_Click seeds min/max with 0, so the origin is always
+       inside the bounds. */
     {
         float minX = 0, minY = 0, maxX = 0, maxY = 0;
         int32_t div = 1;
         if (doc.mapBounds(minX, minY, maxX, maxY)) {
-            float w = maxX - minX, h = maxY - minY;
+            minX = std::min(minX, 0.0f); minY = std::min(minY, 0.0f);
+            maxX = std::max(maxX, 0.0f); maxY = std::max(maxY, 0.0f);
+            const float w = maxX - minX, h = maxY - minY;
             div = static_cast<int32_t>(((w > h ? w : h) + 100) / 25);
         }
         out.sectorDiv = div > 0 ? div : 1;

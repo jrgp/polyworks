@@ -160,14 +160,30 @@ struct ViewSettings {
     bool showSceneryBack   = true;
     bool showSceneryMiddle = true;
     bool showSceneryFront  = true;
-    float gridSize = 25.0f;
+    float gridSize = 32.0f;  /* modConfig.bas:68 GridSpacing default */
 
     /* Editing aids (match VB6 globals) */
     bool snapToGrid     = false;  /* snap dragged vertices to grid */
     bool snapToVertices = false;  /* snap to nearby vertices (ohSnap) */
     bool fixedTexture   = false;  /* don't update tu/tv when snapping/moving */
-    bool blendWireframe = false;  /* alpha-blend wireframe overlay */
-    bool blendPolys     = false;  /* alpha-blend polygon fill */
+    bool blendWireframe = false;  /* use the configured wireframe blend factors */
+    bool blendPolys     = false;  /* use the configured polygon blend factors */
+
+    /* Blend factors chosen in Preferences (frmPreferences cboPolySrc etc.).
+       Indices into the original's ZERO/ONE/SRCCOLOR/INVSRCCOLOR/DESTCOLOR/
+       INVDESTCOLOR/SRCALPHA/INVSRCALPHA list. */
+    /* Grid appearance (frmPreferences Grid tab). Major lines use colour 1 at
+       opacity 1; the gridDivisions-1 minor lines between them use colour 2. */
+    int          gridDivisions = 4;
+    unsigned int gridColor1 = 0xFF000000;
+    unsigned int gridColor2 = 0xFF000000;
+    float        gridAlpha1 = 1.0f;
+    float        gridAlpha2 = 0.2f;
+
+    int polyBlendSrc  = 6;  /* SRCALPHA */
+    int polyBlendDest = 7;  /* INVSRCALPHA */
+    int wireBlendSrc  = 6;
+    int wireBlendDest = 7;
 };
 
 /* ---- MapDocument ------------------------------------------------------- */
@@ -235,6 +251,15 @@ public:
     };
 
     void clearSelection();
+
+    /* Tab / Shift+Tab cycling (frm:6070 TabPressed).
+       With exactly one polygon selected and no scenery: if all three vertices
+       are selected the selection moves to the next (or previous) polygon;
+       otherwise the vertex selection rotates within the polygon.
+       With exactly one scenery item selected and no polygons: the selection
+       moves to the next (or previous) scenery item.
+       Returns true when something changed. */
+    bool cycleSelection(bool backwards);
     void selectAll();
     void invertSelection();
     void selectByColor(uint8_t r, uint8_t g, uint8_t b);

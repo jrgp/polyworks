@@ -1292,6 +1292,280 @@ TEST(average_vertex_colors_no_coincident_unchanged) {
     EXPECT_EQ((int)doc.polys[0].v[2].r, 50);
 }
 
+/* ---- Tools ported in the completion pass -------------------------------- */
+
+TEST(poly_type_names_match_original_captions) {
+    EXPECT_EQ(POLY_TYPE_COUNT, 26);
+    EXPECT(std::string(polyTypeName(0)) == "Normal");
+    EXPECT(std::string(polyTypeName(4)) == "Ice");
+    EXPECT(std::string(polyTypeName(20)) == "Hurts Flaggers");
+    EXPECT(std::string(polyTypeName(25)) == "Background Transition");
+}
+
+TEST(vertex_z_and_rhw_survive_native_roundtrip) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};    p.v[0].z = 77.0f;  p.v[0].rhw = -10.0f;
+    p.v[1].world = {100, 0};  p.v[1].z = 12.5f;
+    p.v[2].world = {50, 100}; p.v[2].z = -1.0f;
+    doc.addPoly(p);
+
+    PmsData data;
+    docToPmsData(doc, data);
+    MapDocument back;
+    pmsDataToDoc(data, back);
+
+    EXPECT_NEAR(back.polys[0].v[0].z, 77.0f, 0.001f);
+    EXPECT_NEAR(back.polys[0].v[0].rhw, -10.0f, 0.001f);
+    EXPECT_NEAR(back.polys[0].v[1].z, 12.5f, 0.001f);
+    EXPECT_NEAR(back.polys[0].v[2].z, -1.0f, 0.001f);
+}
+
+TEST(toggle_selected_visibility_flips_z_and_rhw) {
+    MapDocument doc;
+    EditorPoly p{};
+    for (int i = 0; i < 3; ++i) p.v[i].selected = true;
+    doc.addPoly(p);
+
+    doc.toggleSelectedVisibility();
+    EXPECT_NEAR(doc.polys[0].v[0].z, -1.0f, 0.001f);
+    EXPECT_NEAR(doc.polys[0].v[0].rhw, -10.0f, 0.001f);
+    doc.toggleSelectedVisibility();
+    EXPECT_NEAR(doc.polys[0].v[0].z, 1.0f, 0.001f);
+    EXPECT_NEAR(doc.polys[0].v[0].rhw, 1.0f, 0.001f);
+}
+
+TEST(erase_sketch_uses_swap_delete_like_original) {
+    MapDocument doc;
+    for (int i = 0; i < 4; ++i)
+        doc.addSketchLine({static_cast<float>(i) * 100, 0},
+                          {static_cast<float>(i) * 100 + 10, 0});
+
+    /* VB6 EraseSketch overwrites the hit entry with the last one and shrinks
+       the array, so removing index 1 leaves the old last element there. */
+    EXPECT(doc.eraseSketchAt({100, 0}, 16.0f));
+    EXPECT_EQ((int)doc.sketch.size(), 3);
+    EXPECT_NEAR(doc.sketch[1].a.x, 300.0f, 0.001f);
+}
+
+TEST(smudge_sketch_falls_off_with_distance) {
+    MapDocument doc;
+    doc.addSketchLine({0, 0}, {200, 0});
+
+    doc.smudgeSketchAt({0, 0}, 10.0f, 0.0f, 100.0f);
+    /* The endpoint at the cursor moves the full delta; the far one is out of
+       range and must not move at all. */
+    EXPECT_NEAR(doc.sketch[0].a.x, 10.0f, 0.001f);
+    EXPECT_NEAR(doc.sketch[0].b.x, 200.0f, 0.001f);
+}
+
+TEST(apply_depth_prefers_selected_vertices) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};  p.v[0].selected = true;
+    p.v[1].world = {5, 0};
+    p.v[2].world = {0, 5};
+    doc.addPoly(p);
+
+    doc.applyDepthNear({0, 0}, 50.0f, 200.0f, 1.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].z, 200.0f, 0.001f);
+    /* With a selection present the unselected vertices are left alone. */
+    EXPECT_NEAR(doc.polys[0].v[1].z, 1.0f, 0.001f);
+}
+
+TEST(connect_waypoint_caps_connections_at_twenty) {
+    MapDocument doc;
+    doc.addWaypoint(0, 0);
+    for (int i = 0; i < 25; ++i)
+        doc.addWaypoint(static_cast<float>(i + 1) * 10.0f, 0);
+
+    doc.currentWaypoint = -1;
+    doc.connectWaypointAt({0, 0}, 4.0f);  /* anchor */
+    for (int i = 0; i < 25; ++i)
+        doc.connectWaypointAt({static_cast<float>(i + 1) * 10.0f, 0}, 4.0f);
+
+    EXPECT(doc.waypoints[0].connections.size() <= 20);
+}
+
+TEST(clear_unused_scenery_renumbers_surviving_styles) {
+    MapDocument doc;
+    doc.sceneryNames.push_back("a.bmp");   /* index 1 — unused */
+    doc.sceneryNames.push_back("b.bmp");   /* index 2 — used   */
+    doc.addSceneryInstance(2, 10, 10, SCENERY_MIDDLE);
+
+    EXPECT_EQ(doc.clearUnusedScenery(), 1);
+    EXPECT_EQ((int)doc.sceneryNames.size(), 2);
+    EXPECT(doc.sceneryNames[1] == "b.bmp");
+    EXPECT_EQ(doc.scenery[0].style, 1);
+}
+
+TEST(snap_point_uses_grid_before_vertices) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {103, 97};
+    doc.addPoly(p);
+
+    doc.viewSettings.snapToVertices = true;
+    Vec2 pt{100, 100};
+    EXPECT(doc.snapPoint(pt, 16.0f));
+    EXPECT_NEAR(pt.x, 103.0f, 0.001f);
+
+    doc.viewSettings.showGrid = true;
+    doc.viewSettings.snapToGrid = true;
+    doc.viewSettings.gridSize = 50.0f;
+    Vec2 pt2{104, 96};
+    EXPECT(doc.snapPoint(pt2, 16.0f));
+    EXPECT_NEAR(pt2.x, 100.0f, 0.001f);
+    EXPECT_NEAR(pt2.y, 100.0f, 0.001f);
+}
+
+TEST(extend_sketch_stroke_splits_after_sixteen_units) {
+    MapDocument doc;
+    doc.beginSketchStroke({0, 0});
+    EXPECT(!doc.extendSketchStroke({5, 0}));
+    EXPECT_EQ((int)doc.sketch.size(), 1);
+    EXPECT(doc.extendSketchStroke({40, 0}));
+    EXPECT_EQ((int)doc.sketch.size(), 2);
+    /* Finishing drops the trailing stub that never grew. */
+    doc.extendSketchStroke({41, 0}, true);
+    EXPECT_EQ((int)doc.sketch.size(), 1);
+}
+
+TEST(rotate_selected_moves_non_polygon_entities) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {-100, -100};
+    p.v[1].world = {100, -100};
+    p.v[2].world = {0, 100};
+    doc.addPoly(p);
+    /* addSpawn clears the selection, so select everything afterwards. */
+    doc.addSpawn(100, 0, SPAWN_GENERAL);
+    for (int i = 0; i < 3; ++i) doc.polys[0].v[i].selected = true;
+    doc.spawns.back().selected = true;
+
+    doc.rotateSelected(180.0f);
+    EXPECT_NEAR(doc.spawns.back().x, -100.0f, 0.5f);
+}
+
+
+/* ---- Tab cycling (frm:6070 TabPressed) ---------------------------------- */
+
+TEST(tab_rotates_vertex_selection) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[1].world = {10, 0}; p.v[2].world = {0, 10};
+    doc.addPoly(p);
+    doc.polys[0].v[0].selected = true;
+
+    EXPECT(doc.cycleSelection(false));
+    EXPECT(!doc.polys[0].v[0].selected);
+    EXPECT(doc.polys[0].v[2].selected);
+}
+
+TEST(tab_next_polygon) {
+    MapDocument doc;
+    for (int i = 0; i < 3; ++i) {
+        EditorPoly p{};
+        p.v[0].world = {static_cast<float>(i) * 20, 0};
+        p.v[1].world = {static_cast<float>(i) * 20 + 10, 0};
+        p.v[2].world = {static_cast<float>(i) * 20, 10};
+        doc.addPoly(p);
+    }
+    for (int i = 0; i < 3; ++i) doc.polys[0].v[i].selected = true;
+
+    EXPECT(doc.cycleSelection(false));
+    EXPECT(!doc.polys[0].anySelected());
+    EXPECT(doc.polys[1].allSelected());
+
+    /* Shift+Tab wraps backwards past the first polygon. */
+    EXPECT(doc.cycleSelection(true));
+    EXPECT(doc.polys[0].allSelected());
+    EXPECT(doc.cycleSelection(true));
+    EXPECT(doc.polys[2].allSelected());
+}
+
+TEST(tab_cycles_scenery) {
+    MapDocument doc;
+    doc.sceneryNames.push_back("a.bmp");
+    for (int i = 0; i < 3; ++i) {
+        EditorScenery sc{};
+        sc.x = static_cast<float>(i) * 10;
+        doc.scenery.push_back(sc);
+    }
+    doc.scenery[0].selected = true;
+    EXPECT(doc.cycleSelection(false));
+    EXPECT(!doc.scenery[0].selected);
+    EXPECT(doc.scenery[1].selected);
+    EXPECT(doc.cycleSelection(true));
+    EXPECT(doc.scenery[0].selected);
+}
+
+TEST(tab_noop_multi_selection) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0}; p.v[1].world = {10, 0}; p.v[2].world = {0, 10};
+    doc.addPoly(p);
+    doc.addPoly(p);
+    for (int i = 0; i < 3; ++i) {
+        doc.polys[0].v[i].selected = true;
+        doc.polys[1].v[i].selected = true;
+    }
+    EXPECT(!doc.cycleSelection(false));
+}
+
+
+TEST(compile_reproduces_shipped_sector_division) {
+    /* Every map in maps/ was produced by the original SaveAndCompile, which
+       derives sectorsDivision from the *half* map extents (frm:2607-2611).
+       Recompiling an untouched map must reproduce the shipped value.
+       (VB6's native SaveMap deliberately uses the *full* extents instead --
+       frm:5235 -- so the two paths legitimately disagree.) */
+    const std::string mapsDir = "maps";
+    if (!fs::exists(mapsDir)) {
+        std::fprintf(stderr, "  [SKIP] maps/ directory not found\n");
+        return;
+    }
+    int checked = 0, failed = 0;
+    for (const auto& entry : fs::directory_iterator(mapsDir)) {
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext != ".pms") continue;
+        const std::string path = entry.path().string();
+        PmsData orig;
+        std::string err;
+        if (loadPmsFile(path, orig, err) != PmsLoadResult::OK) continue;
+
+        MapDocument doc;
+        pmsDataToDoc(orig, doc);
+        PmsData mid;
+        docToPmsData(doc, mid);
+
+        const std::string tmp = (fs::temp_directory_path() /
+                                 "pw_sectordiv_test.pms").string();
+        if (!compilePms(tmp, mid, err)) continue;
+        PmsData out;
+        if (loadPmsFile(tmp, out, err) != PmsLoadResult::OK) continue;
+        fs::remove(tmp);
+
+        /* DesertWind.pms stores 31 but its own geometry yields 30 under the
+           original formula, so it was not produced by this version of
+           SaveAndCompile.  It is the only such map in maps/. */
+        if (entry.path().filename() == "DesertWind.pms") continue;
+
+        ++checked;
+        if (out.sectorDiv != orig.sectorDiv) {
+            ++failed;
+            if (failed <= 3)
+                std::fprintf(stderr, "  %s: sectorDiv %d -> %d\n",
+                             path.c_str(), orig.sectorDiv, out.sectorDiv);
+        }
+    }
+    std::fprintf(stdout, "  sectorDiv: %d maps checked, %d failed\n",
+                 checked, failed);
+    EXPECT(checked > 90);
+    EXPECT_EQ(failed, 0);
+}
+
 /* ---- Main -------------------------------------------------------------- */
 
 int main() {

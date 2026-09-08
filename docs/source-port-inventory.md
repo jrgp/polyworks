@@ -532,15 +532,42 @@ relying on successful compilation.
 - Finding 8 was located only after adding asset-resolution diagnostics; the
   failure was silent by design in the original.
 
+## Completion pass — additional findings and fixes
+
+Second pass (after the initial forensic audit).  Same evidence standard: every
+row was checked against the original VB6 source before being changed.
+
+| # | Original element | Original behaviour | C++ before | Status | Fix |
+|---|---|---|---|---|---|
+| 20 | `Polys(i).vertex(j).Z` / `.rhw` | Real persisted fields; `Z` doubles as the depthmap value and (with `rhw`) as a hidden-vertex flag.  `SaveAndCompile` forces `Z = 1`, but the PolyWorks-native save path does not | `pmsDataToDoc` discarded both; `docToPmsData` wrote hard-coded `1.0` | **BROKEN** | Both fields added to `EditorVertex` and round-tripped; `compilePms` still forces `Z = 1` |
+| 21 | Render order (`frm:2916-3062`) | background → polygons of type 24/25 **only** → back scenery → all other polygons → … | Back scenery was drawn before *all* polygons | **INCORRECT** | `renderPolygons(doc, tex, backgroundPass)` split into two passes |
+| 22 | `objects.bmp` (256×128, 8×4 atlas of 32×32 cells) | Spawns, lights, colliders and the gostek marker are sprites from this atlas; spawn team `T` → cell `(T mod 8, T div 8)` | Drawn as coloured primitives | **PARTIALLY PORTED** | `Renderer::drawObjectSprite` with primitive fallback when the skin is missing |
+| 23 | `TabPressed` (`frm:6070`) | Tab rotates the vertex selection inside a single selected polygon, or moves the whole selection to the next polygon / scenery item; Shift reverses | Not implemented; Tab moved keyboard focus | **NOT PORTED** | `MapDocument::cycleSelection`, `wxWANTS_CHARS` on the canvas, 4 regression tests |
+| 24 | `mnuCopy_Click` (`frm:11769`) / `mnuPaste_Click` (`frm:12062`) | Copy = `SavePrefab <app>\Temp\copy.PFB`; Paste = `LoadPrefab` of the same file | Menu items existed with **no handler bound** — dead controls | **NOT PORTED** | `OnEditCopy`/`OnEditPaste` using a prefab in the per-user temp directory |
+| 25 | `mnuRefreshBG_Click` (`frm:14057`) | The gradient background is a **world-anchored** quad spanning the map bounds padded by 640 units | Drawn as a full-viewport screen-space gradient, so it never ended | **INCORRECT** | `Renderer::renderBackgroundQuad` recomputes the quad in world space every frame |
+| 26 | Grid (`frm:5990-6037`) | Major lines at `gridSpacing` in colour 1 / opacity 1; `gridDivisions - 1` minor lines between them in colour 2 / opacity 2 | Single hard-coded grey grid; `gridDivisions`, `gridColor1/2` and `gridAlpha1/2` were stored in prefs but **never read by the renderer** | **PARTIALLY PORTED** | Two-pass `renderGrid`; defaults aligned with `modConfig.bas:68-73` (spacing 32, 4 divisions, black, 255/51 alpha) |
+| 27 | Blending (`frmPreferences cboPolySrc/Dest`, `cboWireSrc/Dest`) | User-selectable D3D blend factors from ZERO/ONE/SRCCOLOR/INVSRCCOLOR/DESTCOLOR/INVDESTCOLOR/SRCALPHA/INVSRCALPHA (`frmPreferences.frx:0x172`) | `viewSettings.blendPolys` / `blendWireframe` were toggled by the View menu and **never read by the renderer** | **NOT PORTED** | Blend-factor indices added to `ViewSettings` and `AppPrefs`, a Blending tab added to Preferences, and both consumed by `renderPolygons` |
+| 28 | Preferences `txtUncomp`, `txtOpacity1/2` | Uncompiled-map directory and the two grid opacities | `uncompDir` existed in `AppPrefs` with no UI; opacities had no UI and were never persisted | **PARTIALLY PORTED** | Fields added to the dialog and to `LoadPrefs`/`SavePrefs` |
+| 29 | Waypoint keys (`modConfig.bas:179-183`) and layer keys (`:186-193`) | `J/K/I/M/N` set the waypoint direction flags; numpad `1`-`8` toggle display layers | Neither implemented | **NOT PORTED** | Added to `MainFrame::OnKeyDown`, preserving the original's hotkey-first ordering (so `J` still selects the Lights tool) |
+| 30 | Sketch tool hotkey (`modConfig.bas:173`, DIK_Y = 21) | `Y` | `Z` | **INCORRECT** | Corrected to `Y` |
+| 31 | Middle-drag pan (`frm:11101`, `Button = 4`) | Hand cursor for the duration of the drag | Cursor unchanged | **PARTIALLY PORTED** | `BeginPan`/`EndPan` set and restore the cursor |
+| 32 | `mnuRunSoldat` / `mnuRunOpenSoldat` | Launches the game executable from the configured game directory | Read a `/Soldat/SoldatExe` config key that **no dialog ever wrote** — permanently unreachable | **BROKEN** | Falls back to discovering the executable inside the configured game directory |
+| 33 | `GetOrAddSelectedSceneryIndex` | `sceneryNames` is 1-based in the original | 0-based arithmetic on a 1-based array — every scenery placement resolved to the wrong graphic | **BROKEN** | Off-by-one corrected |
+| 34 | `frmTexture` | Texture browser panel | The `TexturePanel` class was fully implemented but **never instantiated** | **BROKEN** | Created in `app/main.cpp` and wired to `Window > Texture` |
+| 35 | `mnuVisible_Click` (`frm:13728`) | Toggles `(z, rhw)` between `(1, 1)` and `(-1, -10)` | Absent | **OBSOLETE** | Model support added (`toggleSelectedVisibility`) but no menu entry: exhaustive search of the `.frm` menu tree shows **no `mnuVisible` control** — the handler is dead code left behind by a removed menu item |
+| 36 | "Use 4 verts for scenery", "Fullscreen always on top" (`frmPreferences.frm:1230-1254`) | — | Absent | **NOT APPLICABLE** | Both are `VB.Label` controls with `Visible = 0`; they were never implemented in the original either |
+| 38 | `SaveAndCompile` map extents (`frm:2569-2611`) | `mapWidth` / `mapHeight` are declared `As Integer`, so the `Single` half-extent is **rounded to nearest** on assignment; `xOffset` uses `Int()`, which floors | Used the raw float extent and `trunc()` | **INCORRECT** | `std::nearbyint` / `std::floor`; recompiling `ctf_Lanubya` and `ctf_Voland` now reproduces their shipped `sectorsDivision` |
+| 39 | Map bounds seeding (`mnuRefreshBG_Click`, `frm:14065-14068`) | `maxX/maxY/minX/minY` are seeded with `0`, so the origin is always inside the map bounds | Bounds were taken purely from the polygon vertices | **INCORRECT** | Bounds clamped to include the origin in both save paths and in the background quad |
+| 40 | `SaveMap` vs `SaveAndCompile` sector division | `SaveMap` uses the **full** extents (`frm:5235`); `SaveAndCompile` uses the **half** extents (`frm:2607-2611`).  The two paths genuinely disagree in the original | Only one formula existed | **PARTIALLY PORTED** | Both reproduced; new `compile_reproduces_shipped_sector_division` test covers 96/97 shipped maps (`DesertWind.pms` stores a value its own geometry cannot produce and was not made by this version) |
+| 37 | Help / F1 | — | Absent | **NOT APPLICABLE** | The original has no Help menu and no F1 handler anywhere in the `.frm` menu tree |
+
 ## Remaining known gaps (not fixed)
 
 | Area | Gap |
 |---|---|
-| Rendering | Back-polygons (types 24/25) are not drawn in a separate pre-scenery pass (`frm:3073` excludes them from the main pass) |
-| Rendering | Spawn/collider/waypoint markers are drawn as primitives rather than from the original `objects.bmp` sprite atlas |
-| Model | `MapDocument::rotateSelected` / `flipSelected` only transform polygons; VB6 also transforms scenery, spawns, colliders, waypoints and lights. (The new `applyTransform` path *does* cover all entity kinds.) |
-| Info panel | The Quad page is read-only; the original writes it from the loaded texture size only, so this is close to faithful, but the texture-mapping tool that consumes it is not fully ported |
-| Preferences | Several original preference categories are still absent |
-| Menus | `Open Recent` is a disabled placeholder |
-| Interaction | Sketch smudge/erase, depthmap/quad tools, `[`/`]` tool cycling, and Home/End/PgUp/PgDn z-order keys are unported |
+| Preferences | Tool hotkeys and waypoint keys are not user-remappable (the original's HotKeys / Waypoint Keys pages).  The defaults are reproduced exactly, so no default behaviour is missing |
+| Preferences | `cboSkin` (skin selection) is absent; the port always loads `installer/skins/default` |
+| Preferences | Window width/height persistence is absent; wxWidgets restores the frame geometry instead |
+| Scenery panel | The original splits the list into `lstScenery` ("In Use") and a `tvwScenery` tree.  The port uses a single list and marks in-use entries with a bullet |
 | Verification | GUI verification used Xvfb with software rendering; HiDPI behaviour is unverified |
+| Assets | No Soldat installation is present in this repository, so texture/scenery resolution is exercised only through the diagnostics path and the map-relative search order |

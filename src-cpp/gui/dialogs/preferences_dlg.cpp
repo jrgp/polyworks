@@ -80,6 +80,11 @@ void PreferencesDlg::buildUI() {
     addRow(gs, gridPage, "Divisions:",      m_spinDivisions);
     addRow(gs, gridPage, "Grid color 1:",   m_cpkGrid1);
     addRow(gs, gridPage, "Grid color 2:",   m_cpkGrid2);
+    /* frmPreferences txtOpacity1 / txtOpacity2 (percent). */
+    m_txtGridAlpha1 = makeFloat(gridPage, "50");
+    m_txtGridAlpha2 = makeFloat(gridPage, "30");
+    addRow(gs, gridPage, "Grid opacity 1 (%):", m_txtGridAlpha1);
+    addRow(gs, gridPage, "Grid opacity 2 (%):", m_txtGridAlpha2);
     gridPage->SetSizer(gs);
     nb->AddPage(gridPage, "Grid");
 
@@ -125,9 +130,33 @@ void PreferencesDlg::buildUI() {
     for (auto* t : {m_txtSoldatDir, m_txtPrefabsDir})
         t->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Arial"));
     addRow(ps, pathPage, "Soldat directory:",  m_txtSoldatDir);
+    m_txtUncompDir = new wxTextCtrl(pathPage, wxID_ANY, "", wxDefaultPosition, wxSize(260,-1));
+    m_txtUncompDir->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Arial"));
     addRow(ps, pathPage, "Prefabs directory:", m_txtPrefabsDir);
+    /* frmPreferences txtUncomp — where uncompiled .pms maps are kept. */
+    addRow(ps, pathPage, "Uncompiled directory:", m_txtUncompDir);
     pathPage->SetSizer(ps);
     nb->AddPage(pathPage, "Paths");
+
+    /* ---- Blending tab (frmPreferences "Blending" frame) ---- */
+    static const wxString kBlendNames[] = {
+        "ZERO", "ONE", "SRCCOLOR", "INVSRCCOLOR",
+        "DESTCOLOR", "INVDESTCOLOR", "SRCALPHA", "INVSRCALPHA"};
+    const wxArrayString blendChoices(8, kBlendNames);
+
+    auto* blendPage = new wxPanel(nb);
+    blendPage->SetBackgroundColour(BG);
+    auto* bs = new wxBoxSizer(wxVERTICAL);
+    m_choPolySrc  = new wxChoice(blendPage, wxID_ANY, wxDefaultPosition, wxDefaultSize, blendChoices);
+    m_choPolyDest = new wxChoice(blendPage, wxID_ANY, wxDefaultPosition, wxDefaultSize, blendChoices);
+    m_choWireSrc  = new wxChoice(blendPage, wxID_ANY, wxDefaultPosition, wxDefaultSize, blendChoices);
+    m_choWireDest = new wxChoice(blendPage, wxID_ANY, wxDefaultPosition, wxDefaultSize, blendChoices);
+    addRow(bs, blendPage, "Polygon SRC:",   m_choPolySrc);
+    addRow(bs, blendPage, "Polygon DEST:",  m_choPolyDest);
+    addRow(bs, blendPage, "Wireframe SRC:", m_choWireSrc);
+    addRow(bs, blendPage, "Wireframe DEST:", m_choWireDest);
+    blendPage->SetSizer(bs);
+    nb->AddPage(blendPage, "Blending");
 
     outer->Add(nb, 1, wxEXPAND | wxALL, 8);
 
@@ -157,6 +186,13 @@ void PreferencesDlg::populateFromPrefs() {
     if (m_txtSnapRadius) m_txtSnapRadius->SetValue(wxString::Format("%.4g", m_prefs.snapRadius));
     if (m_txtSoldatDir)  m_txtSoldatDir ->SetValue(m_prefs.soldatDir);
     if (m_txtPrefabsDir) m_txtPrefabsDir->SetValue(m_prefs.prefabsDir);
+    if (m_txtUncompDir)  m_txtUncompDir ->SetValue(m_prefs.uncompDir);
+    if (m_txtGridAlpha1) m_txtGridAlpha1->SetValue(wxString::Format("%.4g", m_prefs.gridAlpha1 * 100.0f));
+    if (m_txtGridAlpha2) m_txtGridAlpha2->SetValue(wxString::Format("%.4g", m_prefs.gridAlpha2 * 100.0f));
+    if (m_choPolySrc)  m_choPolySrc ->SetSelection(m_prefs.polyBlendSrc);
+    if (m_choPolyDest) m_choPolyDest->SetSelection(m_prefs.polyBlendDest);
+    if (m_choWireSrc)  m_choWireSrc ->SetSelection(m_prefs.wireBlendSrc);
+    if (m_choWireDest) m_choWireDest->SetSelection(m_prefs.wireBlendDest);
 }
 
 void PreferencesDlg::applyToPrefs() {
@@ -171,6 +207,13 @@ void PreferencesDlg::applyToPrefs() {
     if (m_txtSnapRadius && m_txtSnapRadius->GetValue().ToDouble(&v)) m_prefs.snapRadius = static_cast<float>(v);
     if (m_txtSoldatDir)  m_prefs.soldatDir  = m_txtSoldatDir ->GetValue().ToStdString();
     if (m_txtPrefabsDir) m_prefs.prefabsDir = m_txtPrefabsDir->GetValue().ToStdString();
+    if (m_txtUncompDir)  m_prefs.uncompDir  = m_txtUncompDir ->GetValue().ToStdString();
+    if (m_txtGridAlpha1 && m_txtGridAlpha1->GetValue().ToDouble(&v)) m_prefs.gridAlpha1 = static_cast<float>(v / 100.0);
+    if (m_txtGridAlpha2 && m_txtGridAlpha2->GetValue().ToDouble(&v)) m_prefs.gridAlpha2 = static_cast<float>(v / 100.0);
+    if (m_choPolySrc  && m_choPolySrc ->GetSelection() != wxNOT_FOUND) m_prefs.polyBlendSrc  = m_choPolySrc ->GetSelection();
+    if (m_choPolyDest && m_choPolyDest->GetSelection() != wxNOT_FOUND) m_prefs.polyBlendDest = m_choPolyDest->GetSelection();
+    if (m_choWireSrc  && m_choWireSrc ->GetSelection() != wxNOT_FOUND) m_prefs.wireBlendSrc  = m_choWireSrc ->GetSelection();
+    if (m_choWireDest && m_choWireDest->GetSelection() != wxNOT_FOUND) m_prefs.wireBlendDest = m_choWireDest->GetSelection();
 }
 
 void PreferencesDlg::OnOK(wxCommandEvent& /*e*/) {

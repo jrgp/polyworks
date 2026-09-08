@@ -58,6 +58,11 @@ public:
 
     /* Movement flags stamped onto newly created waypoints
        (VB6 mnuWayType, frm:636-655).  Index 0..4 = Left/Right/Up/Down/Fly. */
+    wxString ClipboardPrefabPath() const;
+    void OnEditCopy(wxCommandEvent&);
+    void OnEditPaste(wxCommandEvent&);
+    void ToggleWaypointTypeKey(int idx);
+    void ToggleLayerById(int id);
     void SetWaypointType(int idx, bool on) {
         if (idx >= 0 && idx < 5) m_waypointType[idx] = on;
     }

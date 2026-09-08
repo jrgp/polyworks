@@ -54,6 +54,47 @@ void MapDocument::setZoom(float newZoom, float cx, float cy) {
 
 /* ---- Selection ---------------------------------------------------------- */
 
+bool MapDocument::cycleSelection(bool backwards) {
+    int selPoly = -1, polyCount = 0;
+    for (size_t i = 0; i < polys.size(); ++i) {
+        if (polys[i].anySelected()) { selPoly = static_cast<int>(i); ++polyCount; }
+    }
+    int selScen = -1, scenCount = 0;
+    for (size_t i = 0; i < scenery.size(); ++i) {
+        if (scenery[i].selected) { selScen = static_cast<int>(i); ++scenCount; }
+    }
+
+    if (polyCount == 1 && scenCount == 0) {
+        EditorPoly& p = polys[static_cast<size_t>(selPoly)];
+        if (p.allSelected()) {
+            p.v[0].selected = p.v[1].selected = p.v[2].selected = false;
+            const int n = static_cast<int>(polys.size());
+            int next = backwards ? (selPoly == 0 ? n - 1 : selPoly - 1)
+                                 : (selPoly == n - 1 ? 0 : selPoly + 1);
+            EditorPoly& q = polys[static_cast<size_t>(next)];
+            q.v[0].selected = q.v[1].selected = q.v[2].selected = true;
+        } else {
+            /* Rotate the per-vertex selection flags 1 -> 2 -> 3 -> 1. */
+            const bool tmp = p.v[0].selected;
+            p.v[0].selected = p.v[1].selected;
+            p.v[1].selected = p.v[2].selected;
+            p.v[2].selected = tmp;
+        }
+        return true;
+    }
+
+    if (scenCount == 1 && polyCount == 0) {
+        scenery[static_cast<size_t>(selScen)].selected = false;
+        const int n = static_cast<int>(scenery.size());
+        int next = backwards ? (selScen == 0 ? n - 1 : selScen - 1)
+                             : (selScen == n - 1 ? 0 : selScen + 1);
+        scenery[static_cast<size_t>(next)].selected = true;
+        return true;
+    }
+
+    return false;
+}
+
 void MapDocument::clearSelection() {
     for (auto& p : polys)
         for (int i = 0; i < 3; ++i)
