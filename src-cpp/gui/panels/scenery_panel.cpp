@@ -10,11 +10,16 @@
 #include <wx/filename.h>
 #include <wx/statbox.h>
 #include <wx/panel.h>
+#include <wx/menu.h>
+#include <wx/msgdlg.h>
 
 static const wxColour BG_COLOUR(0x31, 0x3C, 0x4A);   /* 0x4A3C31 → RGB(0x31,0x3C,0x4A)? */
 /* VB6 BackColor &H004A3C31& = RGB(0x31,0x3C,0x4A) — stored as BGR in VB6 */
 static const wxColour BG_COL(0x31, 0x3C, 0x4A);
 static const wxColour FG_COL(*wxWHITE);
+
+/* Prefix marking a scenery file that the current map actually references. */
+static const char* const kInUseMark = "\u2022 ";
 
 SceneryPanel::SceneryPanel(MainFrame* parent, const wxString& soldatPath)
     : wxFrame(parent, wxID_ANY, "Scenery",
@@ -27,6 +32,7 @@ SceneryPanel::SceneryPanel(MainFrame* parent, const wxString& soldatPath)
     buildUI();
     SetClientSize(208, 220);
 
+    m_soldatPath = soldatPath;
     if (!soldatPath.empty()) {
         ListScenery(soldatPath);
     }
@@ -85,6 +91,7 @@ void SceneryPanel::buildUI() {
 
     /* Events */
     m_lstScenery->Bind(wxEVT_LISTBOX, &SceneryPanel::OnScenerySelect, this);
+    m_lstScenery->Bind(wxEVT_RIGHT_DOWN, &SceneryPanel::OnListRightDown, this);
     m_rbBack->Bind(wxEVT_RADIOBUTTON,   &SceneryPanel::OnLevelBack,   this);
     m_rbMiddle->Bind(wxEVT_RADIOBUTTON, &SceneryPanel::OnLevelMiddle, this);
     m_rbFront->Bind(wxEVT_RADIOBUTTON,  &SceneryPanel::OnLevelFront,  this);
@@ -106,9 +113,11 @@ void SceneryPanel::ListScenery(const wxString& soldatPath) {
     }
     files.Sort();
 
+    m_soldatPath = soldatPath;
     for (const auto& path : files) {
         m_lstScenery->Append(wxFileName(path).GetFullName());
     }
+    UpdateInUse(m_inUse);
 
     if (m_lstScenery->GetCount() > 0) {
         m_lstScenery->SetSelection(0);
@@ -116,14 +125,54 @@ void SceneryPanel::ListScenery(const wxString& soldatPath) {
 }
 
 void SceneryPanel::UpdateInUse(const std::vector<std::string>& names) {
-    /* Could show in-use items distinctly; for now just keep the list as-is */
-    (void)names;
+    /* VB6 keeps an explicit "In Use" branch in the scenery tree
+       (frmScenery.frm:397).  The port uses a single list, so in-use entries
+       are flagged with a bullet instead of being duplicated into a branch. */
+    m_inUse = names;
+    if (!m_lstScenery) return;
+    const int sel = m_lstScenery->GetSelection();
+    for (unsigned i = 0; i < m_lstScenery->GetCount(); ++i) {
+        wxString label = m_lstScenery->GetString(i);
+        const bool marked = label.StartsWith(kInUseMark);
+        wxString bare = marked ? label.Mid(wxStrlen(kInUseMark)) : label;
+        bool used = false;
+        for (const auto& n : names) {
+            if (bare.IsSameAs(wxString::FromUTF8(n.c_str()), false)) {
+                used = true;
+                break;
+            }
+        }
+        const wxString want = used ? (wxString(kInUseMark) + bare) : bare;
+        if (want != label) m_lstScenery->SetString(i, want);
+    }
+    if (sel != wxNOT_FOUND) m_lstScenery->SetSelection(sel);
+}
+
+void SceneryPanel::OnListRightDown(wxMouseEvent& event) {
+    /* mnuScenery (frmScenery.frm:601-628): Reload / Refresh / Clear Unused. */
+    enum { kReload = 1, kRefresh, kClearUnused };
+    wxMenu menu;
+    menu.Append(kReload, "Reload List");
+    menu.Append(kRefresh, "Refresh Textures");
+    menu.AppendSeparator();
+    menu.Append(kClearUnused, "Clear Unused");
+
+    const int cmd = GetPopupMenuSelectionFromUser(menu, event.GetPosition());
+    if (cmd == kReload) {
+        ListScenery(m_soldatPath);
+    } else if (cmd == kRefresh) {
+        if (m_mainFrame != nullptr) m_mainFrame->ReloadSceneryTextures();
+    } else if (cmd == kClearUnused) {
+        if (m_mainFrame != nullptr) m_mainFrame->ClearUnusedScenery();
+    }
 }
 
 wxString SceneryPanel::GetSelectedScenery() const {
     int sel = m_lstScenery ? m_lstScenery->GetSelection() : wxNOT_FOUND;
     if (sel == wxNOT_FOUND) return {};
-    return m_lstScenery->GetString(sel);
+    wxString name = m_lstScenery->GetString(sel);
+    if (name.StartsWith(kInUseMark)) name = name.Mid(wxStrlen(kInUseMark));
+    return name;
 }
 
 void SceneryPanel::OnScenerySelect(wxCommandEvent& /*event*/) {}

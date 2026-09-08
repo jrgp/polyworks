@@ -112,6 +112,13 @@ void TexturePanel::SetTexture(const wxString& path) {
     }
 }
 
+bool TexturePanel::GetSelection(float& u1, float& v1,
+                                float& u2, float& v2) const {
+    if (m_u2 <= m_u1 || m_v2 <= m_v1) return false;
+    u1 = m_u1; v1 = m_v1; u2 = m_u2; v2 = m_v2;
+    return true;
+}
+
 void TexturePanel::SetTexCoords(float u1, float v1, float u2, float v2) {
     m_u1 = u1; m_v1 = v1; m_u2 = u2; m_v2 = v2;
     if (m_texView) m_texView->SetSelection(u1, v1, u2, v2);

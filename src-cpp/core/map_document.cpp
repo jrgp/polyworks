@@ -108,6 +108,19 @@ bool MapDocument::anySelected() const {
 
 /* ---- Hit testing -------------------------------------------------------- */
 
+/* Point-in-triangle using sign of cross products (winding-agnostic, Y-down). */
+static bool PointInTri(Vec2 p, Vec2 a, Vec2 b, Vec2 c) {
+    auto cross = [](Vec2 e0, Vec2 e1, Vec2 pt) {
+        return (e1.x - e0.x) * (pt.y - e0.y) - (e1.y - e0.y) * (pt.x - e0.x);
+    };
+    const float d1 = cross(a, b, p);
+    const float d2 = cross(b, c, p);
+    const float d3 = cross(c, a, p);
+    const bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    const bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+    return !(hasNeg && hasPos);
+}
+
 int MapDocument::findNearestVertexIdx(Vec2 worldPos, float tolerance) const {
     float best = tolerance * tolerance;
     int   bestIdx = -1;
@@ -127,25 +140,9 @@ int MapDocument::findNearestVertexIdx(Vec2 worldPos, float tolerance) const {
 }
 
 int MapDocument::findPolyAt(Vec2 worldPos) const {
-    /* Point-in-triangle using sign of cross products (CW winding, Y-down). */
     for (int pi = 0; pi < static_cast<int>(polys.size()); ++pi) {
         const EditorPoly& poly = polys[pi];
-        const Vec2 a = poly.v[0].world;
-        const Vec2 b = poly.v[1].world;
-        const Vec2 c = poly.v[2].world;
-        const Vec2 p = worldPos;
-
-        auto cross = [](Vec2 e0, Vec2 e1, Vec2 pt) {
-            return (e1.x - e0.x) * (pt.y - e0.y) - (e1.y - e0.y) * (pt.x - e0.x);
-        };
-
-        float d1 = cross(a, b, p);
-        float d2 = cross(b, c, p);
-        float d3 = cross(c, a, p);
-
-        bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-        if (!(hasNeg && hasPos))
+        if (PointInTri(worldPos, poly.v[0].world, poly.v[1].world, poly.v[2].world))
             return pi;
     }
     return -1;
@@ -404,6 +401,87 @@ bool snapAnchor(const MapDocument& doc, Vec2& out, int& polyHits) {
     return false;
 }
 } /* namespace */
+
+int MapDocument::clearUnusedScenery() {
+    const int count = static_cast<int>(sceneryNames.size()) - 1;
+    if (count <= 0) return 0;
+
+    /* A style survives if some placed instance uses it and its name has not
+       already been kept under an earlier index (VB6 also collapses duplicate
+       names, frm:4600). */
+    std::vector<bool> keep(static_cast<size_t>(count) + 1, false);
+    for (int i = 1; i <= count; ++i) {
+        bool used = false;
+        for (const auto& s : scenery) {
+            if (s.style == i) { used = true; break; }
+        }
+        if (!used) continue;
+        bool duplicate = false;
+        for (int j = 1; j < i; ++j) {
+            if (keep[static_cast<size_t>(j)] &&
+                sceneryNames[static_cast<size_t>(j)] ==
+                    sceneryNames[static_cast<size_t>(i)]) {
+                duplicate = true;
+                break;
+            }
+        }
+        keep[static_cast<size_t>(i)] = !duplicate;
+    }
+
+    std::vector<int> remap(static_cast<size_t>(count) + 1, 0);
+    std::vector<std::string> kept;
+    kept.push_back(sceneryNames[0]);
+    for (int i = 1; i <= count; ++i) {
+        if (keep[static_cast<size_t>(i)]) {
+            kept.push_back(sceneryNames[static_cast<size_t>(i)]);
+            remap[static_cast<size_t>(i)] = static_cast<int>(kept.size()) - 1;
+        } else {
+            /* Duplicates fold onto the surviving entry with the same name. */
+            for (int j = 1; j < i; ++j) {
+                if (keep[static_cast<size_t>(j)] &&
+                    sceneryNames[static_cast<size_t>(j)] ==
+                        sceneryNames[static_cast<size_t>(i)]) {
+                    remap[static_cast<size_t>(i)] = remap[static_cast<size_t>(j)];
+                    break;
+                }
+            }
+        }
+    }
+
+    const int removed = count - (static_cast<int>(kept.size()) - 1);
+    if (removed <= 0) return 0;
+
+    for (auto& s : scenery) {
+        if (s.style >= 1 && s.style <= count)
+            s.style = remap[static_cast<size_t>(s.style)];
+    }
+    sceneryNames = std::move(kept);
+    markModified();
+    return removed;
+}
+
+bool MapDocument::snapPoint(Vec2& p, float snapRadius) const {
+    if (viewSettings.snapToGrid && viewSettings.showGrid &&
+        viewSettings.gridSize > 0.0f) {
+        p.x = snapToGrid(p.x, viewSettings.gridSize);
+        p.y = snapToGrid(p.y, viewSettings.gridSize);
+        return true;
+    }
+    if (!viewSettings.snapToVertices || snapRadius <= 0.0f) return false;
+    float best  = snapRadius * snapRadius;
+    bool  found = false;
+    Vec2  hit{};
+    for (const auto& poly : polys) {
+        for (int j = 0; j < 3; ++j) {
+            const Vec2& w = poly.v[j].world;
+            const float dx = w.x - p.x, dy = w.y - p.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; hit = w; found = true; }
+        }
+    }
+    if (found) p = hit;
+    return found;
+}
 
 bool MapDocument::snapSelectedToGrid(float gridSize) {
     if (gridSize <= 0) return false;
@@ -887,22 +965,14 @@ static Vec2 SelectionCenter(const std::vector<EditorPoly>& polys) {
 }
 
 void MapDocument::rotateSelected(float angleDeg) {
-    const Vec2 center = SelectionCenter(polys);
-    const float rad = angleDeg * (3.14159265358979f / 180.0f);
-    const float c = std::cos(rad);
-    const float s = std::sin(rad);
-    for (auto& p : polys) {
-        for (int i = 0; i < 3; ++i) {
-            if (p.v[i].selected) {
-                float dx = p.v[i].world.x - center.x;
-                float dy = p.v[i].world.y - center.y;
-                p.v[i].world.x = center.x + dx * c - dy * s;
-                p.v[i].world.y = center.y + dx * s + dy * c;
-            }
-        }
-    }
-    rebuildScreenCache();
-    markModified();
+    /* VB6 ApplyRotation (frm:3913-4020) rotates every selected entity kind —
+       polygon vertices, scenery, spawns, colliders, waypoints and lights —
+       about rCenter, so route this through the same session machinery the
+       interactive Alt-drag uses instead of touching polygons only. */
+    TransformSession s;
+    beginTransform(s);
+    if (s.empty()) return;
+    applyTransform(s, 1.0f, 1.0f, angleDeg * (3.14159265358979f / 180.0f));
 }
 
 /* ---- Interactive transform sessions ------------------------------------ */
@@ -932,11 +1002,14 @@ Vec2 MapDocument::selectionCenter() const {
 
 void MapDocument::beginTransform(TransformSession& s) const {
     s = TransformSession{};
-    s.center = selectionCenter();
+    /* VB6 recomputes rCenter from selRect on every transform unless the user
+       pinned it with "Set Reference Point" (mnuSetRCenter, frm:12310). */
+    s.center = (rCenterMode == RCenterMode::Set) ? rCenter : selectionCenter();
     for (const auto& p : polys)
         for (int i = 0; i < 3; ++i)
             if (p.v[i].selected) s.polyVerts.push_back(p.v[i].world);
-    for (const auto& e : scenery)   if (e.selected) s.scenery.push_back({e.x, e.y});
+    for (const auto& e : scenery)
+        if (e.selected) { s.scenery.push_back({e.x, e.y}); s.sceneryRot.push_back(e.rotation); }
     for (const auto& e : spawns)    if (e.selected) s.spawns.push_back({e.x, e.y});
     for (const auto& e : colliders) if (e.selected) s.colliders.push_back({e.x, e.y});
     for (const auto& e : waypoints) if (e.selected) s.waypoints.push_back({e.x, e.y});
@@ -964,7 +1037,15 @@ void MapDocument::applyTransform(const TransformSession& s, float sx, float sy,
     k = 0;
     for (auto& e : scenery)
         if (e.selected && k < s.scenery.size()) {
-            Vec2 v = xform(s.scenery[k++]); e.x = v.x; e.y = v.y;
+            Vec2 v = xform(s.scenery[k]);
+            e.x = v.x; e.y = v.y;
+            /* VB6 ApplyRotation frm:3975-3979: a rotated scenery sprite also
+               spins about its own origin, and a handedness-flipping scale
+               mirrors that spin. */
+            float rot = s.sceneryRot[k] - angleRad;
+            if (sx * sy < 0.0f) rot = -rot;
+            e.rotation = rot;
+            ++k;
         }
     k = 0;
     for (auto& e : spawns)
@@ -992,19 +1073,13 @@ void MapDocument::applyTransform(const TransformSession& s, float sx, float sy,
 }
 
 void MapDocument::flipSelected(bool horizontal, bool vertical) {
-    const Vec2 center = SelectionCenter(polys);
-    for (auto& p : polys) {
-        for (int i = 0; i < 3; ++i) {
-            if (p.v[i].selected) {
-                if (horizontal)
-                    p.v[i].world.x = center.x - (p.v[i].world.x - center.x);
-                if (vertical)
-                    p.v[i].world.y = center.y - (p.v[i].world.y - center.y);
-            }
-        }
-    }
-    rebuildScreenCache();
-    markModified();
+    /* VB6 mnuFlip_Click drives the same ApplyScale path used by Ctrl-drag with
+       a factor of -1 on the flipped axis, so every selected entity kind moves,
+       not just polygon vertices. */
+    TransformSession s;
+    beginTransform(s);
+    if (s.empty()) return;
+    applyTransform(s, horizontal ? -1.0f : 1.0f, vertical ? -1.0f : 1.0f, 0.0f);
 }
 
 /* ---- Texture UV transforms ---------------------------------------------- */
@@ -1120,6 +1195,228 @@ void MapDocument::severWaypointConnections() {
 void MapDocument::clearSketch() {
     sketch.clear();
     markModified();
+}
+
+bool MapDocument::eraseSketchAt(Vec2 worldPos, float radius) {
+    /* VB6 EraseSketch (frm:8743) picks the single closest endpoint across all
+       sketch lines and deletes that line by swapping the last element into its
+       slot, which is why the surviving order is not stable. */
+    const float r2 = radius * radius;
+    float best = r2;
+    int   bestIdx = -1;
+    for (size_t i = 0; i < sketch.size(); ++i) {
+        const Vec2 ends[2] = {sketch[i].a, sketch[i].b};
+        for (const Vec2& e : ends) {
+            const float dx = worldPos.x - e.x, dy = worldPos.y - e.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; bestIdx = static_cast<int>(i); }
+        }
+    }
+    if (bestIdx < 0) return false;
+    sketch[static_cast<size_t>(bestIdx)] = sketch.back();
+    sketch.pop_back();
+    markModified();
+    return true;
+}
+
+bool MapDocument::smudgeSketchAt(Vec2 worldPos, float dx, float dy, float radius) {
+    /* VB6 MoveLines (frm:8782): endpoints inside the brush are dragged by
+       (dx,dy) attenuated by cos((d²/r²)·π/2), giving a soft falloff that
+       reaches exactly zero at the brush edge. */
+    if (radius <= 0.0f) return false;
+    const float r2 = radius * radius;
+    const float kHalfPi = 1.57079632679f;
+    bool moved = false;
+    for (auto& line : sketch) {
+        Vec2* ends[2] = {&line.a, &line.b};
+        for (Vec2* e : ends) {
+            const float ex = worldPos.x - e->x, ey = worldPos.y - e->y;
+            const float d2 = ex * ex + ey * ey;
+            if (d2 >= r2) continue;
+            const float w = std::cos((d2 / r2) * kHalfPi);
+            e->x += dx * w;
+            e->y += dy * w;
+            moved = true;
+        }
+    }
+    if (moved) markModified();
+    return moved;
+}
+
+void MapDocument::beginSketchStroke(Vec2 worldPos) {
+    /* VB6 StartSketch (frm:8082) appends a zero-length line. */
+    EditorSketchLine line;
+    line.a = worldPos;
+    line.b = worldPos;
+    sketch.push_back(line);
+    markModified();
+}
+
+bool MapDocument::extendSketchStroke(Vec2 worldPos, bool finish) {
+    /* VB6 LinkSketch (frm:8133): the live line's far end tracks the cursor;
+       once it is more than 16 world units from that line's origin the segment
+       is committed and a new one starts there.  EndSketch (frm:8160) drops the
+       trailing stub if it never grew long enough to be a real segment. */
+    if (sketch.empty()) { beginSketchStroke(worldPos); return false; }
+    EditorSketchLine& cur = sketch.back();
+    const float dx = worldPos.x - cur.a.x, dy = worldPos.y - cur.a.y;
+    const bool split = (dx * dx + dy * dy > 16.0f * 16.0f);
+    cur.b = worldPos;
+    if (finish) {
+        if (!split) sketch.pop_back();
+        markModified();
+        return false;
+    }
+    if (split) {
+        EditorSketchLine next;
+        next.a = worldPos;
+        next.b = worldPos;
+        sketch.push_back(next);
+    }
+    markModified();
+    return split;
+}
+
+/* ---- Depthmap ---------------------------------------------------------- */
+
+bool MapDocument::applyDepthNear(Vec2 worldPos, float radius, float value,
+                                 float opacity) {
+    /* VB6 EditDepthMap (frm:7662): when polygons are selected only their
+       selected vertices are affected; otherwise only *unselected* vertices
+       are, which is how the original avoids clobbering an active selection. */
+    const float r2 = radius * radius;
+    const bool haveSelection = [&] {
+        for (const auto& p : polys)
+            if (p.anySelected()) return true;
+        return false;
+    }();
+    bool edited = false;
+    for (auto& p : polys) {
+        for (int j = 0; j < 3; ++j) {
+            if (haveSelection ? !p.v[j].selected : p.v[j].selected) continue;
+            const float dx = p.v[j].world.x - worldPos.x;
+            const float dy = p.v[j].world.y - worldPos.y;
+            if (dx * dx + dy * dy > r2) continue;
+            p.v[j].z = p.v[j].z * (1.0f - opacity) + value * opacity;
+            edited = true;
+        }
+    }
+    if (edited) markModified();
+    return edited;
+}
+
+/* ---- Pickers ----------------------------------------------------------- */
+
+bool MapDocument::pickVertexInPoly(Vec2 worldPos, float radius,
+                                   int& polyIdx, int& vertIdx) const {
+    /* VB6 ColorPicker / DepthPicker / LightPicker (frm:7711-7860) only
+       consider polygons that actually contain the cursor, then take the
+       nearest vertex of those within a 32-unit box. */
+    float best = radius * radius + 1.0f;
+    polyIdx = vertIdx = -1;
+    for (size_t i = 0; i < polys.size(); ++i) {
+        if (!PointInTri(worldPos, polys[i].v[0].world,
+                        polys[i].v[1].world, polys[i].v[2].world))
+            continue;
+        for (int j = 0; j < 3; ++j) {
+            const float dx = polys[i].v[j].world.x - worldPos.x;
+            const float dy = polys[i].v[j].world.y - worldPos.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) {
+                best = d2;
+                polyIdx = static_cast<int>(i);
+                vertIdx = j;
+            }
+        }
+    }
+    return polyIdx >= 0;
+}
+
+/* ---- Texture tool ------------------------------------------------------ */
+
+void MapDocument::offsetTextureOnSelected(float du, float dv) {
+    for (auto& p : polys)
+        for (int j = 0; j < 3; ++j)
+            if (p.v[j].selected) { p.v[j].tu -= du; p.v[j].tv -= dv; }
+    markModified();
+}
+
+/* ---- Visibility -------------------------------------------------------- */
+
+void MapDocument::toggleSelectedVisibility() {
+    /* VB6 mnuVisible_Click (frm:13728) toggles the pair (z, rhw) between
+       (1, 1) and (-1, -10) for every vertex of a selected polygon. */
+    for (auto& p : polys) {
+        if (!p.anySelected()) continue;
+        for (int j = 0; j < 3; ++j) {
+            if (p.v[j].z < 0.0f) { p.v[j].z = 1.0f;  p.v[j].rhw = 1.0f; }
+            else                 { p.v[j].z = -1.0f; p.v[j].rhw = -10.0f; }
+        }
+    }
+    markModified();
+}
+
+/* ---- Waypoint connections ---------------------------------------------- */
+
+bool MapDocument::connectWaypointAt(Vec2 worldPos, float radius) {
+    /* VB6 CreateConnection (frm:7887). */
+    float best = radius * radius + 1.0f;
+    int   hit  = -1;
+    for (size_t i = 0; i < waypoints.size(); ++i) {
+        const float dx = waypoints[i].x - worldPos.x;
+        const float dy = waypoints[i].y - worldPos.y;
+        const float d2 = dx * dx + dy * dy;
+        if (d2 < best) { best = d2; hit = static_cast<int>(i); }
+    }
+
+    if (hit < 0) {
+        currentWaypoint = -1;
+        for (auto& w : waypoints) w.selected = false;
+        return false;
+    }
+
+    bool created = false;
+    if (currentWaypoint >= 0 && currentWaypoint != hit &&
+        currentWaypoint < static_cast<int>(waypoints.size())) {
+        EditorWaypoint& src = waypoints[static_cast<size_t>(currentWaypoint)];
+        const int destId = waypoints[static_cast<size_t>(hit)].id;
+        /* VB6 caps stored connections at 20 per waypoint on save. */
+        if (src.connections.size() < 20 &&
+            std::find(src.connections.begin(), src.connections.end(), destId) ==
+                src.connections.end()) {
+            src.connections.push_back(destId);
+            created = true;
+            markModified();
+        }
+    }
+    currentWaypoint = hit;
+    return created;
+}
+
+/* ---- Selection bounds / reference point --------------------------------- */
+
+bool MapDocument::selectionBounds(float& minX, float& minY,
+                                  float& maxX, float& maxY) const {
+    bool any = false;
+    auto acc = [&](float x, float y) {
+        if (!any) { minX = maxX = x; minY = maxY = y; any = true; return; }
+        minX = std::min(minX, x); maxX = std::max(maxX, x);
+        minY = std::min(minY, y); maxY = std::max(maxY, y);
+    };
+    for (const auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected) acc(p.v[i].world.x, p.v[i].world.y);
+    for (const auto& s : scenery)   if (s.selected) acc(s.x, s.y);
+    for (const auto& s : spawns)    if (s.selected) acc(s.x, s.y);
+    for (const auto& c : colliders) if (c.selected) acc(c.x, c.y);
+    for (const auto& w : waypoints) if (w.selected) acc(w.x, w.y);
+    for (const auto& l : lights)    if (l.selected) acc(l.x, l.y);
+    return any;
+}
+
+void MapDocument::updateRCenter() {
+    if (rCenterMode == RCenterMode::Set) return;
+    rCenter = selectionCenter();
 }
 
 /* ---- Apply lights to base colors --------------------------------------- */

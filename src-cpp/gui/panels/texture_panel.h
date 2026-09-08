@@ -21,6 +21,9 @@ public:
 
     /* Set the current UV selection rectangle (0..1 range). */
     void SetTexCoords(float u1, float v1, float u2, float v2);
+    /* Normalised rectangle the user has dragged out over the texture; this is
+       what mnuCustomX / mnuCustomY feed into Textured Quad creation. */
+    bool GetSelection(float& u1, float& v1, float& u2, float& v2) const;
 
     float GetU1() const { return m_u1; }
     float GetV1() const { return m_v1; }

@@ -39,6 +39,11 @@ constexpr int TOOL_PSELSUB   = 18;  /* Alt  + PSELECT: subtract from poly select
 constexpr int TOOL_SCALE     = 19;  /* Ctrl + MOVE: scale selection */
 constexpr int TOOL_ROTATE    = 20;  /* Alt  + MOVE: rotate selection */
 constexpr int TOOL_CONNECT   = 21;  /* Shift + WAYPOINT: connect waypoints */
+constexpr int TOOL_QUAD      = 22;  /* Textured-quad creation */
+constexpr int TOOL_PIXPICKER = 23;  /* Ctrl + COLORPICK: pick a screen pixel */
+constexpr int TOOL_LITPICKER = 24;  /* Alt  + COLORPICK: pick the lit colour */
+constexpr int TOOL_ERASER    = 25;  /* Ctrl + SKETCH: erase sketch lines */
+constexpr int TOOL_SMUDGE    = 26;  /* Alt  + SKETCH: smudge sketch lines */
 
 constexpr float kDragThreshold = 4.0f;
 
@@ -104,8 +109,10 @@ void GlViewport::setSkinsPath(const std::string& path) {
     loadCursors(path);
 }
 
-/* Maps tool index to cursor filename (no extension). */
-static const char* kToolCursorNames[14] = {
+/* Maps tool index to cursor filename (no extension).  Index matches the VB6
+   TOOL_* constants (frm:1313-1341); the ImageList in frmOpenSoldatMapEditor
+   loads exactly these 27 files (frm:1626-1653). */
+static const char* kToolCursorNames[27] = {
     "move",        /* TOOL_MOVE      = 0 */
     "create",      /* TOOL_CREATE    = 1 */
     "vselect",     /* TOOL_VSELECT   = 2 */
@@ -120,6 +127,19 @@ static const char* kToolCursorNames[14] = {
     "sketch",      /* TOOL_SKETCH    = 11 */
     "light",       /* TOOL_LIGHTS    = 12 */
     "depthmap",    /* TOOL_DEPTHMAP  = 13 */
+    "hand",        /* TOOL_HAND      = 14 */
+    "vseladd",     /* TOOL_VSELADD   = 15 */
+    "vselsub",     /* TOOL_VSELSUB   = 16 */
+    "pseladd",     /* TOOL_PSELADD   = 17 */
+    "pselsub",     /* TOOL_PSELSUB   = 18 */
+    "scale",       /* TOOL_SCALE     = 19 */
+    "rotate",      /* TOOL_ROTATE    = 20 */
+    "connect",     /* TOOL_CONNECT   = 21 */
+    "quad",        /* TOOL_QUAD      = 22 */
+    "pixpicker",   /* TOOL_PIXPICKER = 23 */
+    "litpicker",   /* TOOL_LITPICKER = 24 */
+    "eraser",      /* TOOL_ERASER    = 25 */
+    "smudge",      /* TOOL_SMUDGE    = 26 */
 };
 
 void GlViewport::loadCursors(const std::string& skinsPath) {
@@ -128,25 +148,40 @@ void GlViewport::loadCursors(const std::string& skinsPath) {
     for (int i = 0; i < kNumTools; ++i) {
         wxString curPath = cursorDir + wxFILE_SEP_PATH
                            + wxString::FromUTF8(kToolCursorNames[i]) + ".cur";
-        if (wxFileExists(curPath)) {
-            wxImage img(curPath, wxBITMAP_TYPE_CUR);
-            if (img.IsOk()) {
-                m_toolCursors[i] = wxCursor(img);
-            }
-        }
+        if (!wxFileExists(curPath)) continue;
+        wxImage img(curPath, wxBITMAP_TYPE_CUR);
+        if (img.IsOk())
+            m_toolCursors[i] = wxCursor(img);
     }
     applyToolCursor();
 }
 
 void GlViewport::applyToolCursor() {
-    if (m_activeTool >= 0 && m_activeTool < kNumTools) {
-        const wxCursor& c = m_toolCursors[m_activeTool];
+    /* VB6 SetCursor is always called with currentFunction (the
+       modifier-adjusted tool), not the tool selected in the palette
+       (frm:5037, frmTools:496), so Shift over the vertex-select tool really
+       does show the "add to selection" cursor. */
+    int idx = m_spaceDown ? TOOL_HAND : m_currentFunction;
+    if (idx >= 0 && idx < kNumTools) {
+        const wxCursor& c = m_toolCursors[idx];
         if (c.IsOk()) {
             SetCursor(c);
             return;
         }
     }
-    SetCursor(wxNullCursor);
+    /* No skin available: fall back to a stock cursor that conveys the same
+       intent rather than leaving the platform default everywhere. */
+    switch (idx) {
+    case TOOL_HAND:     SetCursor(wxCursor(wxCURSOR_HAND));        return;
+    case TOOL_CREATE:
+    case TOOL_QUAD:     SetCursor(wxCursor(wxCURSOR_CROSS));       return;
+    case TOOL_COLORPICK:
+    case TOOL_PIXPICKER:
+    case TOOL_LITPICKER:SetCursor(wxCursor(wxCURSOR_CROSS));       return;
+    case TOOL_SCALE:    SetCursor(wxCursor(wxCURSOR_SIZENWSE));    return;
+    case TOOL_MOVE:     SetCursor(wxCursor(wxCURSOR_SIZING));      return;
+    default:            SetCursor(wxNullCursor);                   return;
+    }
 }
 
 void GlViewport::addTexturePath(const std::string& path) {
@@ -192,47 +227,48 @@ void GlViewport::setPaintColor(uint8_t r, uint8_t g, uint8_t b,
 }
 
 int GlViewport::ComputeCurrentFunction(bool shiftDown, bool ctrlDown, bool altDown) const {
-    /* Replicates VB6 frmOpenSoldatMapEditor lines 10715–10793: modifier keys
-       dynamically change the effective tool (currentFunction).  Space-pan is
-       handled separately as it never reaches this path. */
-    if (!shiftDown && !ctrlDown && !altDown)
-        return m_activeTool;
-
-    switch (m_activeTool) {
-    case TOOL_VSELECT:
-        if (shiftDown) return TOOL_VSELADD;
-        if (altDown)   return TOOL_VSELSUB;
-        break;
-    case TOOL_PSELECT:
-        if (shiftDown) return TOOL_PSELADD;
-        if (altDown)   return TOOL_PSELSUB;
-        break;
-    case TOOL_MOVE:
-        if (ctrlDown) return TOOL_SCALE;
-        if (altDown)  return TOOL_ROTATE;
-        break;
-    case TOOL_WAYPOINT:
-        if (shiftDown) return TOOL_CONNECT;
-        break;
-    case TOOL_SKETCH:
-        /* Ctrl+sketch and Alt+sketch have VB6 equivalents but are not
-           implemented yet; fall through to default behaviour. */
-        break;
-    case TOOL_VCOLOR:
-    case TOOL_PCOLOR:
-    case TOOL_DEPTHMAP:
-        if (altDown) return TOOL_COLORPICK;
-        break;
-    case TOOL_COLORPICK:
-        if (altDown) return TOOL_COLORPICK; /* litpicker; keep as colorpick for now */
-        break;
-    default:
-        /* Ctrl on any tool > MOVE → temporary MOVE */
-        if (ctrlDown && m_activeTool > TOOL_MOVE) return TOOL_MOVE;
-        /* Alt on most other tools → temporary VSELECT */
-        if (altDown) return TOOL_VSELECT;
-        break;
+    /*
+     * Replicates the VB6 DirectInput key poller (frm:10715-10793).  The
+     * original evaluates Space, then Shift, then Ctrl, then Alt and returns
+     * on the first one that is down, so that precedence is reproduced here.
+     * Space-pan is handled separately as it never reaches this path.
+     */
+    if (shiftDown) {
+        switch (m_activeTool) {
+        case TOOL_VSELECT:   return TOOL_VSELADD;
+        case TOOL_PSELECT:   return TOOL_PSELADD;
+        case TOOL_WAYPOINT:  return TOOL_CONNECT;
+        case TOOL_COLORPICK: return TOOL_PIXPICKER;
+        /* Shift + SKETCH stays on SKETCH but switches it to straight-line
+           mode by anchoring sketch(0); handled in the sketch tool itself. */
+        default: return m_activeTool;
+        }
     }
+
+    if (ctrlDown) {
+        switch (m_activeTool) {
+        case TOOL_MOVE:   return TOOL_SCALE;
+        case TOOL_SKETCH: return TOOL_SMUDGE;
+        default:
+            if (m_activeTool > TOOL_MOVE) return TOOL_MOVE;
+            return m_activeTool;
+        }
+    }
+
+    if (altDown) {
+        switch (m_activeTool) {
+        case TOOL_MOVE:      return TOOL_ROTATE;
+        case TOOL_VSELECT:   return TOOL_VSELSUB;
+        case TOOL_PSELECT:   return TOOL_PSELSUB;
+        case TOOL_VCOLOR:    return TOOL_COLORPICK;
+        case TOOL_PCOLOR:    return TOOL_COLORPICK;
+        case TOOL_DEPTHMAP:  return TOOL_COLORPICK;
+        case TOOL_COLORPICK: return TOOL_LITPICKER;
+        case TOOL_SKETCH:    return TOOL_ERASER;
+        default:             return TOOL_VSELECT;
+        }
+    }
+
     return m_activeTool;
 }
 
@@ -264,6 +300,7 @@ void GlViewport::OnPaint(wxPaintEvent& /*event*/) {
         m_initialized = true;
     }
 
+    m_renderer.setMoveToolActive(m_activeTool == TOOL_MOVE);
     m_renderer.renderAll(m_document, size.x, size.y, m_document.viewSettings);
 
     /* Draw creation vertices */
@@ -372,9 +409,84 @@ void GlViewport::OnMiddleUp(wxMouseEvent& event) {
 }
 
 void GlViewport::OnRightDown(wxMouseEvent& event) {
-    if (m_state == ViewportState::CreatingPoly) {
-        CancelCreation();
+    const Vec2 world = m_document.screenToWorld(
+        {static_cast<float>(event.GetX()), static_cast<float>(event.GetY())});
+
+    auto refresh = [this]() {
+        if (m_mainFrame != nullptr) {
+            m_mainFrame->UpdateStatusBar();
+            m_mainFrame->UpdateTitle();
+        }
         Refresh(false);
+    };
+
+    if (m_currentFunction == TOOL_CREATE || m_currentFunction == TOOL_QUAD) {
+        /* VB6 frm:11115 — right-click during creation offers the polygon type
+           for the *next* polygon; it does not cancel the in-progress one
+           (Escape does that). */
+        wxMenu menu;
+        const int cur = (m_mainFrame != nullptr) ? m_mainFrame->GetCreationPolyType() : 0;
+        for (int i = 0; i < POLY_TYPE_COUNT; ++i) {
+            wxMenuItem* item = menu.AppendRadioItem(wxID_ANY, polyTypeName(i));
+            if (i == cur) item->Check(true);
+            const int type = i;
+            menu.Bind(wxEVT_MENU, [this, type](wxCommandEvent&) {
+                if (m_mainFrame != nullptr) m_mainFrame->SetCreationPolyType(type);
+            }, item->GetId());
+        }
+        menu.AppendSeparator();
+        wxMenuItem* quadItem = menu.AppendCheckItem(wxID_ANY, "Textured Quad");
+        quadItem->Check(m_activeTool == TOOL_QUAD);
+        menu.Bind(wxEVT_MENU, [this, quadItem](wxCommandEvent&) {
+            setActiveTool(quadItem->IsChecked() ? TOOL_QUAD : TOOL_CREATE);
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateStatusBar();
+        }, quadItem->GetId());
+        PopupMenu(&menu);
+        return;
+    }
+
+    if (m_currentFunction == TOOL_MOVE || m_currentFunction == TOOL_SCALE ||
+        m_currentFunction == TOOL_ROTATE) {
+        /* VB6 mnuMove (frm:619-631): choose where scale/rotate pivot from. */
+        wxMenu menu;
+        using RC = MapDocument::RCenterMode;
+        struct { const char* label; RC mode; } kItems[] = {
+            {"Set Reference Point",    RC::Set},
+            {"Center Reference Point", RC::Center},
+            {"Fixed Reference Point",  RC::Fixed},
+        };
+        for (const auto& e : kItems) {
+            wxMenuItem* item = menu.AppendRadioItem(wxID_ANY, e.label);
+            if (m_document.rCenterMode == e.mode) item->Check(true);
+            const RC mode = e.mode;
+            menu.Bind(wxEVT_MENU, [this, mode, world, refresh](wxCommandEvent&) {
+                m_document.rCenterMode = mode;
+                if (mode == RC::Set)
+                    m_document.rCenter = world;   /* VB6 uses mouseCoords */
+                else
+                    m_document.rCenter = m_document.selectionCenter();
+                refresh();
+            }, item->GetId());
+        }
+        PopupMenu(&menu);
+        return;
+    }
+
+    if (m_currentFunction == TOOL_WAYPOINT || m_currentFunction == TOOL_CONNECT) {
+        /* VB6 mnuWaypoint (frm:633-655): the movement flags applied to
+           newly-created waypoints. */
+        wxMenu menu;
+        static const char* kWayTypes[5] = {"Left", "Right", "Up", "Down", "Fly"};
+        for (int i = 0; i < 5; ++i) {
+            wxMenuItem* item = menu.AppendCheckItem(wxID_ANY, kWayTypes[i]);
+            if (m_mainFrame != nullptr) item->Check(m_mainFrame->GetWaypointType(i));
+            const int idx = i;
+            menu.Bind(wxEVT_MENU, [this, idx, item](wxCommandEvent&) {
+                if (m_mainFrame != nullptr)
+                    m_mainFrame->SetWaypointType(idx, item->IsChecked());
+            }, item->GetId());
+        }
+        PopupMenu(&menu);
         return;
     }
 
@@ -400,6 +512,7 @@ void GlViewport::OnRightDown(wxMouseEvent& event) {
             menu.Bind(wxEVT_MENU, [this, team](wxCommandEvent&) {
                 if (m_mainFrame != nullptr)
                     m_mainFrame->SetCurrentSpawnTeam(team);
+                m_document.showGostek = false;
             }, item->GetId());
         }
         menu.AppendSeparator();
@@ -408,7 +521,25 @@ void GlViewport::OnRightDown(wxMouseEvent& event) {
         menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
             if (m_mainFrame != nullptr)
                 m_mainFrame->SetCurrentSpawnTeam(-1);  /* -1 signals collider placement */
+            m_document.showGostek = false;
         }, colliderItem->GetId());
+
+        menu.AppendSeparator();
+        /* VB6 mnuGostek (frm:14461): a soldier silhouette placed as a size
+           reference.  Selecting it while already on drops the marker back to
+           the origin, exactly as the original does. */
+        wxMenuItem* gostekItem = menu.AppendCheckItem(wxID_ANY, "Gostek");
+        gostekItem->Check(m_document.showGostek);
+        menu.Bind(wxEVT_MENU, [this, refresh](wxCommandEvent&) {
+            if (m_document.showGostek) {
+                m_document.gostek = Vec2{0, 0};
+            } else {
+                m_document.showGostek = true;
+                if (m_mainFrame != nullptr) m_mainFrame->SetCurrentSpawnTeam(-2);
+            }
+            refresh();
+        }, gostekItem->GetId());
+
         PopupMenu(&menu);
         return;
     }
@@ -576,7 +707,10 @@ void GlViewport::OnKeyDown(wxKeyEvent& event) {
     const int key = event.GetKeyCode();
 
     if (key == WXK_ESCAPE) {
-        if (m_state == ViewportState::CreatingPoly) {
+        /* VB6 frm:10954: Escape cancels a pending creation, quad or waypoint
+           anchor if one exists; only otherwise does it clear the selection. */
+        if (m_state == ViewportState::CreatingPoly ||
+            m_document.currentWaypoint >= 0) {
             CancelCreation();
         } else {
             m_document.clearSelection();
@@ -728,14 +862,19 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
 
     case TOOL_OBJECTS: {
         const int team = (m_mainFrame != nullptr) ? m_mainFrame->GetCurrentSpawnTeam() : 0;
-        if (team < 0) {
+        if (m_document.showGostek) {
+            /* VB6 frm:11292: while the gostek reference is active, clicking
+               just repositions the silhouette; nothing is added to the map. */
+            m_document.gostek = world;
+        } else if (team < 0) {
             m_undoStack.push(m_document);
             m_document.addCollider(world.x, world.y);
+            m_document.markModified();
         } else {
             m_undoStack.push(m_document);
             m_document.addSpawn(world.x, world.y, team);
+            m_document.markModified();
         }
-        m_document.markModified();
         if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
         Refresh(false);
         return;
@@ -751,9 +890,121 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
 
     case TOOL_WAYPOINT:
         m_undoStack.push(m_document);
-        m_document.addWaypoint(world.x, world.y);
+        {
+            /* VB6 frm:11322-11345 stamps the mnuWayType flags onto the new
+               waypoint and, when a waypoint is already anchored, chains a
+               connection from it. */
+            m_document.addWaypoint(world.x, world.y);
+            EditorWaypoint& wp = m_document.waypoints.back();
+            if (m_mainFrame != nullptr) {
+                wp.left  = m_mainFrame->GetWaypointType(0);
+                wp.right = m_mainFrame->GetWaypointType(1);
+                wp.up    = m_mainFrame->GetWaypointType(2);
+                wp.down  = m_mainFrame->GetWaypointType(3);
+                wp.m2    = m_mainFrame->GetWaypointType(4);
+            }
+            const int newIdx = static_cast<int>(m_document.waypoints.size()) - 1;
+            const int prev   = m_document.currentWaypoint;
+            if (prev >= 0 && prev < newIdx &&
+                m_document.waypoints[static_cast<size_t>(prev)].connections.size() < 20) {
+                m_document.waypoints[static_cast<size_t>(prev)]
+                    .connections.push_back(wp.id);
+            }
+            m_document.currentWaypoint = newIdx;
+        }
         m_document.markModified();
         if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+        Refresh(false);
+        return;
+
+    case TOOL_CONNECT:
+        /* VB6 CreateConnection (frm:7887): anchor on a waypoint, then link
+           subsequent clicks to it. */
+        m_undoStack.push(m_document);
+        if (!m_document.connectWaypointAt(world, 8.0f / m_document.zoom))
+            m_undoStack.pop();
+        if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
+        Refresh(false);
+        return;
+
+    case TOOL_COLORPICK:
+    case TOOL_LITPICKER:
+    case TOOL_PIXPICKER: {
+        /* VB6 ColorPicker / LightPicker / DepthPicker (frm:7711-7860).
+           The Depthmap tool's Alt-pick reads the vertex depth instead of a
+           colour; every picker samples the vertex nearest the cursor among
+           the polygons that contain it. */
+        int pi = -1, vi = -1;
+        if (m_document.pickVertexInPoly(world, 32.0f, pi, vi)) {
+            const EditorVertex& v = m_document.polys[static_cast<size_t>(pi)].v[vi];
+            if (m_activeTool == TOOL_DEPTHMAP) {
+                int d = static_cast<int>(v.z);
+                d = d < 0 ? 0 : (d > 255 ? 255 : d);
+                const uint8_t g = static_cast<uint8_t>(d);
+                if (m_mainFrame != nullptr) m_mainFrame->SetPaintColorFromPicker(g, g, g);
+            } else if (m_mainFrame != nullptr) {
+                m_mainFrame->SetPaintColorFromPicker(v.r, v.g, v.b);
+            }
+        }
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_DEPTHMAP:
+        /* VB6 EditDepthMap (frm:7662): paints the red channel of the current
+           colour into the vertex depth, with the palette brush radius. */
+        m_undoStack.push(m_document);
+        m_state = ViewportState::Dragging;
+        m_document.applyDepthNear(world, m_paintRadius / m_document.zoom,
+                                  static_cast<float>(m_paintR), m_paintOpacity);
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        Refresh(false);
+        return;
+
+    case TOOL_TEXTURE:
+        /* VB6 StretchingTexture (frm:7860) slides the UVs of the selected
+           vertices as the mouse drags. */
+        if (!m_document.anySelected()) return;
+        m_undoStack.push(m_document);
+        m_state = ViewportState::Dragging;
+        return;
+
+    case TOOL_ERASER:
+        m_undoStack.push(m_document);
+        m_state = ViewportState::Dragging;
+        if (!m_document.eraseSketchAt(world, m_paintRadius / m_document.zoom)) {
+            /* Keep the snapshot: the drag may still erase on a later move. */
+        }
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        Refresh(false);
+        return;
+
+    case TOOL_SMUDGE:
+        m_undoStack.push(m_document);
+        m_state = ViewportState::Dragging;
+        return;
+
+    case TOOL_SCALE:
+    case TOOL_ROTATE:
+        /* Ctrl-drag scales and Alt-drag rotates the current selection about
+           the centre of its bounding rectangle (VB6 Scaling / Rotating,
+           frm:7170 / frm:7355). */
+        if (!m_document.anySelected()) return;
+        m_undoStack.push(m_document);
+        BeginTransformDrag(world);
+        return;
+
+    case TOOL_SKETCH:
+        /* VB6 frm:11370: unmodified sketching is freehand (StartSketch +
+           LinkSketch); Shift anchors a single straight line. */
+        m_undoStack.push(m_document);
+        m_state   = ViewportState::Sketching;
+        m_rubberA = world;
+        m_rubberB = world;
+        m_sketchStraight = event.ShiftDown();
+        if (!m_sketchStraight)
+            m_document.beginSketchStroke(world);
+        if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
         Refresh(false);
         return;
 
@@ -770,22 +1021,6 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         Refresh(false);
         return;
     }
-
-    case TOOL_SCALE:
-    case TOOL_ROTATE:
-        /* Ctrl-drag scales and Alt-drag rotates the current selection about
-           the centre of its bounding rectangle (VB6 Scaling / Rotating,
-           frm:7170 / frm:7355). */
-        if (!m_document.anySelected()) return;
-        m_undoStack.push(m_document);
-        BeginTransformDrag(world);
-        return;
-
-    case TOOL_SKETCH:
-        m_state = ViewportState::Sketching;
-        m_rubberA = world;
-        m_rubberB = world;
-        return;
 
     default:
         break;
@@ -876,6 +1111,43 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
                                                  m_paintR, m_paintG, m_paintB,
                                                  m_paintOpacity, m_paintBlendMode);
             if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        } else if (m_currentFunction == TOOL_DEPTHMAP) {
+            m_document.applyDepthNear(world, m_paintRadius / m_document.zoom,
+                                      static_cast<float>(m_paintR), m_paintOpacity);
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        } else if (m_currentFunction == TOOL_ERASER) {
+            m_document.eraseSketchAt(world, m_paintRadius / m_document.zoom);
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+        } else if (m_currentFunction == TOOL_SMUDGE) {
+            m_document.smudgeSketchAt(world,
+                                      world.x - m_dragWorldLast.x,
+                                      world.y - m_dragWorldLast.y,
+                                      m_paintRadius / m_document.zoom);
+            m_dragWorldLast = world;
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+            Refresh(false);
+            return;
+        } else if (m_currentFunction == TOOL_TEXTURE) {
+            /* VB6 StretchingTexture (frm:7869-7871) divides the screen-space
+               delta by the zoom *and* the texture dimensions, so the texture
+               tracks the cursor 1:1 regardless of zoom. */
+            Vec2 target = world;
+            if (event.ShiftDown()) {
+                if (std::fabs(world.x - m_dragWorldStart.x) >=
+                    std::fabs(world.y - m_dragWorldStart.y))
+                    target.y = m_dragWorldStart.y;
+                else
+                    target.x = m_dragWorldStart.x;
+            }
+            auto [texW, texH] = getTextureSize(m_document);
+            const float tw = texW > 0 ? static_cast<float>(texW) : 1.0f;
+            const float th = texH > 0 ? static_cast<float>(texH) : 1.0f;
+            m_document.offsetTextureOnSelected((target.x - m_dragWorldLast.x) / tw,
+                                               (target.y - m_dragWorldLast.y) / th);
+            m_dragWorldLast = target;
+            if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
+            Refresh(false);
+            return;
         } else {
             /* VB6 constrains movement to one axis while Shift is held
                (frm:11469-11474): whichever axis has moved further wins. */
@@ -901,8 +1173,16 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
     }
 
     if (m_state == ViewportState::RubberBanding ||
-        m_state == ViewportState::Sketching)
+        m_state == ViewportState::Sketching) {
         m_rubberB = world;
+        /* VB6 LinkSketch (frm:8133) commits a segment and starts a fresh one
+           every time the cursor gets more than 16 world units from the
+           current segment's origin, giving freehand strokes. */
+        if (m_state == ViewportState::Sketching && !m_sketchStraight) {
+            if (m_document.extendSketchStroke(world))
+                m_rubberA = world;
+        }
+    }
 
     m_dragWorldLast = world;
     if (m_state != ViewportState::Idle)
@@ -934,10 +1214,22 @@ void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
             m_document.selectVerticesInRect(m_rubberA, m_rubberB, rubberMode());
     }
 
-    if (m_state == ViewportState::Sketching && m_didDrag) {
-        m_undoStack.push(m_document);
-        m_document.addSketchLine(m_rubberA, world);
-        m_document.markModified();
+    if (m_state == ViewportState::Sketching) {
+        /* Straight-line mode commits the whole drag as one segment; freehand
+           mode has already committed its segments during the move, so only
+           the trailing stub needs flushing. */
+        if (m_sketchStraight) {
+            if (m_didDrag) {
+                m_document.addSketchLine(m_rubberA, world);
+                m_document.markModified();
+            } else {
+                m_undoStack.pop();
+            }
+        } else {
+            m_document.extendSketchStroke(world, true);
+            m_document.markModified();
+        }
+        m_sketchStraight = false;
         if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
     }
 
@@ -983,29 +1275,107 @@ void GlViewport::AddCreationVertex(Vec2 worldPos) {
     if (m_state != ViewportState::CreatingPoly)
         m_state = ViewportState::CreatingPoly;
 
+    /* VB6 CreatePoly (frm:7955) snaps the new vertex either to the grid or to
+       a nearby existing vertex before storing it. */
+    m_document.snapPoint(worldPos, m_snapRadius);
+
     m_creationVerts[m_creationVertCount++] = worldPos;
 
     if (m_creationVertCount == kMaxCreationVerts) {
         m_undoStack.push(m_document);
+        auto [texW, texH] = getTextureSize(m_document);
+        const float tw = texW > 0 ? static_cast<float>(texW) : 1.0f;
+        const float th = texH > 0 ? static_cast<float>(texH) : 1.0f;
+
         EditorPoly poly;
         for (int i = 0; i < 3; ++i) {
             poly.v[i].world = m_creationVerts[i];
-            poly.v[i].r = poly.v[i].g = poly.v[i].b = 200;
-            poly.v[i].alpha = 255;
+            /* VB6 colours new vertices with the current palette colour and
+               opacity (frm:7993-7997). */
+            poly.v[i].r = m_paintR;
+            poly.v[i].g = m_paintG;
+            poly.v[i].b = m_paintB;
+            poly.v[i].alpha =
+                static_cast<uint8_t>(255.0f * m_paintOpacity + 0.5f);
+            poly.v[i].tu = m_creationVerts[i].x / tw;
+            poly.v[i].tv = m_creationVerts[i].y / th;
             poly.v[i].selected = true;
         }
-        poly.polyType = POLY_NORMAL;
+
+        /* VB6 frm:7999-8020: in Textured Quad mode with User Defined X/Y
+           enabled the UVs come from the rectangle selected in the Texture
+           window instead of from world coordinates, so the quad shows exactly
+           that patch of the texture. */
+        if (m_currentFunction == TOOL_QUAD && m_mainFrame != nullptr) {
+            float u1 = 0, v1 = 0, u2 = 1, v2 = 1;
+            if (m_mainFrame->GetTextureSelection(u1, v1, u2, v2)) {
+                if (m_mainFrame->GetCustomTexX()) {
+                    if (m_creatingQuad) {
+                        poly.v[2].tu = u1;
+                    } else {
+                        poly.v[0].tu = u1;
+                        poly.v[1].tu = u2;
+                        poly.v[2].tu = u2;
+                    }
+                }
+                if (m_mainFrame->GetCustomTexY()) {
+                    if (m_creatingQuad) {
+                        poly.v[2].tv = v2;
+                    } else {
+                        poly.v[0].tv = v1;
+                        poly.v[1].tv = v1;
+                        poly.v[2].tv = v2;
+                    }
+                }
+            }
+        }
+        if (m_creatingQuad) {
+            /* The second triangle reuses vertices 1 and 3 of the first, so
+               their UVs must be carried over verbatim (frm:8058-8066). */
+            poly.v[0].tu = m_quadCarryUV[0].x; poly.v[0].tv = m_quadCarryUV[0].y;
+            poly.v[1].tu = m_quadCarryUV[1].x; poly.v[1].tv = m_quadCarryUV[1].y;
+        }
+
+        poly.polyType = (m_mainFrame != nullptr)
+                            ? m_mainFrame->GetCreationPolyType()
+                            : POLY_NORMAL;
+        /* VB6 forces clockwise winding after the third click (frm:8032). */
+        const Vec2& a = poly.v[0].world;
+        const Vec2& b = poly.v[1].world;
+        const Vec2& c = poly.v[2].world;
+        const float cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        if (cross < 0.0f) std::swap(poly.v[1], poly.v[2]);
+
         m_document.addPoly(poly);
-        if (m_mainFrame != nullptr)
+        m_document.markModified();
+        if (m_mainFrame != nullptr) {
+            m_mainFrame->UpdateStatusBar();
             m_mainFrame->UpdateTitle();
-        m_creationVertCount = 0;
-        m_state = ViewportState::Idle;
+        }
+
+        if (m_currentFunction == TOOL_QUAD && !m_creatingQuad) {
+            /* VB6 frm:8054: quad mode immediately starts a second triangle
+               seeded with vertices 1 and 3 of the one just finished, so the
+               fourth click closes the quad. */
+            m_creationVerts[0] = poly.v[0].world;
+            m_creationVerts[1] = poly.v[2].world;
+            m_quadCarryUV[0] = {poly.v[0].tu, poly.v[0].tv};
+            m_quadCarryUV[1] = {poly.v[2].tu, poly.v[2].tv};
+            m_creationVertCount = 2;
+            m_creatingQuad = true;
+        } else {
+            m_creatingQuad = false;
+            m_creationVertCount = 0;
+            m_state = ViewportState::Idle;
+        }
     }
     Refresh(false);
 }
 
 void GlViewport::CancelCreation() {
     m_creationVertCount = 0;
+    m_creatingQuad = false;
+    m_document.currentWaypoint = -1;
     m_state = ViewportState::Idle;
 }
 

@@ -164,3 +164,38 @@ uint32_t polyTypeColor(int polyType, uint32_t selectionColor) {
     if (polyType > 25) return selectionColor;
     return kColors[polyType];
 }
+
+/* ---- Polygon type names ------------------------------------------------ */
+
+const char* polyTypeName(int polyType) {
+    static const char* const kNames[POLY_TYPE_COUNT] = {
+        "Normal",
+        "Only Bullets Collide",
+        "Only Player Collides",
+        "Doesn't Collide",
+        "Ice",
+        "Deadly",
+        "Bloody Deadly",
+        "Hurts",
+        "Regenerates",
+        "Lava",
+        "Red Bullets Collides",
+        "Red Players Collide",
+        "Blue Bullets Collide",
+        "Blue Players Collide",
+        "Yellow Bullets Collide",
+        "Yellow Players Collide",
+        "Green Bullets Collide",
+        "Green Players Collide",
+        "Bouncy",
+        "Explosive",
+        "Hurts Flaggers",
+        "Flagger Collides",
+        "Non-Flagger Collides",
+        "Flag Collides",
+        "Background",
+        "Background Transition",
+    };
+    if (polyType < 0 || polyType >= POLY_TYPE_COUNT) return "";
+    return kNames[polyType];
+}

@@ -39,6 +39,18 @@ struct EditorVertex {
     uint8_t  r = 255, g = 255, b = 255;  /* unlit base colour */
     uint8_t  alpha = 255;
     float    tu = 0, tv = 0;
+
+    /*
+     * Depth used by the Depthmap tool and by the lighting solver
+     * (VB6 `lightDir.Z = Lights(k).Z - Polys(i).vertex(j).Z`, frm:6319).
+     * The compiler always writes 1.0 to disk, but the PolyWorks-native save
+     * path stores the real value, so it must survive a document round-trip.
+     * A negative z additionally means "hidden" (VB6 mnuVisible_Click,
+     * frm:13728, which pairs z = -1 with rhw = -10).
+     */
+    float    z   = 1.0f;
+    float    rhw = 1.0f;
+
     bool     selected = false;
 };
 
@@ -171,6 +183,23 @@ public:
 
     float zoom    = 1.0f;
     ViewSettings viewSettings;
+
+    /* ---- Transform reference point (VB6 rCenter, frm:1521) -------------- */
+    enum class RCenterMode {
+        Fixed,   /* mnuFixedRCenter — bbox centre, marker hidden */
+        Set,     /* mnuSetRCenter   — user-placed pivot */
+        Center,  /* mnuCenterRCenter — bbox centre, marker shown */
+    };
+    RCenterMode rCenterMode = RCenterMode::Fixed;
+    Vec2        rCenter;
+
+    /* ---- Gostek reference figure (VB6 mnuGostek, frm:14461) ------------- */
+    bool showGostek = false;
+    Vec2 gostek;
+
+    /* Waypoint currently acting as the source for the Connect tool
+       (VB6 currentWaypoint).  -1 when nothing is anchored. */
+    int currentWaypoint = -1;
 
     /* Map data */
     MapOptions              options;
@@ -318,6 +347,7 @@ public:
         Vec2 center;
         std::vector<Vec2> polyVerts;   /* selected poly vertices, in order */
         std::vector<Vec2> scenery;
+        std::vector<float> sceneryRot; /* parallel to `scenery` */
         std::vector<Vec2> spawns;
         std::vector<Vec2> colliders;
         std::vector<Vec2> waypoints;
@@ -394,6 +424,16 @@ public:
     bool snapSelectedToGrid(float gridSize);
     bool snapSelectedToVertices(float snapRadius);
 
+    /* VB6 ClearUnused (frm:4581): drops scenery names that no placed instance
+     * references (and duplicate names), renumbering the surviving styles.
+     * Returns the number of entries removed. */
+    int clearUnusedScenery();
+
+    /* Snaps a single point the way VB6 CreatePoly does before storing a new
+     * vertex (frm:7963-7989): grid snapping first, else nearest existing
+     * polygon vertex within snapRadius.  Returns true if the point moved. */
+    bool snapPoint(Vec2& p, float snapRadius) const;
+
     /* Runs the appropriate snap for the current viewSettings. */
     bool snapSelected(float snapRadius);
 
@@ -406,6 +446,81 @@ public:
 
     /* Sketch operations */
     void clearSketch();
+
+    /*
+     * Eraser tool (VB6 EraseSketch, frm:8743).  Deletes the single sketch line
+     * whose nearest endpoint lies within `radius` world units of `worldPos`.
+     * VB6 removes it by swapping in the last element, so ordering is not
+     * preserved — reproduced here because sketch order is user-visible in the
+     * saved file.  Returns true if a line was removed.
+     */
+    bool eraseSketchAt(Vec2 worldPos, float radius);
+
+    /*
+     * Smudge tool (VB6 MoveLines, frm:8782).  Drags sketch endpoints within
+     * `radius` by (dx,dy), attenuated by cos((d²/r²)·π/2) so the effect falls
+     * off to zero at the brush edge.  Returns true if anything moved.
+     */
+    bool smudgeSketchAt(Vec2 worldPos, float dx, float dy, float radius);
+
+    /*
+     * Freehand sketching (VB6 StartSketch / LinkSketch / EndSketch,
+     * frm:8082-8175).  beginSketchStroke starts a zero-length line;
+     * extendSketchStroke moves its far endpoint and, once the stroke has
+     * travelled more than 16 world units from the current line's origin,
+     * commits it and starts a new one.
+     */
+    void beginSketchStroke(Vec2 worldPos);
+    bool extendSketchStroke(Vec2 worldPos, bool finish = false);
+
+    /* ---- Depthmap (VB6 EditDepthMap, frm:7662) -------------------------- */
+    /*
+     * Blends `value` into the z of every vertex within `radius` world units,
+     * as `z = z*(1-opacity) + value*opacity`.  Restricted to selected
+     * polygons when anything is selected, matching the original.  Returns
+     * true if any vertex changed.
+     */
+    bool applyDepthNear(Vec2 worldPos, float radius, float value, float opacity);
+
+    /* ---- Pickers (VB6 ColorPicker / DepthPicker / LightPicker) ---------- */
+    /*
+     * Finds the vertex nearest worldPos among polygons that actually contain
+     * worldPos, within `radius` world units.  This "must be inside the poly"
+     * rule is what makes the pickers feel precise in the original.
+     * Returns true and fills polyIdx/vertIdx on success.
+     */
+    bool pickVertexInPoly(Vec2 worldPos, float radius,
+                          int& polyIdx, int& vertIdx) const;
+
+    /* ---- Texture tool (VB6 StretchingTexture, frm:7860) ----------------- */
+    /* Offsets tu/tv of every selected vertex.  du/dv are already divided by
+       the texture dimensions by the caller. */
+    void offsetTextureOnSelected(float du, float dv);
+
+    /* ---- Visibility (VB6 mnuVisible_Click, frm:13728) ------------------- */
+    /* Toggles the hidden flag (negative z / rhw) on all selected polygons. */
+    void toggleSelectedVisibility();
+
+    /* ---- Waypoint connections (VB6 CreateConnection, frm:7887) ---------- */
+    /*
+     * Connect tool.  Finds a waypoint within `radius` of worldPos:
+     *   - if one is found and a source waypoint is already anchored, adds a
+     *     connection from the anchor to it and re-anchors on it;
+     *   - if one is found with no anchor, just anchors on it;
+     *   - if none is found, clears the anchor and deselects all waypoints.
+     * Returns true if a connection was actually created.
+     */
+    bool connectWaypointAt(Vec2 worldPos, float radius);
+
+    /* ---- Selection bounds ----------------------------------------------- */
+    /* Bounding rectangle of the current selection (VB6 selRect).  Returns
+       false when nothing is selected. */
+    bool selectionBounds(float& minX, float& minY,
+                         float& maxX, float& maxY) const;
+
+    /* Recomputes rCenter from the current selection unless the user pinned it
+       with "Set Reference Point". */
+    void updateRCenter();
 
     /* Light operations */
     /* Bakes the light contribution (using VB6-compatible dot-product formula) into the

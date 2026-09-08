@@ -12,6 +12,7 @@ class GlViewport;
 class ToolsPanel;
 class DisplayPanel;
 class InfoPanel;
+class TexturePanel;
 class SceneryPanel;
 class WaypointPanel;
 class PalettePanel;
@@ -29,6 +30,13 @@ public:
     void AttachToolsPanel(ToolsPanel* toolsPanel);
     void AttachDisplayPanel(DisplayPanel* displayPanel);
     void AttachInfoPanel(InfoPanel* infoPanel);
+    void AttachTexturePanel(TexturePanel* texturePanel);
+    void RefreshTexturePanel();
+    /* frmScenery context menu actions (frmScenery.frm:601-628). */
+    void ReloadSceneryTextures();
+    void ClearUnusedScenery();
+    /* Push the map's referenced scenery names into the Scenery panel. */
+    void RefreshSceneryInUse();
     void AttachSceneryPanel(SceneryPanel* sceneryPanel);
     void AttachWaypointPanel(WaypointPanel* waypointPanel);
     void AttachPalettePanel(PalettePanel* palettePanel);
@@ -42,6 +50,27 @@ public:
     bool GetSceneryScale() const { return m_sceneryScale; }
     void SetSceneryLevel(int v) { m_sceneryLevel = v; }
     int GetSceneryLevel() const { return m_sceneryLevel; }
+
+    /* Polygon type applied to newly created polygons (VB6 `polyType`,
+       set from the mnuPolyTypes context menu). */
+    void SetCreationPolyType(int t) { m_creationPolyType = t; }
+    int  GetCreationPolyType() const { return m_creationPolyType; }
+
+    /* Movement flags stamped onto newly created waypoints
+       (VB6 mnuWayType, frm:636-655).  Index 0..4 = Left/Right/Up/Down/Fly. */
+    void SetWaypointType(int idx, bool on) {
+        if (idx >= 0 && idx < 5) m_waypointType[idx] = on;
+    }
+    bool GetWaypointType(int idx) const {
+        return (idx >= 0 && idx < 5) ? m_waypointType[idx] : false;
+    }
+
+    /* Applies a picked colour to the palette, exactly as the VB6 pickers do
+       via frmPalette.SetValues. */
+    void SetPaintColorFromPicker(uint8_t r, uint8_t g, uint8_t b);
+
+    /* Adds `path` to the most-recently-used list and rebuilds the menu. */
+    void AddToRecentFiles(const wxString& path);
     void UpdateStatusBar();
     void UpdateTitle();
     void UpdateMouseWorldPosition(const Vec2& world);
@@ -60,6 +89,7 @@ public:
     GlViewport*    m_viewport      = nullptr;
     DisplayPanel*  m_displayPanel  = nullptr;
     InfoPanel*     m_infoPanel     = nullptr;
+    TexturePanel*  m_texturePanel  = nullptr;
     SceneryPanel*  m_sceneryPanel  = nullptr;
     WaypointPanel* m_waypointPanel = nullptr;
     PalettePanel*  m_palettePanel  = nullptr;
@@ -143,6 +173,31 @@ private:
     bool m_sceneryRotate = false;
     bool m_sceneryScale  = false;
     int  m_sceneryLevel  = 0;     /* 0=Back, 1=Middle, 2=Front */
+
+    /* Polygon-creation state (VB6 `polyType`) */
+    int  m_creationPolyType = 0;
+    /* mnuCustomX / mnuCustomY: source quad UVs from the Texture window. */
+    bool m_customTexX = false;
+    bool m_customTexY = false;
+
+public:
+    bool GetCustomTexX() const { return m_customTexX; }
+    bool GetCustomTexY() const { return m_customTexY; }
+    /* Normalised rectangle currently selected in the Texture window. */
+    bool GetTextureSelection(float& u1, float& v1, float& u2, float& v2) const;
+
+private:
+
+    /* Waypoint-creation state (VB6 mnuWayType checked flags) */
+    bool m_waypointType[5] = {false, false, false, false, false};
+
+    /* Open Recent (VB6 mnuRecent 0..9, frm:546-557) */
+    static constexpr int kMaxRecentFiles = 10;
+    wxMenu*  m_recentMenu = nullptr;
+    wxArrayString m_recentFiles;
+    void RebuildRecentMenu();
+    void LoadRecentFiles();
+    void SaveRecentFiles();
 
     /* Window menu check items (kept to query/update state) */
     wxMenuItem* m_winItemTools     = nullptr;

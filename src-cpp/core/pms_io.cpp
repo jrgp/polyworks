@@ -523,8 +523,12 @@ void docToPmsData(const MapDocument& doc, PmsData& out) {
         for (int i = 0; i < 3; ++i) {
             pe.poly.v[i].x     = ep.v[i].world.x;
             pe.poly.v[i].y     = ep.v[i].world.y;
-            pe.poly.v[i].z     = 1.0f;
-            pe.poly.v[i].rhw   = 1.0f;
+            /* VB6 SaveMap copies the live TPoly and only overwrites X, Y,
+               colour and Perp — z/rhw are written through, preserving the
+               depthmap and the hidden-polygon flag (frm:5268-5290).
+               compilePms() overwrites both with 1.0 separately. */
+            pe.poly.v[i].z     = ep.v[i].z;
+            pe.poly.v[i].rhw   = ep.v[i].rhw;
             pe.poly.v[i].color = argb(ep.v[i].alpha,
                                       ep.v[i].r, ep.v[i].g, ep.v[i].b);
             pe.poly.v[i].tu    = ep.v[i].tu;
@@ -674,6 +678,11 @@ void pmsDataToDoc(const PmsData& data, MapDocument& doc) {
             ep.v[i].alpha   = argb_a(pe.poly.v[i].color);
             ep.v[i].tu      = pe.poly.v[i].tu;
             ep.v[i].tv      = pe.poly.v[i].tv;
+            /* VB6 reads the whole TPoly record, so the depthmap value and the
+               hidden-polygon flag stored in z/rhw survive a load (frm:1980).
+               The compiler always writes 1.0, so compiled maps are unaffected. */
+            ep.v[i].z       = pe.poly.v[i].z;
+            ep.v[i].rhw     = pe.poly.v[i].rhw;
         }
         /* VB6 recovers bounciness from the normal's magnitude on load
            (frm:1988: Perp.vertex(j).Z = Sqr(X^2 + Y^2)). */

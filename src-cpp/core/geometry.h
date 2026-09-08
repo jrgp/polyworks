@@ -84,3 +84,12 @@ float snapZoom(float current, int dir, float minZoom = PMS_ZOOM_MIN,
  * configurable selection colour, defaulting to 0xCE4D4A (modConfig.bas:79).
  * Returns 0xRRGGBB. */
 uint32_t polyTypeColor(int polyType, uint32_t selectionColor = 0xCE4D4Au);
+
+/* ---- Polygon type names ------------------------------------------------
+ *
+ * The 26 captions used by the original, taken verbatim from the mnuPolyType
+ * menu (frmOpenSoldatMapEditor.frm:507-611) and the cboPolyType list embedded
+ * in frmInfo.frx.  Index == PMS polygon type.  Returns "" when out of range.
+ */
+constexpr int POLY_TYPE_COUNT = 26;
+const char* polyTypeName(int polyType);

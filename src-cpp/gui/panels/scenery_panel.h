@@ -41,6 +41,7 @@ public:
 private:
     void buildUI();
     void OnScenerySelect(wxCommandEvent& event);
+    void OnListRightDown(wxMouseEvent& event);
     void OnLevelBack(wxCommandEvent& event);
     void OnLevelMiddle(wxCommandEvent& event);
     void OnLevelFront(wxCommandEvent& event);
@@ -58,4 +59,6 @@ private:
     int  m_level  = 1;   /* 0=back,1=middle,2=front — matches SCENERY_BACK/MIDDLE/FRONT */
     bool m_rotate = false;
     bool m_scale  = false;
+    wxString m_soldatPath;
+    std::vector<std::string> m_inUse;
 };

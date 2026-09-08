@@ -74,6 +74,9 @@ public:
 
     TextureManager& GetTextureManager() { return m_texMgr; }
 
+    /* The modifier-adjusted tool actually in effect (VB6 currentFunction). */
+    int GetCurrentFunction() const { return m_currentFunction; }
+
     /* Returns the (width, height) in pixels of the texture used by the first
        selected polygon in doc. Returns {0, 0} if not found. */
     std::pair<int,int> getTextureSize(const MapDocument& doc);
@@ -141,6 +144,11 @@ private:
     static constexpr int kMaxCreationVerts = 3;
     Vec2 m_creationVerts[kMaxCreationVerts];
     int  m_creationVertCount = 0;
+    /* True while a Shift-anchored straight sketch line is being dragged. */
+    bool m_sketchStraight = false;
+    /* True between the two halves of a Textured Quad creation. */
+    bool m_creatingQuad = false;
+    Vec2 m_quadCarryUV[2]{};
 
     /* Paint color state (used by VCOLOR / PCOLOR) */
     uint8_t m_paintR = 255, m_paintG = 255, m_paintB = 255;
@@ -151,8 +159,8 @@ private:
     /* Cursor management */
     void loadCursors(const std::string& skinsPath);
     void applyToolCursor();
-    /* Index matches tool constants TOOL_MOVE..TOOL_DEPTHMAP (14 tools) */
-    static constexpr int kNumTools = 14;
+    /* Index matches the VB6 TOOL_* constants, TOOL_MOVE..TOOL_SMUDGE. */
+    static constexpr int kNumTools = 27;
     wxCursor m_toolCursors[kNumTools];
 
 #if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS

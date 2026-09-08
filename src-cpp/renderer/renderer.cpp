@@ -140,6 +140,10 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
 
     renderSelectionOverlays(doc);
 
+    if (m_moveToolActive) {
+        renderMoveSelectionRect(doc);
+    }
+
     if (view.showSceneryFront) {
         renderScenery(doc, SCENERY_FRONT);
     }
@@ -159,6 +163,7 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
     if (view.showSketch) {
         renderSketchLines(doc);
     }
+    renderGostek(doc);
     if (view.showGrid) {
         renderGrid(doc, viewW, viewH);
     }
@@ -425,6 +430,62 @@ void Renderer::renderSelectionOverlays(const MapDocument& doc) {
 #endif
 }
 
+void Renderer::renderMoveSelectionRect(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+    if (!doc.selectionBounds(minX, minY, maxX, maxY)) return;
+
+    const Vec2 tl = toScreen(doc, minX, minY);
+    const Vec2 br = toScreen(doc, maxX, maxY);
+    const Vec2 corner[4] = {tl, {br.x, tl.y}, br, {tl.x, br.y}};
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    /* VB6 textures the rectangle with lines.bmp, a 64px dash strip; a line
+       stipple reproduces the same dashed appearance without the bitmap. */
+    glColor4ub(255, 255, 255, 128);
+    glLineWidth(1.0f);
+    glEnable(GL_LINE_STIPPLE);
+    glLineStipple(2, 0x00FF);
+    glBegin(GL_LINE_LOOP);
+    for (const auto& c : corner) glVertex2f(c.x, c.y);
+    glEnd();
+    glDisable(GL_LINE_STIPPLE);
+
+    /* Corner handles and edge midpoint handles. */
+    glPointSize(5.0f);
+    glBegin(GL_POINTS);
+    for (int i = 0; i < 4; ++i) {
+        glVertex2f(corner[i].x, corner[i].y);
+        const Vec2& n = corner[(i + 1) % 4];
+        glVertex2f((corner[i].x + n.x) * 0.5f, (corner[i].y + n.y) * 0.5f);
+    }
+    glEnd();
+
+    /* The rotation/scale pivot marker is hidden in Fixed mode, matching
+       `If Not mnuFixedRCenter.Checked` (frm:3606). */
+    if (doc.rCenterMode != MapDocument::RCenterMode::Fixed) {
+        Vec2 pivot;
+        if (doc.rCenterMode == MapDocument::RCenterMode::Set)
+            pivot = toScreen(doc, doc.rCenter.x, doc.rCenter.y);
+        else
+            pivot = {(tl.x + br.x) * 0.5f, (tl.y + br.y) * 0.5f};
+        glColor4ub(255, 96, 96, 220);
+        glPointSize(9.0f);
+        glBegin(GL_POINTS);
+        glVertex2f(pivot.x, pivot.y);
+        glEnd();
+    }
+
+    glPointSize(1.0f);
+    glDisable(GL_BLEND);
+#else
+    (void)doc;
+#endif
+}
+
 void Renderer::renderGrid(const MapDocument& doc, int viewW, int viewH) {
 #if PW_RENDERER_HAS_OPENGL
     const float gridStep = std::max(doc.viewSettings.gridSize, 1.0f);
@@ -457,6 +518,80 @@ void Renderer::renderGrid(const MapDocument& doc, int viewW, int viewH) {
 #endif
 }
 
+GLuint Renderer::objectsTexture() {
+#if PW_RENDERER_HAS_OPENGL
+    if (!m_objectsTexTried) {
+        m_objectsTexTried = true;
+        if (m_texMgr != nullptr) m_objectsTex = m_texMgr->loadTexture("objects.bmp");
+        /* loadTexture falls back to the notfound placeholder; treat that as
+           "no atlas" so the primitive fallbacks stay in charge. */
+        if (m_texMgr != nullptr && m_objectsTex == m_texMgr->getNotFoundTexture())
+            m_objectsTex = 0;
+    }
+    return m_objectsTex;
+#else
+    return 0;
+#endif
+}
+
+bool Renderer::drawObjectSprite(int col, int row, float cx, float cy,
+                                float sizePx, uint8_t r, uint8_t g, uint8_t b,
+                                uint8_t a) {
+#if PW_RENDERER_HAS_OPENGL
+    const GLuint tex = objectsTexture();
+    if (tex == 0) return false;
+
+    /* objects.bmp is an 8-column, 4-row atlas of 32x32 cells (frm:3213). */
+    const float du = 1.0f / 8.0f;
+    const float dv = 1.0f / 4.0f;
+    const float u0 = col * du, v0 = row * dv;
+    const float h  = sizePx * 0.5f;
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4ub(r, g, b, a);
+    glBegin(GL_QUADS);
+    glTexCoord2f(u0,      v0);      glVertex2f(cx - h, cy - h);
+    glTexCoord2f(u0 + du, v0);      glVertex2f(cx + h, cy - h);
+    glTexCoord2f(u0 + du, v0 + dv); glVertex2f(cx + h, cy + h);
+    glTexCoord2f(u0,      v0 + dv); glVertex2f(cx - h, cy + h);
+    glEnd();
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    return true;
+#else
+    (void)col; (void)row; (void)cx; (void)cy; (void)sizePx;
+    (void)r; (void)g; (void)b; (void)a;
+    return false;
+#endif
+}
+
+void Renderer::renderGostek(const MapDocument& doc) {
+#if PW_RENDERER_HAS_OPENGL
+    if (!doc.showGostek) return;
+    /* The gostek is a 32x32 scale reference drawn from atlas cell (2,2)
+       tinted grey (frm:3310-3322). */
+    const Vec2 s = toScreen(doc, doc.gostek.x, doc.gostek.y);
+    const float size = 32.0f * doc.zoom;
+    if (!drawObjectSprite(2, 2, s.x, s.y, size, 128, 128, 128, 255)) {
+        glDisable(GL_TEXTURE_2D);
+        glColor4ub(128, 128, 128, 255);
+        glLineWidth(1.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(s.x - size * 0.5f, s.y - size * 0.5f);
+        glVertex2f(s.x + size * 0.5f, s.y - size * 0.5f);
+        glVertex2f(s.x + size * 0.5f, s.y + size * 0.5f);
+        glVertex2f(s.x - size * 0.5f, s.y + size * 0.5f);
+        glEnd();
+    }
+#else
+    (void)doc;
+#endif
+}
+
 void Renderer::renderSpawns(const MapDocument& doc) {
 #if PW_RENDERER_HAS_OPENGL
     glDisable(GL_TEXTURE_2D);
@@ -480,7 +615,17 @@ void Renderer::renderSpawns(const MapDocument& doc) {
         }
 
         const Vec2 screen = toScreen(doc, spawn.x, spawn.y);
-        drawCircle(screen.x, screen.y, 5.0f, 16, GL_LINE_LOOP);
+        /* VB6 draws each spawn from atlas cell (team mod 8, team div 8)
+           at a fixed 32px, unaffected by zoom (frm:3225-3241). */
+        const int cell = spawn.team;
+        const bool drawn = drawObjectSprite(cell % 8, cell / 8, screen.x,
+                                            screen.y, 32.0f, 255, 255, 255,
+                                            255);
+        if (!drawn) {
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_BLEND);
+            drawCircle(screen.x, screen.y, 5.0f, 16, GL_LINE_LOOP);
+        }
     }
 #else
     (void)doc;
@@ -543,7 +688,17 @@ void Renderer::renderColliders(const MapDocument& doc) {
             continue;
         }
         const Vec2 screen = toScreen(doc, collider.x, collider.y);
-        drawCircle(screen.x, screen.y, collider.radius * doc.zoom, 16, GL_LINE_LOOP);
+        /* Colliders use atlas cell (1,2) scaled to their radius
+           (frm:3288-3296). */
+        if (!drawObjectSprite(1, 2, screen.x, screen.y,
+                              collider.radius * 2.0f * doc.zoom,
+                              255, 255, 255, 255)) {
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_BLEND);
+            glColor4ub(0, 255, 0, 255);
+            drawCircle(screen.x, screen.y, collider.radius * doc.zoom, 16,
+                       GL_LINE_LOOP);
+        }
     }
 #else
     (void)doc;
@@ -557,7 +712,15 @@ void Renderer::renderLights(const MapDocument& doc) {
     glColor4ub(255, 255, 0, 255);
     for (const auto& light : doc.lights) {
         const Vec2 screen = toScreen(doc, light.x, light.y);
-        drawCrosshair(screen.x, screen.y, 6.0f);
+        /* Lights use atlas cell (7,2) tinted with the light's own colour
+           (frm:3255-3269). */
+        if (!drawObjectSprite(7, 2, screen.x, screen.y, 32.0f,
+                              light.r, light.g, light.b, 255)) {
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_BLEND);
+            glColor4ub(255, 255, 0, 255);
+            drawCrosshair(screen.x, screen.y, 6.0f);
+        }
     }
 #else
     (void)doc;

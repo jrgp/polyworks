@@ -2,6 +2,7 @@
 #include "gui/panels/tools_panel.h"
 #include "gui/panels/display_panel.h"
 #include "gui/panels/info_panel.h"
+#include "gui/panels/texture_panel.h"
 #include "gui/panels/scenery_panel.h"
 #include "gui/panels/waypoint_panel.h"
 #include "gui/panels/palette_panel.h"
@@ -162,6 +163,11 @@ public:
         mainFrame->AttachInfoPanel(infoPanel);
         infoPanel->SetPosition(wxPoint(rightX, framePos.y + 920));
         infoPanel->Show(true);
+
+        /* Texture panel (frmTexture) — shown on demand via Window > Texture */
+        auto* texturePanel = new TexturePanel(mainFrame);
+        mainFrame->AttachTexturePanel(texturePanel);
+        texturePanel->SetPosition(wxPoint(rightX + 216, framePos.y + 300));
 
         /* Palette panel — shown on demand via View menu; initially hidden */
         auto* palettePanel = new PalettePanel(mainFrame);

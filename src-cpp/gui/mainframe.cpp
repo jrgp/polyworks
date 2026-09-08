@@ -4,6 +4,7 @@
 #include "panels/tools_panel.h"
 #include "panels/display_panel.h"
 #include "panels/info_panel.h"
+#include "panels/texture_panel.h"
 #include "panels/scenery_panel.h"
 #include "panels/waypoint_panel.h"
 #include "panels/palette_panel.h"
@@ -100,6 +101,9 @@ enum MenuId {
     ID_EDIT_TRANSFORM_ROTATE_90CCW,
     /* Polygon menu additions */
     ID_POLY_FIXED_TEXTURE,
+    ID_POLY_CUSTOM_TEX_X,
+    ID_POLY_CUSTOM_TEX_Y,
+    ID_EDIT_SNAP_SELECTED,
     ID_POLY_APPLY_LIGHT,
     ID_POLY_TEX_FLIP_H,
     ID_POLY_TEX_FLIP_V,
@@ -130,33 +134,18 @@ constexpr std::array<ToolInfo, 14> kToolInfo{{
     {"Depth Map", "U"},
 }};
 
-constexpr std::array<const char*, 26> kPolyTypeNames{{
-    "Normal",
-    "Only Bullets",
-    "Only Players",
-    "No Collide",
-    "Ice",
-    "Deadly",
-    "Bloody Deadly",
-    "Hurts",
-    "Regenerates",
-    "Lava",
-    "Alpha Bullets",
-    "Alpha Players",
-    "Bravo Bullets",
-    "Bravo Players",
-    "Charlie Bullets",
-    "Charlie Players",
-    "Delta Bullets",
-    "Delta Players",
-    "Bouncy",
-    "Explosive",
-    "Hit Multiply",
-    "Collider",
-    "No Pass",
-    "Shift",
-    "Weather",
-    "No Footsteps",
+/* VB6 SetTool assigns each ImageList entry a Tag which becomes the caption of
+   lblCurrentTool (frm:1655-1683, frm:4256).  These are the exact strings. */
+constexpr std::array<const char*, 27> kFunctionNames{{
+    "Move Selection", "Create Polygons", "Select Vertices", "Select Polygons",
+    "Color Vertices", "Color Polygons", "Transform Texture", "Create Scenery",
+    "Create Waypoints", "Place Spawn Points or Colliders",
+    "Pick a Vertex Color", "Sketch", "Create Lights", "Edit Depth Map",
+    "Scroll Map", "Add to Selection", "Subtract from Selection",
+    "Add to Selection", "Subtract from Selection", "Scale Selection",
+    "Rotate Selection", "Connect Waypoints", "Create Quad",
+    "Pick a pixel color", "Pick a Lit Vertex Color", "Erase Lines",
+    "Move Lines",
 }};
 
 wxString BaseNameOrUntitled(const wxString& path) {
@@ -305,6 +294,18 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, [this](wxCommandEvent& e) {
         m_doc.viewSettings.fixedTexture = e.IsChecked();
     }, ID_POLY_FIXED_TEXTURE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& e) {
+        m_customTexX = e.IsChecked();
+    }, ID_POLY_CUSTOM_TEX_X);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& e) {
+        m_customTexY = e.IsChecked();
+    }, ID_POLY_CUSTOM_TEX_Y);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        m_undoStack.push(m_doc);
+        if (!m_doc.snapSelected(m_prefs.snapRadius)) m_undoStack.pop();
+        RefreshViewport();
+        UpdateTitle();
+    }, ID_EDIT_SNAP_SELECTED);
     Bind(wxEVT_MENU, &MainFrame::OnPolyApplyLight, this, ID_POLY_APPLY_LIGHT);
     auto bindTexTransform = [this](int id) {
         Bind(wxEVT_MENU, &MainFrame::OnPolyTexTransform, this, id);
@@ -350,6 +351,62 @@ void MainFrame::AttachSceneryPanel(SceneryPanel* sceneryPanel) {
 
 void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
     m_waypointPanel = waypointPanel;
+}
+
+void MainFrame::AttachTexturePanel(TexturePanel* texturePanel) {
+    m_texturePanel = texturePanel;
+    RefreshTexturePanel();
+}
+
+void MainFrame::ReloadSceneryTextures() {
+    /* mnuRefresh (frmScenery.frm:620) re-reads every scenery bitmap from disk
+       so external edits show up without restarting the editor. */
+    if (m_viewport == nullptr) return;
+    m_viewport->GetTextureManager().clear();
+    RefreshViewport();
+}
+
+void MainFrame::ClearUnusedScenery() {
+    m_undoStack.push(m_doc);
+    const int removed = m_doc.clearUnusedScenery();
+    if (removed == 0) {
+        m_undoStack.pop();
+        wxMessageBox("No unused scenery entries were found.", "Clear Unused",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    RefreshSceneryInUse();
+    UpdateStatusBar();
+    UpdateTitle();
+    RefreshViewport();
+}
+
+void MainFrame::RefreshSceneryInUse() {
+    if (m_sceneryPanel == nullptr) return;
+    std::vector<std::string> used;
+    for (const auto& s : m_doc.scenery) {
+        if (s.style >= 1 && s.style < static_cast<int>(m_doc.sceneryNames.size())) {
+            const std::string& n = m_doc.sceneryNames[static_cast<size_t>(s.style)];
+            if (std::find(used.begin(), used.end(), n) == used.end())
+                used.push_back(n);
+        }
+    }
+    m_sceneryPanel->UpdateInUse(used);
+}
+
+void MainFrame::RefreshTexturePanel() {
+    if (m_texturePanel == nullptr || m_viewport == nullptr) return;
+    if (m_doc.options.textureName.empty()) return;
+    const std::string path =
+        m_viewport->GetTextureManager().resolvePath(m_doc.options.textureName);
+    if (!path.empty())
+        m_texturePanel->SetTexture(wxString::FromUTF8(path.c_str()));
+}
+
+bool MainFrame::GetTextureSelection(float& u1, float& v1,
+                                    float& u2, float& v2) const {
+    if (m_texturePanel == nullptr) return false;
+    return m_texturePanel->GetSelection(u1, v1, u2, v2);
 }
 
 void MainFrame::AttachPalettePanel(PalettePanel* palettePanel) {
@@ -403,14 +460,15 @@ int MainFrame::GetOrAddSelectedSceneryIndex() {
     if (selected.IsEmpty()) return 0;
 
     std::string name = selected.ToStdString();
-    /* Search existing names (1-based) */
-    for (int i = 0; i < static_cast<int>(m_doc.sceneryNames.size()); ++i) {
-        if (m_doc.sceneryNames[i] == name)
-            return i + 1;
+    /* sceneryNames is 1-based with [0] reserved as a sentinel
+       (map_document.cpp:15), so the index *is* the vector position. */
+    for (int i = 1; i < static_cast<int>(m_doc.sceneryNames.size()); ++i) {
+        if (m_doc.sceneryNames[static_cast<size_t>(i)] == name)
+            return i;
     }
     /* Add new name */
     m_doc.sceneryNames.push_back(name);
-    return static_cast<int>(m_doc.sceneryNames.size());
+    return static_cast<int>(m_doc.sceneryNames.size()) - 1;
 }
 
 void MainFrame::buildMenuBar() {
@@ -422,11 +480,10 @@ void MainFrame::buildMenuBar() {
     fileMenu->Append(ID_FILE_OPEN_COMPILED, "Open &Compiled...\tCtrl+Shift+O");
     fileMenu->AppendSeparator();
 
-    auto* recentMenu = new wxMenu();
-    const int recentPlaceholderId = wxWindow::NewControlId();
-    recentMenu->Append(recentPlaceholderId, "(empty)");
-    recentMenu->Enable(recentPlaceholderId, false);
-    fileMenu->AppendSubMenu(recentMenu, "Open &Recent");
+    m_recentMenu = new wxMenu();
+    fileMenu->AppendSubMenu(m_recentMenu, "Open &Recent");
+    LoadRecentFiles();
+    RebuildRecentMenu();
     fileMenu->AppendSeparator();
     fileMenu->Append(wxID_SAVE, "&Save\tCtrl+S");
     fileMenu->Append(wxID_SAVEAS, "Save &As...\tCtrl+Shift+S");
@@ -505,8 +562,8 @@ void MainFrame::buildMenuBar() {
 
     auto* polygonMenu = new wxMenu();
     auto* typeMenu = new wxMenu();
-    for (size_t i = 0; i < kPolyTypeNames.size(); ++i) {
-        typeMenu->AppendRadioItem(ID_POLY_TYPE_BASE + static_cast<int>(i), kPolyTypeNames[i]);
+    for (int i = 0; i < POLY_TYPE_COUNT; ++i) {
+        typeMenu->AppendRadioItem(ID_POLY_TYPE_BASE + i, polyTypeName(i));
     }
     typeMenu->Check(ID_POLY_TYPE_BASE + POLY_NORMAL, true);
     polygonMenu->AppendSubMenu(typeMenu, "&Type");
@@ -514,6 +571,9 @@ void MainFrame::buildMenuBar() {
     polygonMenu->Append(ID_POLY_SPLIT_AT_VERTEX,      "&Split at Vertex\tCtrl+L");
     polygonMenu->Append(ID_POLY_JOIN_VERTICES,         "&Join Vertices\tCtrl+J");
     polygonMenu->Append(ID_POLY_CREATE_WITH_SELECTED,  "&Create with Selected\tCtrl+E");
+    /* mnuSnapSelected (frm:12354) runs the same snap that a drag-release does,
+       without requiring the user to nudge the selection first. */
+    polygonMenu->Append(ID_EDIT_SNAP_SELECTED, "Snap Selected &Vertices");
     polygonMenu->AppendSeparator();
     polygonMenu->Append(ID_POLY_FIX_TEXTURE,           "&Fix Texture\tCtrl+F");
     polygonMenu->Append(ID_POLY_UNTEXTURE,             "&Untexture\tCtrl+U");
@@ -521,6 +581,11 @@ void MainFrame::buildMenuBar() {
     polygonMenu->Append(ID_POLY_AVERAGE_COLORS,        "&Average Vertex Colors\tCtrl+G");
     polygonMenu->AppendSeparator();
     polygonMenu->AppendCheckItem(ID_POLY_FIXED_TEXTURE, "F&ixed Texture");
+    /* mnuCustomX / mnuCustomY (frm:14519): when a Textured Quad is created,
+       take its U (resp. V) range from the rectangle selected in the Texture
+       window instead of from world coordinates. */
+    polygonMenu->AppendCheckItem(ID_POLY_CUSTOM_TEX_X, "User Defined &X");
+    polygonMenu->AppendCheckItem(ID_POLY_CUSTOM_TEX_Y, "User Defined &Y");
     polygonMenu->Append(ID_POLY_APPLY_LIGHT, "&Apply Light to Vertices");
     polygonMenu->AppendSeparator();
     auto* texTransMenu = new wxMenu();
@@ -691,9 +756,12 @@ bool MainFrame::LoadDocumentFromPath(const wxString& path) {
     m_doc.rebuildScreenCache();
     m_currentFilePath = path;
     RegisterAssetPathsForMap(path);
+    AddToRecentFiles(path);
     m_undoStack.clear();
     UpdateStatusBar();
     UpdateTitle();
+    RefreshTexturePanel();
+    RefreshSceneryInUse();
     RefreshViewport();
     return true;
 }
@@ -738,6 +806,7 @@ bool MainFrame::SaveDocumentToPath(const wxString& path) {
     }
 
     m_currentFilePath = path;
+    AddToRecentFiles(path);
     m_doc.clearModified();
     UpdateStatusBar();
     UpdateTitle();
@@ -1181,7 +1250,7 @@ void MainFrame::OnWindowShowAll(wxCommandEvent&) {
     SetPanelVisible(m_waypointPanel,  m_winItemWaypoints,  true);
     SetPanelVisible(m_sceneryPanel,   m_winItemScenery,    true);
     SetPanelVisible(m_infoPanel,      m_winItemProperties, true);
-    /* Texture panel not yet ported — skip silently */
+    SetPanelVisible(m_texturePanel,   m_winItemTexture,    true);
 }
 
 void MainFrame::OnWindowHideAll(wxCommandEvent&) {
@@ -1191,6 +1260,7 @@ void MainFrame::OnWindowHideAll(wxCommandEvent&) {
     SetPanelVisible(m_waypointPanel,  m_winItemWaypoints,  false);
     SetPanelVisible(m_sceneryPanel,   m_winItemScenery,    false);
     SetPanelVisible(m_infoPanel,      m_winItemProperties, false);
+    SetPanelVisible(m_texturePanel,   m_winItemTexture,    false);
 }
 
 void MainFrame::OnWindowTogglePanel(wxCommandEvent& event) {
@@ -1214,9 +1284,8 @@ void MainFrame::OnWindowTogglePanel(wxCommandEvent& event) {
         bool vis = !PanelVisible(m_infoPanel);
         SetPanelVisible(m_infoPanel, m_winItemProperties, vis);
     } else if (id == ID_WINDOW_TEXTURE) {
-        /* Texture panel not yet ported */
-        if (m_winItemTexture != nullptr)
-            m_winItemTexture->Check(false);
+        bool vis = !PanelVisible(m_texturePanel);
+        SetPanelVisible(m_texturePanel, m_winItemTexture, vis);
     }
 }
 
@@ -1277,7 +1346,88 @@ void MainFrame::OnMapSettings(wxCommandEvent&) {
     if (dlg.ShowModal() == wxID_OK) {
         m_doc.markModified();
         UpdateTitle();
+        RefreshTexturePanel();
         RefreshViewport();
+    }
+}
+
+void MainFrame::LoadRecentFiles() {
+    wxConfig cfg("PolyWorks", "PolyWorks");
+    m_recentFiles.Clear();
+    for (int i = 0; i < kMaxRecentFiles; ++i) {
+        wxString s;
+        if (!cfg.Read(wxString::Format("Recent/File%d", i), &s) || s.empty())
+            break;
+        m_recentFiles.Add(s);
+    }
+}
+
+void MainFrame::SaveRecentFiles() {
+    wxConfig cfg("PolyWorks", "PolyWorks");
+    for (int i = 0; i < kMaxRecentFiles; ++i) {
+        const wxString key = wxString::Format("Recent/File%d", i);
+        if (i < static_cast<int>(m_recentFiles.GetCount()))
+            cfg.Write(key, m_recentFiles[static_cast<size_t>(i)]);
+        else
+            cfg.DeleteEntry(key);
+    }
+    cfg.Flush();
+}
+
+void MainFrame::RebuildRecentMenu() {
+    if (m_recentMenu == nullptr) return;
+    while (m_recentMenu->GetMenuItemCount() > 0)
+        m_recentMenu->Delete(m_recentMenu->FindItemByPosition(0));
+
+    if (m_recentFiles.IsEmpty()) {
+        wxMenuItem* empty = m_recentMenu->Append(wxID_ANY, "(empty)");
+        empty->Enable(false);
+        return;
+    }
+
+    for (size_t i = 0; i < m_recentFiles.GetCount(); ++i) {
+        const wxString path = m_recentFiles[i];
+        /* VB6 showed the bare file name; keep the full path as the tooltip so
+           two maps with the same name stay distinguishable. */
+        wxMenuItem* item = m_recentMenu->Append(
+            wxID_ANY,
+            wxString::Format("&%d %s", static_cast<int>(i) + 1,
+                             wxFileName(path).GetFullName()),
+            path);
+        m_recentMenu->Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+            if (!wxFileExists(path)) {
+                wxMessageBox(wxString::Format(
+                                 "The map no longer exists:\n%s", path),
+                             "PolyWorks", wxOK | wxICON_WARNING, this);
+                m_recentFiles.Remove(path);
+                RebuildRecentMenu();
+                SaveRecentFiles();
+                return;
+            }
+            LoadDocumentFromPath(path);
+        }, item->GetId());
+    }
+}
+
+void MainFrame::AddToRecentFiles(const wxString& path) {
+    if (path.empty()) return;
+    const wxString full = wxFileName(path).GetFullPath();
+    m_recentFiles.Remove(full);
+    m_recentFiles.Insert(full, 0);
+    while (static_cast<int>(m_recentFiles.GetCount()) > kMaxRecentFiles)
+        m_recentFiles.RemoveAt(m_recentFiles.GetCount() - 1);
+    RebuildRecentMenu();
+    SaveRecentFiles();
+}
+
+void MainFrame::SetPaintColorFromPicker(uint8_t r, uint8_t g, uint8_t b) {
+    /* VB6 pickers push the absorbed colour into frmPalette via SetValues and
+       then reuse it as the active paint colour (frm:7745-7752). */
+    if (m_palettePanel != nullptr)
+        m_palettePanel->SetValues(r, g, b);
+    if (m_viewport != nullptr) {
+        m_viewport->setPaintColor(r, g, b, GetPaintOpacity(),
+                                  GetPaintBlendMode(), GetPaintRadius());
     }
 }
 
@@ -1464,7 +1614,23 @@ void MainFrame::UpdateStatusBar() {
     m_positionText->SetLabel(wxString::Format("Pos: %.1f, %.1f", m_lastMouseWorld.x, m_lastMouseWorld.y));
     m_filenameText->SetLabel("File: " + BaseNameOrUntitled(m_currentFilePath));
     m_zoomText->SetLabel(wxString::Format("Zoom: %.0f%%", m_doc.zoom * 100.0f));
-    m_toolText->SetLabel("Tool: " + GetToolName(m_activeTool));
+    /* VB6 labels the *effective* function, then appends the polygon type when
+       creating and the waypoint direction when placing waypoints
+       (frm:4256-4266). */
+    int fn = (m_viewport != nullptr) ? m_viewport->GetCurrentFunction()
+                                     : m_activeTool;
+    wxString toolLabel = (fn >= 0 && fn < static_cast<int>(kFunctionNames.size()))
+                             ? wxString(kFunctionNames[static_cast<size_t>(fn)])
+                             : GetToolName(m_activeTool);
+    if (m_activeTool == 1) {
+        toolLabel += wxString::Format(" (%s)", polyTypeName(m_creationPolyType));
+    } else if (m_activeTool == 8) {
+        static const char* const kWayNames[5] = {"Left", "Right", "Up",
+                                                 "Down", "Fly"};
+        for (int i = 0; i < 5; ++i)
+            if (m_waypointType[i]) toolLabel += wxString::Format(" (%s)", kWayNames[i]);
+    }
+    m_toolText->SetLabel("Tool: " + toolLabel);
     layoutStatusBarFields();
 
     if (m_infoPanel != nullptr)

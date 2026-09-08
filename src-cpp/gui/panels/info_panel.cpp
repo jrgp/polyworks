@@ -7,6 +7,7 @@
  * the original editor.
  */
 
+#include "geometry.h"
 #include "info_panel.h"
 #include "mainframe.h"
 #include "undo_stack.h"
@@ -25,15 +26,6 @@
 namespace {
 
 /* frmInfo.frx cboPolyType list — same 26 entries as the Polygon Type menu. */
-const std::array<const char*, 26> kPolyTypeNames{{
-    "Normal", "Only Bullets", "Only Players", "No Collide", "Ice", "Deadly",
-    "Bloody Deadly", "Hurts", "Regenerates", "Lava", "Alpha Bullets",
-    "Alpha Players", "Bravo Bullets", "Bravo Players", "Charlie Bullets",
-    "Charlie Players", "Delta Bullets", "Delta Players", "Bouncy",
-    "Explosive", "Hit Multiply", "Collider", "No Pass", "Shift", "Weather",
-    "No Footsteps",
-}};
-
 /* frmInfo.frx cboLevel list. */
 const std::array<const char*, 3> kLevelNames{{"Back", "Middle", "Front"}};
 
@@ -169,7 +161,7 @@ void InfoPanel::buildPolyPage(wxPanel* p) {
 
     addLabel(p, g, "Type:");
     m_polyType = new wxChoice(p, wxID_ANY);
-    for (const char* n : kPolyTypeNames) m_polyType->Append(n);
+    for (int i = 0; i < POLY_TYPE_COUNT; ++i) m_polyType->Append(polyTypeName(i));
     g->Add(m_polyType, 1, wxEXPAND);
 
     auto field = [&](wxTextCtrl*& c, const char* label) {
@@ -432,7 +424,7 @@ void InfoPanel::Refresh() {
     if (selPoly != nullptr && selPolyVtx >= 0) {
         const EditorVertex& v = selPoly->v[selPolyVtx];
         m_polyType->SetSelection(std::min<int>(selPoly->polyType,
-                                               (int)kPolyTypeNames.size() - 1));
+                                               POLY_TYPE_COUNT - 1));
 
         /* Int((Perp.Z - 1) * 100), floored at 0. */
         int bounce = (int)((selPoly->bounciness[selPolyVtx] - 1.0f) * 100.0f);

@@ -17,6 +17,11 @@ public:
     void clear();
     GLuint getNotFoundTexture();
 
+    /* Resolves a map's texture/scenery filename against the configured search
+       paths without uploading it, so the GUI can display the same image the
+       renderer uses.  Returns an empty string when nothing matches. */
+    std::string resolvePath(const std::string& filename) const { return findFile(filename); }
+
     ~TextureManager();
 
 private:
