@@ -52,6 +52,37 @@ void MapDocument::setZoom(float newZoom, float cx, float cy) {
     rebuildScreenCache();
 }
 
+bool MapDocument::zoomScroll(float zoomDir, float cx, float cy,
+                             float viewW, float viewH,
+                             float minZoom, float maxZoom) {
+    /* VB6 frm:4113-4119.  A step that would overshoot a limit is shortened so
+       that it lands exactly on the limit, but only when the limit has not
+       already been reached; otherwise the whole gesture is discarded. */
+    if (zoom * zoomDir < minZoom && zoom > minZoom)
+        zoomDir = minZoom / zoom;
+    else if (zoom * zoomDir > maxZoom && zoom < maxZoom)
+        zoomDir = maxZoom / zoom;
+
+    if (zoom * zoomDir < minZoom || zoom * zoomDir > maxZoom)
+        return false;
+
+    zoom = zoom * zoomDir;
+
+    /* VB6 frm:4129-4135.  Algebraically these are exact anchored zooms:
+       zoom-in keeps the world point under the cursor fixed, zoom-out keeps the
+       world point at the viewport centre fixed. */
+    if (zoomDir > 1.0f) {
+        scrollX += cx / zoom * (zoomDir - 1.0f);
+        scrollY += cy / zoom * (zoomDir - 1.0f);
+    } else if (zoomDir < 1.0f) {
+        scrollX -= viewW / zoom * (1.0f - zoomDir) * 0.5f;
+        scrollY -= viewH / zoom * (1.0f - zoomDir) * 0.5f;
+    }
+
+    rebuildScreenCache();
+    return true;
+}
+
 /* ---- Selection ---------------------------------------------------------- */
 
 bool MapDocument::cycleSelection(bool backwards) {

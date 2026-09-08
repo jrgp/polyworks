@@ -241,6 +241,17 @@ public:
     /* Apply zoom centred on screen point (cx,cy). */
     void setZoom(float newZoom, float cx, float cy);
 
+    /* Multiplicative wheel zoom, faithful to ZoomScroll
+       (frmOpenSoldatMapEditor.frm:4108).  `zoomDir` is a ratio (the original
+       uses 1.25 for a wheel notch forward and 0.8 for backward).  Zooming in
+       anchors the world point under (cx,cy); zooming out anchors the centre of
+       the viewport — that asymmetry is in the original and is preserved.
+       Returns false when the request was rejected because the limit was
+       already reached. */
+    bool zoomScroll(float zoomDir, float cx, float cy,
+                    float viewW, float viewH,
+                    float minZoom, float maxZoom);
+
     /* ---- Selection ----------------------------------------------------- */
 
     /* Controls how a selection operation combines with existing selection. */

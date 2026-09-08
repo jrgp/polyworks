@@ -331,6 +331,73 @@ reproduced exactly.
 
 ---
 
+## 6a. Zoom, Wheel and Viewport Coordinates
+
+### Mouse wheel (`MouseHelper_MouseWheel`, `frm:12733` → `ZoomScroll`, `frm:4108`)
+
+The original multiplies `zoomFactor` by **1.25** for one wheel notch forward and
+**0.8** for one notch backward — it does *not* jump between power-of-two zoom
+levels (that is what the numpad `+` / `-` keys do, via `GetZoomDir`).
+
+`ZoomScroll` clamps against `gMinZoom` / `gMaxZoom` in two stages: a step that
+would overshoot a limit is *shortened* so it lands exactly on the limit, but if
+the limit has already been reached the whole gesture is discarded
+(`frm:4113-4119`).
+
+The scroll adjustment is asymmetric (`frm:4129-4135`):
+
+| Direction | Original expression | Equivalent behaviour |
+|---|---|---|
+| In (`zoomDir > 1`) | `scroll += X / zoomFactor / ((2 / (zoomDir - 1)) / 2)` | keeps the world point **under the cursor** fixed |
+| Out (`zoomDir < 1`) | `scroll -= ScaleWidth / zoomFactor / (2 / (1 - zoomDir))` | keeps the world point at the **viewport centre** fixed |
+
+Both expressions reduce algebraically to an exact anchored zoom; the only
+difference is which screen point is used as the anchor. Zooming out therefore
+ignores the cursor entirely. This asymmetry is reproduced verbatim in
+`MapDocument::zoomScroll()` and covered by
+`zoomscroll_in_anchors_cursor` / `zoomscroll_out_anchors_viewport_centre`.
+
+**High-resolution devices.** macOS trackpads, precision touchpads and free-spin
+mice report many sub-notch rotations per gesture. `GlViewport::OnMouseWheel`
+accumulates `GetWheelRotation()` and only applies a 1.25/0.8 step once a full
+`GetWheelDelta()` has been travelled, resetting the accumulator when the
+direction reverses. Horizontal wheel events (`wxMOUSE_WHEEL_HORIZONTAL`) never
+zoom. Without this accumulation a single two-finger flick applied dozens of
+zoom steps.
+
+### Screen ↔ world transform
+
+There is exactly one transform pair, on `MapDocument`:
+
+```
+screen = (world - scroll) * zoom
+world  = screen / zoom + scroll
+```
+
+All screen coordinates in the editor — mouse event positions, the cached
+`EditorVertex::screen` values, the renderer's vertex output and the ortho
+projection — are in **wxWidgets logical units (points)**, never physical device
+pixels. Hit-test tolerances that are specified in pixels are converted with
+`pixels / zoom` (`GlViewport::WorldTolerance()`, the paint radii, the waypoint
+connect radius).
+
+### HiDPI / backing-store scaling
+
+The OpenGL back buffer is allocated in **physical device pixels**, while
+`GetClientSize()` reports logical points. On a scaled display (macOS Retina,
+GTK/Wayland `scale-factor`, Windows per-monitor DPI) the two differ.
+`GlViewport::OnPaint` therefore sizes `glViewport()` with
+`GetClientSize() * GetContentScaleFactor()` but keeps `glOrtho()` in logical
+points, so the world↔screen math above is unaffected by the display scale.
+
+Using the logical size for `glViewport()` produced a characteristic failure on
+Retina displays: because GL's origin is bottom-left, the whole scene was drawn
+at half scale into the **lower-left quadrant** of the canvas, and mouse
+coordinates — which are always logical — no longer matched anything that was
+visible, so selection appeared to ignore the zoom level.
+
+---
+
 ## 7. Mouse Hit Testing Priority
 
 When objects overlap, the original VB6 hit-test priority (inferred from code order):

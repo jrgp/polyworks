@@ -284,7 +284,17 @@ void GlViewport::OnPaint(wxPaintEvent& /*event*/) {
 
     m_glContext->SetCurrent(*this);
     const wxSize size = GetClientSize();
-    glViewport(0, 0, size.x, size.y);
+    /* The GL back buffer is sized in physical device pixels while
+       GetClientSize() reports logical points.  On a HiDPI display (macOS
+       Retina, Wayland/GTK scaling, Windows per-monitor DPI) the two differ, and
+       using the logical size for glViewport() confines the scene to the
+       lower-left corner of the surface because GL's origin is bottom-left.
+       Size the viewport in pixels but keep the projection in logical points so
+       that every screen<->world conversion elsewhere stays unchanged. */
+    const double contentScale = GetContentScaleFactor();
+    glViewport(0, 0,
+               static_cast<GLsizei>(size.x * contentScale + 0.5),
+               static_cast<GLsizei>(size.y * contentScale + 0.5));
     glClearColor(43.0f/255.0f, 26.0f/255.0f, 14.0f/255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -371,9 +381,44 @@ void GlViewport::OnMouseMove(wxMouseEvent& event) {
 }
 
 void GlViewport::OnMouseWheel(wxMouseEvent& event) {
-    const int dir = event.GetWheelRotation() > 0 ? 1 : -1;
-    const float newZoom = snapZoom(m_document.zoom, dir);
-    m_document.setZoom(newZoom, static_cast<float>(event.GetX()), static_cast<float>(event.GetY()));
+    /* Horizontal (shift-wheel / trackpad sideways) never zooms. */
+    if (event.GetWheelAxis() != wxMOUSE_WHEEL_VERTICAL) {
+        event.Skip();
+        return;
+    }
+
+    /* High-resolution devices (macOS trackpads, precision touchpads, free-spin
+       mice) report many small rotations per gesture rather than one whole
+       notch.  Accumulate the raw rotation and only act once a full notch has
+       been travelled, otherwise a single two-finger flick applies dozens of
+       zoom steps. */
+    const int delta = event.GetWheelDelta() > 0 ? event.GetWheelDelta() : 120;
+    if ((event.GetWheelRotation() > 0) != (m_wheelAccum > 0))
+        m_wheelAccum = 0;  /* direction reversed — drop the partial notch */
+    m_wheelAccum += event.GetWheelRotation();
+
+    int notches = m_wheelAccum / delta;
+    if (notches == 0) return;
+    m_wheelAccum -= notches * delta;
+
+    /* VB6 frm:12733 MouseHelper_MouseWheel — 1.25 forward, 0.8 backward. */
+    const float step = notches > 0 ? 1.25f : 0.8f;
+    const int   count = notches > 0 ? notches : -notches;
+    const wxSize size = GetClientSize();
+
+    bool changed = false;
+    for (int i = 0; i < count; ++i) {
+        if (!m_document.zoomScroll(step,
+                                   static_cast<float>(event.GetX()),
+                                   static_cast<float>(event.GetY()),
+                                   static_cast<float>(size.x),
+                                   static_cast<float>(size.y),
+                                   m_minZoom, m_maxZoom))
+            break;
+        changed = true;
+    }
+    if (!changed) return;
+
     if (m_mainFrame != nullptr)
         m_mainFrame->UpdateStatusBar();
     Refresh(false);

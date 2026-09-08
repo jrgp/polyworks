@@ -1559,6 +1559,7 @@ void MainFrame::ApplyPrefs() {
     m_doc.viewSettings.wireBlendDest = m_prefs.wireBlendDest;
     if (m_viewport != nullptr) {
         m_viewport->setSnapRadius(m_prefs.snapRadius);
+        m_viewport->setZoomLimits(m_prefs.minZoom, m_prefs.maxZoom);
         if (!m_prefs.soldatDir.empty()) {
             auto& tm = m_viewport->GetTextureManager();
             tm.addSearchPath(m_prefs.soldatDir + "/Textures");

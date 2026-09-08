@@ -1566,6 +1566,138 @@ TEST(compile_reproduces_shipped_sector_division) {
     EXPECT_EQ(failed, 0);
 }
 
+/* ---- Coordinate / viewport math ---------------------------------------- */
+
+TEST(screen_world_roundtrip_at_all_zooms) {
+    MapDocument doc;
+    const float zooms[]   = {0.0625f, 0.25f, 0.5f, 1.0f, 2.0f, 8.0f};
+    const float scrolls[] = {-1500.0f, 0.0f, 731.5f};
+    for (float z : zooms) {
+        for (float s : scrolls) {
+            doc.zoom = z;
+            doc.scrollX = s;
+            doc.scrollY = -s;
+            for (float sx = 0.0f; sx <= 1200.0f; sx += 137.0f) {
+                for (float sy = 0.0f; sy <= 800.0f; sy += 91.0f) {
+                    Vec2 w = doc.screenToWorld({sx, sy});
+                    Vec2 b = doc.worldToScreen(w);
+                    EXPECT_NEAR(b.x, sx, 0.01f);
+                    EXPECT_NEAR(b.y, sy, 0.01f);
+                }
+            }
+        }
+    }
+}
+
+TEST(screen_to_world_honours_zoom) {
+    MapDocument doc;
+    doc.scrollX = 0.0f;
+    doc.scrollY = 0.0f;
+
+    doc.zoom = 1.0f;
+    Vec2 w1 = doc.screenToWorld({400.0f, 300.0f});
+    EXPECT_NEAR(w1.x, 400.0f, 0.001f);
+    EXPECT_NEAR(w1.y, 300.0f, 0.001f);
+
+    /* At 25% zoom the same pixel must map four times further into the world. */
+    doc.zoom = 0.25f;
+    Vec2 w2 = doc.screenToWorld({400.0f, 300.0f});
+    EXPECT_NEAR(w2.x, 1600.0f, 0.001f);
+    EXPECT_NEAR(w2.y, 1200.0f, 0.001f);
+
+    /* ...and scroll must not be scaled by zoom. */
+    doc.scrollX = -1000.0f;
+    Vec2 w3 = doc.screenToWorld({400.0f, 0.0f});
+    EXPECT_NEAR(w3.x, 600.0f, 0.001f);
+}
+
+TEST(setzoom_keeps_world_point_under_cursor) {
+    MapDocument doc;
+    doc.zoom = 1.0f;
+    doc.scrollX = 250.0f;
+    doc.scrollY = -125.0f;
+    const float cx = 512.0f, cy = 384.0f;
+    Vec2 before = doc.screenToWorld({cx, cy});
+    doc.setZoom(0.25f, cx, cy);
+    Vec2 after = doc.screenToWorld({cx, cy});
+    EXPECT_NEAR(after.x, before.x, 0.01f);
+    EXPECT_NEAR(after.y, before.y, 0.01f);
+    EXPECT_NEAR(doc.zoom, 0.25f, 0.0001f);
+}
+
+TEST(zoomscroll_in_anchors_cursor) {
+    /* VB6 frm:4129 — zooming in keeps the world point under the cursor. */
+    MapDocument doc;
+    doc.zoom = 1.0f;
+    doc.scrollX = 100.0f;
+    doc.scrollY = 200.0f;
+    const float cx = 300.0f, cy = 150.0f;
+    Vec2 before = doc.screenToWorld({cx, cy});
+    EXPECT(doc.zoomScroll(1.25f, cx, cy, 800.0f, 600.0f, 0.03125f, 512.0f));
+    EXPECT_NEAR(doc.zoom, 1.25f, 0.0001f);
+    Vec2 after = doc.screenToWorld({cx, cy});
+    EXPECT_NEAR(after.x, before.x, 0.01f);
+    EXPECT_NEAR(after.y, before.y, 0.01f);
+}
+
+TEST(zoomscroll_out_anchors_viewport_centre) {
+    /* VB6 frm:4132 — zooming out ignores the cursor and anchors the centre. */
+    MapDocument doc;
+    doc.zoom = 1.0f;
+    doc.scrollX = 100.0f;
+    doc.scrollY = 200.0f;
+    const float viewW = 800.0f, viewH = 600.0f;
+    Vec2 centreBefore = doc.screenToWorld({viewW * 0.5f, viewH * 0.5f});
+    EXPECT(doc.zoomScroll(0.8f, 12.0f, 7.0f, viewW, viewH, 0.03125f, 512.0f));
+    EXPECT_NEAR(doc.zoom, 0.8f, 0.0001f);
+    Vec2 centreAfter = doc.screenToWorld({viewW * 0.5f, viewH * 0.5f});
+    EXPECT_NEAR(centreAfter.x, centreBefore.x, 0.01f);
+    EXPECT_NEAR(centreAfter.y, centreBefore.y, 0.01f);
+}
+
+TEST(zoomscroll_clamps_to_limits) {
+    MapDocument doc;
+    doc.zoom = 1.1f;
+    /* Step would overshoot the maximum, so it is shortened to land on it. */
+    EXPECT(doc.zoomScroll(1.25f, 0.0f, 0.0f, 800.0f, 600.0f, 0.5f, 1.25f));
+    EXPECT_NEAR(doc.zoom, 1.25f, 0.0001f);
+    /* Already at the maximum: the gesture is discarded entirely. */
+    EXPECT(!doc.zoomScroll(1.25f, 0.0f, 0.0f, 800.0f, 600.0f, 0.5f, 1.25f));
+    EXPECT_NEAR(doc.zoom, 1.25f, 0.0001f);
+
+    doc.zoom = 0.55f;
+    EXPECT(doc.zoomScroll(0.8f, 0.0f, 0.0f, 800.0f, 600.0f, 0.5f, 1.25f));
+    EXPECT_NEAR(doc.zoom, 0.5f, 0.0001f);
+    EXPECT(!doc.zoomScroll(0.8f, 0.0f, 0.0f, 800.0f, 600.0f, 0.5f, 1.25f));
+    EXPECT_NEAR(doc.zoom, 0.5f, 0.0001f);
+}
+
+TEST(zoomscroll_step_is_gentle) {
+    /* Regression for the macOS trackpad report: one wheel notch must change
+       zoom by 25%, not by a whole power-of-two zoom level. */
+    MapDocument doc;
+    doc.zoom = 1.0f;
+    doc.zoomScroll(1.25f, 400.0f, 300.0f, 800.0f, 600.0f, 0.03125f, 512.0f);
+    EXPECT(doc.zoom < 1.5f);
+    EXPECT(doc.zoom > 1.0f);
+}
+
+TEST(screen_cache_matches_transform_after_zoom) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = Vec2{-100.0f, -50.0f};
+    p.v[1].world = Vec2{100.0f, -50.0f};
+    p.v[2].world = Vec2{0.0f, 80.0f};
+    doc.addPoly(p);
+    doc.zoomScroll(0.8f, 400.0f, 300.0f, 800.0f, 600.0f, 0.03125f, 512.0f);
+    for (const auto& p : doc.polys)
+        for (int i = 0; i < 3; ++i) {
+            Vec2 expect = doc.worldToScreen(p.v[i].world);
+            EXPECT_NEAR(p.v[i].screen.x, expect.x, 0.001f);
+            EXPECT_NEAR(p.v[i].screen.y, expect.y, 0.001f);
+        }
+}
+
 /* ---- Main -------------------------------------------------------------- */
 
 int main() {

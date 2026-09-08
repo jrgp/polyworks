@@ -72,6 +72,11 @@ public:
     /* Radius (world units) used by vertex snapping on drag release. */
     void setSnapRadius(float r) { m_snapRadius = r; }
 
+    /* Wheel-zoom limits (gMinZoom / gMaxZoom in modConfig.bas). */
+    void setZoomLimits(float minZoom, float maxZoom) {
+        m_minZoom = minZoom; m_maxZoom = maxZoom;
+    }
+
     TextureManager& GetTextureManager() { return m_texMgr; }
 
     /* The modifier-adjusted tool actually in effect (VB6 currentFunction). */
@@ -136,6 +141,10 @@ private:
     /* Ctrl-drag scale / Alt-drag rotate session (VB6 Scaling / Rotating) */
     MapDocument::TransformSession m_transform;
     float         m_snapRadius = 8.0f;
+    float         m_minZoom = PMS_ZOOM_MIN;
+    float         m_maxZoom = PMS_ZOOM_MAX;
+    /* Accumulated raw wheel rotation below one full notch (HiDPI trackpads). */
+    int           m_wheelAccum = 0;
 
     void BeginTransformDrag(Vec2 world);
     void UpdateTransformDrag(Vec2 world, bool shiftDown);

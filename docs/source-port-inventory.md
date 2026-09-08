@@ -128,7 +128,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 |---|---|---|---|---|
 | DirectInput keyboard | DI8 key buffer | `wxEVT_CHAR_HOOK` in MainFrame | PORTED | Standard wx events replace DI8 |
 | Middle-button pan | Pan with middle drag | `GlViewport::OnMiddleDrag` | PORTED | |
-| Mouse wheel zoom | Zoom on wheel | `GlViewport::OnMouseWheel` | PORTED | |
+| Mouse wheel zoom | `ZoomScroll 1.25 / 0.8` anchored per direction | `GlViewport::OnMouseWheel` -> `MapDocument::zoomScroll()` | PORTED | Sub-notch rotations are accumulated for HiDPI trackpads |
 | Screen→world coords | `gScrollX/Y`, `gZoom` math | `MapDocument::screenToWorld()` | PORTED | |
 | World→screen coords | Same inverse | `MapDocument::worldToScreen()` | PORTED | |
 
@@ -289,7 +289,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | `picViewport_MouseDown` | Tool dispatch, selection start | `GlViewport::OnMouseDown` | PORTED |
 | `picViewport_MouseMove` | Drag, cursor update, snap | `GlViewport::OnMouseMove` | PORTED |
 | `picViewport_MouseUp` | End drag, commit undo | `GlViewport::OnMouseUp` | PORTED |
-| `picViewport_MouseWheel` | Zoom | `GlViewport::OnMouseWheel` | PORTED |
+| `picViewport_MouseWheel` | Zoom x1.25 / x0.8 | `GlViewport::OnMouseWheel` | PORTED |
 | Middle-button drag | Pan | `GlViewport::OnMouseMove (middle)` | PORTED |
 | Rubber-band selection | Marquee select | `GlViewport` selection rect | PORTED |
 | Ctrl+click | Add/remove from selection | Modifier flag in mouse handlers | PORTED |
@@ -560,6 +560,9 @@ row was checked against the original VB6 source before being changed.
 | 39 | Map bounds seeding (`mnuRefreshBG_Click`, `frm:14065-14068`) | `maxX/maxY/minX/minY` are seeded with `0`, so the origin is always inside the map bounds | Bounds were taken purely from the polygon vertices | **INCORRECT** | Bounds clamped to include the origin in both save paths and in the background quad |
 | 40 | `SaveMap` vs `SaveAndCompile` sector division | `SaveMap` uses the **full** extents (`frm:5235`); `SaveAndCompile` uses the **half** extents (`frm:2607-2611`).  The two paths genuinely disagree in the original | Only one formula existed | **PARTIALLY PORTED** | Both reproduced; new `compile_reproduces_shipped_sector_division` test covers 96/97 shipped maps (`DesertWind.pms` stores a value its own geometry cannot produce and was not made by this version) |
 | 37 | Help / F1 | — | Absent | **NOT APPLICABLE** | The original has no Help menu and no F1 handler anywhere in the `.frm` menu tree |
+| 41 | `glViewport` sizing (HiDPI) | The GL back buffer is allocated in physical device pixels; `GetClientSize()` reports logical points | `glViewport(0, 0, size.x, size.y)` used the **logical** size, so on a macOS Retina display the scene was drawn at half scale into the lower-left quadrant of the canvas (GL's origin is bottom-left) | **BROKEN** | `glViewport` is now scaled by `GetContentScaleFactor()` while `glOrtho` stays in logical points, so no other coordinate math changes.  Reported from a real macOS build |
+| 42 | Screen->world at non-100% zoom | Clicks must resolve to the world point that is visually under the cursor | Correct in isolation, but finding 41 meant nothing drawn was where the transform said it was, so selection appeared to ignore the zoom level | **BROKEN** | Fixed by 41; eight new regression tests pin the forward/inverse transform, the screen cache and cursor anchoring |
+| 43 | `MouseHelper_MouseWheel` (`frm:12733`) / `ZoomScroll` (`frm:4108`) | One wheel notch multiplies zoom by **1.25** (forward) or **0.8** (backward); the numpad keys are what jump between power-of-two levels | The wheel called `snapZoom`, i.e. a full power-of-two step per event, and every sub-notch macOS trackpad event applied one — a single flick zoomed enormously | **INCORRECT** | `MapDocument::zoomScroll()` reproduces the 1.25/0.8 ratios, the two-stage limit clamp (`frm:4113-4119`) and the original's asymmetric anchoring (cursor when zooming in, viewport centre when zooming out).  `OnMouseWheel` accumulates raw rotation to one `GetWheelDelta()` notch |
 
 ## Remaining known gaps (not fixed)
 
@@ -569,5 +572,4 @@ row was checked against the original VB6 source before being changed.
 | Preferences | `cboSkin` (skin selection) is absent; the port always loads `installer/skins/default` |
 | Preferences | Window width/height persistence is absent; wxWidgets restores the frame geometry instead |
 | Scenery panel | The original splits the list into `lstScenery` ("In Use") and a `tvwScenery` tree.  The port uses a single list and marks in-use entries with a bullet |
-| Verification | GUI verification used Xvfb with software rendering; HiDPI behaviour is unverified |
 | Assets | No Soldat installation is present in this repository, so texture/scenery resolution is exercised only through the diagnostics path and the map-relative search order |
