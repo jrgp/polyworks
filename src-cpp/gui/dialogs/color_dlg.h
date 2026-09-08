@@ -15,6 +15,7 @@
 #include <wx/textctrl.h>
 #include <wx/slider.h>
 #include <wx/stattext.h>
+#include <wx/bitmap.h>
 
 class ColorDlg final : public wxDialog {
 public:

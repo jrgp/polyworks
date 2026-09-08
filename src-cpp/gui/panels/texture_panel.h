@@ -9,6 +9,7 @@
 
 #include <wx/frame.h>
 #include <wx/panel.h>
+#include <wx/bitmap.h>
 
 class MainFrame;
 

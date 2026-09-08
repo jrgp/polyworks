@@ -19,11 +19,13 @@
 #include <wx/filename.h>
 #include <wx/sizer.h>
 #include <wx/config.h>
+#include <wx/fileconf.h>
 #include <wx/stdpaths.h>
 #include <wx/log.h>
 #include <wx/utils.h>
 
 #include <array>
+#include <memory>
 
 namespace {
 
@@ -186,6 +188,7 @@ MainFrame::MainFrame(const wxString& skinsPath)
     if (m_viewport != nullptr) {
         m_viewport->setSkinsPath(skinsPath.ToStdString());
     }
+    RegisterAppAssetPaths();
 
     /* VB6 read polyworks.ini at startup (modConfig.bas LoadConfig). */
     LoadPrefs();
@@ -194,6 +197,7 @@ MainFrame::MainFrame(const wxString& skinsPath)
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_viewport, 1, wxEXPAND);
     SetSizer(sizer);
+    Layout();
 
     Bind(wxEVT_MENU, &MainFrame::OnFileNew, this, wxID_NEW);
     Bind(wxEVT_MENU, &MainFrame::OnFileOpen, this, wxID_OPEN);
@@ -219,6 +223,7 @@ MainFrame::MainFrame(const wxString& skinsPath)
     Bind(wxEVT_MENU, &MainFrame::OnMapSettings, this, ID_MAP_SETTINGS);
     Bind(wxEVT_MENU, &MainFrame::OnPreferences, this, ID_MAP_PREFERENCES);
     Bind(wxEVT_MENU, &MainFrame::OnExit, this, wxID_EXIT);
+    Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnCloseWindow, this);
     Bind(wxEVT_MENU, [this](wxCommandEvent& ev) {
         if (m_palettePanel != nullptr)
             m_palettePanel->Show(ev.IsChecked());
@@ -667,7 +672,30 @@ void MainFrame::layoutStatusBarFields() {
     }
 }
 
+/* VB6 guards mnuNew_Click (frm:12752), mnuOpen_Click (frm:12772) and
+   Terminate (frm:4387) with the same three-way prompt driven by the global
+   `prompt` flag.  Returns false when the user cancelled and the pending
+   action must be abandoned. */
+bool MainFrame::ConfirmDiscardChanges() {
+    if (!m_doc.modified) return true;
+
+    const int answer = wxMessageBox(
+        wxString::Format("Save changes to %s?",
+                         BaseNameOrUntitled(m_currentFilePath)),
+        "PolyWorks", wxYES_NO | wxCANCEL | wxICON_EXCLAMATION, this);
+
+    if (answer == wxCANCEL) return false;
+    if (answer == wxNO)     return true;
+
+    /* Yes: save, and abandon the pending action if the save did not happen
+       (VB6 re-checks `prompt` after mnuSave_Click for exactly this reason). */
+    wxCommandEvent dummy;
+    OnFileSave(dummy);
+    return !m_doc.modified;
+}
+
 void MainFrame::OnFileNew(wxCommandEvent& event) {
+    if (!ConfirmDiscardChanges()) return;
     m_doc.clear();
     m_undoStack.clear();
     m_currentFilePath.clear();
@@ -677,6 +705,7 @@ void MainFrame::OnFileNew(wxCommandEvent& event) {
 }
 
 void MainFrame::OnFileOpen(wxCommandEvent& event) {
+    if (!ConfirmDiscardChanges()) return;
     wxFileDialog dialog(this,
                         "Open PolyWorks Map",
                         wxEmptyString,
@@ -768,6 +797,57 @@ bool MainFrame::LoadDocumentFromPath(const wxString& path) {
     return true;
 }
 
+/* VB6 kept every setting in `<appPath>\polyworks.ini` (modConfig.bas
+   LoadConfig/SaveSettings).  That is still what a portable Windows release
+   wants: settings travel with the folder and uninstalling means deleting it.
+   It is not what Linux and macOS users expect, though, so the ini is used
+   there only when one already exists beside the executable, which lets anyone
+   opt into portable mode by creating an empty polyworks.ini.  A read-only
+   application directory (a system-wide install, or read-only media) always
+   falls back to the platform's per-user store. */
+std::unique_ptr<wxConfigBase> MainFrame::OpenConfig() {
+    const wxString appDir = AppDir();
+    if (!appDir.empty()) {
+        const wxString ini = appDir + wxFILE_SEP_PATH + "polyworks.ini";
+        const bool exists = wxFileExists(ini);
+#ifdef __WXMSW__
+        const bool wantPortable = exists || wxFileName::IsDirWritable(appDir);
+#else
+        const bool wantPortable = exists;
+#endif
+        if (wantPortable && (exists ? wxFileName::IsFileWritable(ini)
+                                    : wxFileName::IsDirWritable(appDir))) {
+            return std::make_unique<wxFileConfig>(
+                "PolyWorks", wxEmptyString, ini, wxEmptyString,
+                wxCONFIG_USE_LOCAL_FILE | wxCONFIG_USE_RELATIVE_PATH);
+        }
+    }
+    return std::make_unique<wxConfig>("PolyWorks", "PolyWorks");
+}
+
+/* VB6 `appPath = App.Path` (modConfig.bas:52) — every one of the original's
+   static resource lookups (skins, palettes, lists, Help) is relative to the
+   directory holding the executable, never to the working directory.  Keeping
+   that convention is what makes an extract-and-run distribution work. */
+wxString MainFrame::AppDir() {
+    return wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
+}
+
+/* Textures and scenery shipped alongside the executable.  A portable
+   PolyWorks directory has the same shape as a Soldat installation
+   (`Textures/`, `Scenery-gfx/`), so the application directory is searched
+   exactly like a configured game directory would be.  Without this, a
+   self-contained distribution could not resolve any texture until the user
+   pointed Preferences at a game directory. */
+void MainFrame::RegisterAppAssetPaths() {
+    if (m_viewport == nullptr) return;
+    const wxString appDir = AppDir();
+    if (appDir.empty()) return;
+    m_viewport->addTexturePath((appDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+    m_viewport->addTexturePath((appDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+    m_viewport->addTexturePath(appDir.ToStdString());
+}
+
 /* VB6 Form_Load resolves a command-line map name against, in order: the path
    as given, <appPath>/Maps/, then <OpenSoldatDir>/Maps/ (frm:10657-10668). */
 bool MainFrame::OpenCommandLineMap(const wxString& arg) {
@@ -780,7 +860,7 @@ bool MainFrame::OpenCommandLineMap(const wxString& arg) {
 
     wxArrayString candidates;
     candidates.Add(name);
-    const wxString appDir = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
+    const wxString appDir = AppDir();
     candidates.Add(appDir + wxFILE_SEP_PATH + "Maps" + wxFILE_SEP_PATH + name);
     if (!m_prefs.soldatDir.empty()) {
         candidates.Add(wxString::FromUTF8(m_prefs.soldatDir.c_str()) +
@@ -1244,7 +1324,8 @@ void MainFrame::OnFileRunSoldat(wxCommandEvent& event) {
     const wxString key = (event.GetId() == ID_FILE_RUN_OPENSOLDAT)
         ? "/Soldat/OpenSoldatExe" : "/Soldat/SoldatExe";
     const bool wantOpen = (event.GetId() == ID_FILE_RUN_OPENSOLDAT);
-    wxConfig cfg("PolyWorks");
+    auto cfgPtr = OpenConfig();
+    wxConfigBase& cfg = *cfgPtr;
     wxString exe;
     cfg.Read(key, &exe);
     if (exe.IsEmpty() && !m_prefs.soldatDir.empty()) {
@@ -1276,7 +1357,20 @@ void MainFrame::OnFileRunSoldat(wxCommandEvent& event) {
 }
 
 void MainFrame::OnExit(wxCommandEvent& event) {
-    Close(true);
+    Close(false);
+}
+
+/* VB6 Terminate (frm:4381) prompts for unsaved work and then calls
+   SaveSettings (modConfig.bas:265), which persists the preferences *and*
+   writes the working palette to <appPath>/palettes/current.txt (:389). */
+void MainFrame::OnCloseWindow(wxCloseEvent& event) {
+    if (event.CanVeto() && !ConfirmDiscardChanges()) {
+        event.Veto();
+        return;
+    }
+    SavePrefs();
+    if (m_palettePanel != nullptr) m_palettePanel->SaveCurrentPalette();
+    event.Skip();
 }
 
 /* ---- Window menu helpers ----------------------------------------------- */
@@ -1400,7 +1494,8 @@ void MainFrame::OnMapSettings(wxCommandEvent&) {
 }
 
 void MainFrame::LoadRecentFiles() {
-    wxConfig cfg("PolyWorks", "PolyWorks");
+    auto cfgPtr = OpenConfig();
+    wxConfigBase& cfg = *cfgPtr;
     m_recentFiles.Clear();
     for (int i = 0; i < kMaxRecentFiles; ++i) {
         wxString s;
@@ -1411,7 +1506,8 @@ void MainFrame::LoadRecentFiles() {
 }
 
 void MainFrame::SaveRecentFiles() {
-    wxConfig cfg("PolyWorks", "PolyWorks");
+    auto cfgPtr = OpenConfig();
+    wxConfigBase& cfg = *cfgPtr;
     for (int i = 0; i < kMaxRecentFiles; ++i) {
         const wxString key = wxString::Format("Recent/File%d", i);
         if (i < static_cast<int>(m_recentFiles.GetCount()))
@@ -1480,7 +1576,8 @@ void MainFrame::SetPaintColorFromPicker(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void MainFrame::LoadPrefs() {
-    wxConfig cfg("PolyWorks", "PolyWorks");
+    auto cfgPtr = OpenConfig();
+    wxConfigBase& cfg = *cfgPtr;
     double d = 0;
     long   l = 0;
     if (cfg.Read("Zoom/Min",   &d)) m_prefs.minZoom   = static_cast<float>(d);
@@ -1508,7 +1605,17 @@ void MainFrame::LoadPrefs() {
     if (cfg.Read("Paths/UncompDir",  &s)) m_prefs.uncompDir  = s.ToStdString();
 
     /* VB6 modOSME.bas fell back to a well-known install location when the
-       configured game directory was absent. */
+       configured game directory was absent.  A portable PolyWorks directory
+       that ships its own Textures/ and Scenery-gfx/ is checked first, so an
+       extract-and-run distribution needs no configuration at all. */
+    if (m_prefs.soldatDir.empty()) {
+        const wxString appDir = AppDir();
+        if (!appDir.empty() &&
+            (wxDirExists(appDir + wxFILE_SEP_PATH + "Textures") ||
+             wxDirExists(appDir + wxFILE_SEP_PATH + "Scenery-gfx"))) {
+            m_prefs.soldatDir = appDir.ToStdString();
+        }
+    }
     if (m_prefs.soldatDir.empty()) {
         const char* candidates[] = {
             "/usr/share/soldat", "/usr/local/share/soldat",
@@ -1520,7 +1627,8 @@ void MainFrame::LoadPrefs() {
 }
 
 void MainFrame::SavePrefs() {
-    wxConfig cfg("PolyWorks", "PolyWorks");
+    auto cfgPtr = OpenConfig();
+    wxConfigBase& cfg = *cfgPtr;
     cfg.Write("Zoom/Min",   static_cast<double>(m_prefs.minZoom));
     cfg.Write("Zoom/Max",   static_cast<double>(m_prefs.maxZoom));
     cfg.Write("Zoom/Reset", static_cast<double>(m_prefs.resetZoom));

@@ -7,6 +7,8 @@
 #include <wx/menu.h>
 #include <wx/filedlg.h>
 #include <wx/msgdlg.h>
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
 
 #include <fstream>
 #include <functional>
@@ -111,6 +113,23 @@ static const wxColour kBg(0x31, 0x3C, 0x4A);      /* BGR 0x4A3C31 */
 static const wxColour kLblBack(0x3D, 0x4B, 0x61);  /* BGR 0x614B3D */
 static const wxColour kWhite(*wxWHITE);
 
+/* VB6 uses `appPath & "\\palettes\\"` for every palette file operation
+   (frmPalette.frm:867, 904, 923; modConfig.bas:389).  `appPath` is
+   `App.Path`, i.e. the directory holding the executable, so the palette
+   directory travels with a portable installation. */
+wxString PalettePanel::PalettesDir() {
+    wxFileName dir = wxFileName::DirName(
+        wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath());
+    dir.AppendDir("palettes");
+    return dir.GetPath();
+}
+
+wxString PalettePanel::CurrentPalettePath() {
+    const wxString dir = PalettesDir();
+    if (dir.empty()) return {};
+    return dir + wxFILE_SEP_PATH + "current.txt";
+}
+
 PalettePanel::PalettePanel(wxWindow* parent)
     : wxFrame(parent, wxID_ANY, "Color Palette",
               wxDefaultPosition, wxSize(208, 272),
@@ -119,6 +138,24 @@ PalettePanel::PalettePanel(wxWindow* parent)
 {
     SetBackgroundColour(kBg);
     BuildUI();
+    /* frmPalette.Form_Load restores the working palette (frm:867). */
+    LoadCurrentPalette();
+}
+
+void PalettePanel::LoadCurrentPalette() {
+    const wxString path = CurrentPalettePath();
+    if (!path.empty() && wxFileExists(path))
+        m_grid->Load(path);
+}
+
+/* modConfig.bas:389 writes the working palette back out as part of
+   SaveConfig, so edits survive a restart. */
+void PalettePanel::SaveCurrentPalette() const {
+    const wxString dir = PalettesDir();
+    if (dir.empty()) return;
+    if (!wxFileName::DirExists(dir) && !wxFileName::Mkdir(dir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL))
+        return;
+    m_grid->Save(dir + wxFILE_SEP_PATH + "current.txt");
 }
 
 void PalettePanel::BuildUI() {
@@ -298,14 +335,16 @@ void PalettePanel::GetCurrentColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
 /* ---- Event handlers ---------------------------------------------------- */
 
 void PalettePanel::OnLoadPalette(wxCommandEvent&) {
-    wxFileDialog dlg(this, "Load Palette", wxEmptyString, wxEmptyString,
+    /* frmPalette.frm:904 sets commonDialog.InitDir to <appPath>\palettes. */
+    wxFileDialog dlg(this, "Load Palette", PalettesDir(), wxEmptyString,
                      "Text files (*.txt)|*.txt", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
     if (dlg.ShowModal() == wxID_OK)
         m_grid->Load(dlg.GetPath());
 }
 
 void PalettePanel::OnSavePalette(wxCommandEvent&) {
-    wxFileDialog dlg(this, "Save Palette", wxEmptyString, "current",
+    /* frmPalette.frm:923 uses the same directory for saving. */
+    wxFileDialog dlg(this, "Save Palette", PalettesDir(), "current",
                      "Text files (*.txt)|*.txt", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     if (dlg.ShowModal() == wxID_OK)
         m_grid->Save(dlg.GetPath());

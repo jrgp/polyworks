@@ -22,6 +22,9 @@ public:
        renderer uses.  Returns an empty string when nothing matches. */
     std::string resolvePath(const std::string& filename) const { return findFile(filename); }
 
+    /* Number of configured search paths; addSearchPath() ignores duplicates. */
+    std::size_t searchPathCount() const { return m_searchPaths.size(); }
+
     ~TextureManager();
 
 private:

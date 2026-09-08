@@ -117,6 +117,7 @@ void InfoPanel::buildUI() {
     buildPolyPage(m_pages[PAGE_POLYGON]);
 
     SetSizer(outer);
+    Layout();
     ShowPage(PAGE_MAP);
     Refresh();
 }

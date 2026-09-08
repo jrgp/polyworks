@@ -88,6 +88,7 @@ void SceneryPanel::buildUI() {
     auto* frameSizer = new wxBoxSizer(wxVERTICAL);
     frameSizer->Add(panel, 1, wxEXPAND);
     SetSizer(frameSizer);
+    Layout();
 
     /* Events */
     m_lstScenery->Bind(wxEVT_LISTBOX, &SceneryPanel::OnScenerySelect, this);

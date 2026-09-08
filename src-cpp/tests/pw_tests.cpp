@@ -19,6 +19,7 @@
 #include "undo_stack.h"
 #include "geometry.h"
 #include "color_key.h"
+#include "texture_manager.h"
 
 #include <cstdio>
 #include <cstring>
@@ -1696,6 +1697,128 @@ TEST(screen_cache_matches_transform_after_zoom) {
             EXPECT_NEAR(p.v[i].screen.x, expect.x, 0.001f);
             EXPECT_NEAR(p.v[i].screen.y, expect.y, 0.001f);
         }
+}
+
+
+/* ---- Asset resolution (portable distribution layout) -------------------- */
+
+/* Builds the directory layout of an extracted portable release:
+ *
+ *   <root>/PolyWorks/skins/default/notfound.bmp
+ *   <root>/PolyWorks/Textures/riverbed.bmp
+ *   <root>/PolyWorks/Scenery-gfx/Crate.bmp
+ *   <root>/elsewhere/mymap.pms
+ *   <root>/elsewhere/Textures/riverbed.bmp     (map-relative override)
+ */
+namespace {
+struct AssetTree {
+    fs::path root;
+    fs::path app;
+    fs::path elsewhere;
+
+    AssetTree() {
+        std::error_code ec;
+        root = fs::temp_directory_path(ec) / "pw_assets_test";
+        fs::remove_all(root, ec);
+        app = root / "PolyWorks";
+        elsewhere = root / "elsewhere";
+        fs::create_directories(app / "skins" / "default", ec);
+        fs::create_directories(app / "Textures", ec);
+        fs::create_directories(app / "Scenery-gfx", ec);
+        fs::create_directories(elsewhere / "Textures", ec);
+        write(app / "skins" / "default" / "notfound.bmp");
+        write(app / "Textures" / "riverbed.bmp");
+        write(app / "Scenery-gfx" / "Crate.bmp");
+        write(elsewhere / "Textures" / "riverbed.bmp");
+    }
+    ~AssetTree() { std::error_code ec; fs::remove_all(root, ec); }
+
+    static void write(const fs::path& p) {
+        FILE* f = std::fopen(p.string().c_str(), "wb");
+        if (f != nullptr) { std::fputs("BM", f); std::fclose(f); }
+    }
+};
+}  // namespace
+
+/* setBasePath() replaces the search list rather than adding to it: the skin
+   directory and its parent must be the only entries afterwards.  MainFrame
+   relies on this ordering when it re-registers the application asset paths. */
+TEST(texman_setbasepath_replaces_search_paths) {
+    AssetTree t;
+    TextureManager tm;
+    tm.addSearchPath((t.root / "stale").string());
+    tm.setBasePath((t.app / "skins" / "default").string());
+    EXPECT(!tm.resolvePath("notfound.bmp").empty());
+    tm.setBasePath((t.app / "Textures").string());
+    EXPECT(tm.resolvePath("notfound.bmp").empty());
+}
+
+/* An extracted portable release must find its bundled artwork with nothing
+   configured: the executable's own directory is the whole story. */
+TEST(texman_resolves_from_app_relative_dirs) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    tm.addSearchPath((t.app / "Textures").string());
+    tm.addSearchPath((t.app / "Scenery-gfx").string());
+
+    EXPECT(!tm.resolvePath("riverbed.bmp").empty());
+    EXPECT(!tm.resolvePath("Crate.bmp").empty());
+    EXPECT(!tm.resolvePath("notfound.bmp").empty());
+    EXPECT(tm.resolvePath("no_such_asset.bmp").empty());
+}
+
+/* Maps are authored on Windows, where "Crate.bmp" and "crate.bmp" name the
+   same file.  Resolution must stay case-insensitive on case-sensitive
+   filesystems or most real maps lose their scenery on Linux and macOS. */
+TEST(texman_resolution_is_case_insensitive) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    tm.addSearchPath((t.app / "Scenery-gfx").string());
+    EXPECT(!tm.resolvePath("crate.bmp").empty());
+    EXPECT(!tm.resolvePath("CRATE.BMP").empty());
+    EXPECT(!tm.resolvePath("Crate.BMP").empty());
+}
+
+/* addSearchPath() prepends, so the most recently registered directory is
+   searched first.  MainFrame registers the application directories once at
+   startup and the map-relative ones on every open, which is what makes a map
+   kept beside its own Textures folder use that copy rather than whatever
+   happens to be bundled with the editor. */
+TEST(texman_map_relative_paths_win_over_app_paths) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    tm.addSearchPath((t.app / "Textures").string());       /* at startup */
+    tm.addSearchPath((t.elsewhere / "Textures").string()); /* on map open */
+
+    const std::string resolved = tm.resolvePath("riverbed.bmp");
+    EXPECT(!resolved.empty());
+    EXPECT(resolved.find("elsewhere") != std::string::npos);
+}
+
+/* A path that already names a real file is used as given, so maps that store
+   an absolute or already-rooted texture path keep working. */
+TEST(texman_absolute_path_used_verbatim) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    const std::string direct = (t.elsewhere / "Textures" / "riverbed.bmp").string();
+    EXPECT(tm.resolvePath(direct) == direct);
+}
+
+/* Duplicate registrations are collapsed, so reopening maps in the same
+   directory cannot grow the search list without bound. */
+TEST(texman_search_paths_are_deduplicated) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    for (int i = 0; i < 100; ++i) {
+        tm.addSearchPath((t.app / "Textures").string());
+    }
+    EXPECT(!tm.resolvePath("riverbed.bmp").empty());
+    EXPECT(tm.searchPathCount() <= 3);
 }
 
 /* ---- Main -------------------------------------------------------------- */

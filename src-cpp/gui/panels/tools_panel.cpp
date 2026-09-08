@@ -49,6 +49,11 @@ ToolsPanel::ToolsPanel(MainFrame* mainFrame, const wxString& skinsPath)
 
     root->Add(grid, 1, wxEXPAND);
     SetSizer(root);
+    /* The frame was given its final size before the buttons existed, so no
+       resize follows SetSizer() to trigger a layout.  GTK lays out anyway;
+       Win32 does not, leaving all fourteen buttons stacked at (0,0) with only
+       one visible.  Lay out explicitly. */
+    Layout();
     Bind(wxEVT_BUTTON, &ToolsPanel::OnToolClicked, this);
 }
 

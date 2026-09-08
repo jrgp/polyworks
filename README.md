@@ -3,98 +3,112 @@ OpenSoldat PolyWorks
 
 Map editor for the game [OpenSoldat](https://github.com/opensoldat/opensoldat)
 
-## Modern rewrite (Free Pascal / Lazarus)
+## Modern rewrite (C++ / wxWidgets)
 
-This branch contains a complete rewrite of PolyWorks in Free Pascal and Lazarus,
-replacing the original VB6 implementation with a cross-platform application.
+This branch contains a complete rewrite of PolyWorks in C++17 with wxWidgets
+and OpenGL, replacing the original VB6 implementation with a cross-platform
+application that runs on Windows, Linux and macOS.
+
+The original VB6 sources in `src/` remain the behavioural source of truth; see
+`docs/source-port-inventory.md` for the element-by-element audit of the port
+against them.
 
 ### Requirements
 
-- Free Pascal 3.2+ (`fpc`)
-- Lazarus 2.2+ (`lazbuild`)
+- A C++17 compiler (GCC 9+, Clang 10+, or MSVC 2019+)
+- CMake 3.16+
+- wxWidgets 3.0+ (core, base, gl)
 - OpenGL (provided by your OS/graphics driver)
-- GCC (for building the stb_image C wrapper, first run only)
 
 On Debian/Ubuntu:
 ```sh
-sudo apt install fpc lazarus libgl-dev
+sudo apt install build-essential cmake libwxgtk3.0-gtk3-dev libwxgtk-media3.0-gtk3-dev libgl-dev
 ```
 
 ### Building
 
 ```sh
-# Build the full Lazarus application
-./build.sh
+./build-linux.sh          # Linux
+./build-mac.sh            # macOS (finds wxWidgets via Homebrew)
+build-windows.bat         # Windows, native MSVC
 
-# Output: build/polyworks
+# or directly
+cmake -S . -B build && cmake --build build -j
 ```
+
+Output: `build/bin/polyworks`.
 
 ### Testing (headless, no display required)
 
 ```sh
-./test.sh          # run all tests
-./test.sh --verbose  # verbose output
+./build/bin/pw_tests
 ```
 
-All tests run without a display server, OpenGL context, or GUI.
+Run it from the repository root so that the real maps in `maps/` are found:
+they are used as compatibility fixtures and every one of them is round-tripped
+through the loader and saver on each run.
 
 ### Running
 
 ```sh
-./build/polyworks
+./build/bin/polyworks [map.pms]
 ```
-
-Open a Soldat `.pms` map file with **File → Open**.
 
 ### Project layout
 
 ```
-src-fp/
+src-cpp/
   core/          Headless core: types, PMS format, geometry, map model, undo
-  gui/           Lazarus GUI: renderer, viewport, tools, main form, panels, dialogs
-  tests/         FPCUnit test suite (headless)
-  vendor/        stb_image C wrapper
-maps/            Real Soldat map fixtures (regression testing)
-polyworks.lpi    Lazarus project file
-polyworks.lpr    Application entry point
-build.sh         Linux/generic build script
-build-mac.sh     macOS build script (zero manual intervention)
-test.sh          Test runner
-scripts/         Shared build helpers
+  renderer/      OpenGL renderer and the asset resolver
+  gui/           wxWidgets GUI: viewport, tools, main frame, panels, dialogs
+  app/           Entry point and Windows resources
+  tests/         Headless test suite
+vendor/          stb_image
+maps/            Real Soldat map fixtures (compatibility testing)
+installer/       Original runtime assets: skins, cursors, palettes, help
+packaging/       Portable-distribution build scripts
+cmake/           Cross-compilation toolchain files
+docs/            Port audit, interaction notes, architecture
 arch.md          Reverse-engineered VB6 architecture documentation
-plan.md          Implementation roadmap
-progress.md      Current implementation status
-decisions.md     Architecture and compatibility decisions
 ```
 
-### Building on macOS
+### Portable Windows distribution
+
+`packaging/make-windows-zip.sh` produces `dist/PolyWorks-win64.zip`: a
+self-contained folder that runs from anywhere with no installation, no
+registry entries and no environment variables. It bundles the executable —
+statically linked, so it imports only Windows system DLLs — together with the
+skins, cursors, palettes, lists and help resources, and creates the `Textures`
+and `Scenery-gfx` folders that PolyWorks searches beside its own executable.
+
+The executable can be cross-compiled from Linux with mingw-w64 against a
+static wxWidgets build:
 
 ```sh
-./build-mac.sh
+cmake -S . -B build-win \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
+  -DPW_MINGW_PREFIX=/path/to/wx-mingw-prefix \
+  -DPW_STATIC_RUNTIME=ON -DCMAKE_BUILD_TYPE=Release \
+  -DwxWidgets_CONFIG_EXECUTABLE=/path/to/wx-mingw-prefix/bin/wx-config
+cmake --build build-win -j
+./packaging/make-windows-zip.sh
 ```
 
-That's it. The script:
+### Asset resolution
 
-- Detects or installs [Homebrew](https://brew.sh)
-- Detects or installs Free Pascal via Homebrew (`brew install fpc`)
-- Locates Lazarus / `lazbuild` in standard macOS paths
-- Builds the vendored `stb_image` C wrapper (no external headers needed)
-- Runs the full headless test suite
-- Builds the application with `lazbuild`
-- Creates `build/PolyWorks.app` (runnable from Finder or Terminal)
+Textures and scenery are looked up, in order:
 
-**One unavoidable manual step:** Lazarus has no Homebrew formula.
-If it isn't found, the script prints a single actionable error.
-Download the macOS installer from https://lazarus-ide.org, drag it to
-`~/Applications` or `/Applications`, then re-run `./build-mac.sh`.
+1. the path as written in the map, if it names an existing file;
+2. directories beside the map (`Textures`, `Scenery-gfx`, the map's own folder,
+   and the same three one level up) — so maps kept inside a Soldat
+   installation resolve their artwork with no configuration;
+3. the configured Soldat directory from **File > Preferences**;
+4. directories beside the executable (`Textures`, `Scenery-gfx`);
+5. the skin directory.
 
-```sh
-# Run from Terminal
-./build/polyworks
-
-# Or open the .app bundle
-open build/PolyWorks.app
-```
+Lookups are case-insensitive, because maps are authored on Windows. When
+nothing matches, PolyWorks substitutes `notfound.bmp`, prints every path it
+searched, and keeps the map editable.
 
 ---
 

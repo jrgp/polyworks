@@ -10,6 +10,8 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
+option(PW_STATIC_RUNTIME "Statically link the C/C++ runtime (portable Windows build)" OFF)
+
 # ── output directories ──────────────────────────────────────────────────────
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -35,9 +37,13 @@ target_link_libraries(pw_core PRIVATE stb_image)
 # ── headless test executable ─────────────────────────────────────────────────
 file(GLOB TEST_SOURCES src-cpp/tests/*.cpp)
 if(TEST_SOURCES)
-  add_executable(pw_tests ${TEST_SOURCES})
-  target_link_libraries(pw_tests PRIVATE pw_core)
-  target_include_directories(pw_tests PRIVATE src-cpp/tests)
+  # The asset resolver lives in texture_manager.cpp and is pure
+  # std::filesystem; PW_RENDERER_NO_OPENGL compiles out the texture-upload half
+  # so it can be tested without a GL library or a display.
+  add_executable(pw_tests ${TEST_SOURCES} src-cpp/renderer/texture_manager.cpp)
+  target_link_libraries(pw_tests PRIVATE pw_core stb_image)
+  target_include_directories(pw_tests PRIVATE src-cpp/tests src-cpp/renderer)
+  target_compile_definitions(pw_tests PRIVATE PW_RENDERER_NO_OPENGL=1)
   enable_testing()
   add_test(NAME headless COMMAND pw_tests)
 endif()
@@ -74,9 +80,20 @@ if(wxWidgets_FOUND AND (GUI_SOURCES OR APP_SOURCES))
     )
   endif()
 
-  # Windows resources
+  # Windows resources (icon, version info, DPI-aware manifest)
   if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/src-cpp/app/polyworks.rc")
     target_sources(polyworks PRIVATE src-cpp/app/polyworks.rc)
+    set_source_files_properties(src-cpp/app/polyworks.rc PROPERTIES
+      INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/src-cpp/app")
+  endif()
+
+  # The Windows distribution is portable: extract anywhere and run.  Statically
+  # linking the GCC runtime removes the libgcc/libstdc++/winpthread DLLs, so the
+  # ZIP needs no non-system DLLs at all.
+  if(WIN32 AND PW_STATIC_RUNTIME)
+    target_link_options(polyworks PRIVATE
+      -static -static-libgcc -static-libstdc++ -mwindows)
+    set_target_properties(polyworks PROPERTIES OUTPUT_NAME "PolyWorks")
   endif()
 
   # ── install skins/assets alongside binary ─────────────────────────────────

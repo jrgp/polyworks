@@ -13,7 +13,11 @@
 #include <unordered_set>
 #include <vector>
 
-#if defined(__has_include)
+/* PW_RENDERER_NO_OPENGL lets the headless test binary compile the asset
+   resolver -- which is pure std::filesystem -- without linking a GL library. */
+#if defined(PW_RENDERER_NO_OPENGL)
+#define PW_RENDERER_HAS_OPENGL 0
+#elif defined(__has_include)
 #if __has_include(<GL/gl.h>)
 #include <GL/gl.h>
 #define PW_RENDERER_HAS_OPENGL 1

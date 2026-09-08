@@ -544,3 +544,39 @@ map on open.
 stripping one pair of surrounding quotes and resolving the name against, in
 order: the path as given, `<appPath>/Maps/`, then `<OpenSoldatDir>/Maps/`.
 The installer registers this as the `.pms` handler (`installer/pw.nsi:185`).
+
+### Unsaved-changes guard
+
+The original never discards a modified map silently. `mnuNew_Click`
+(`frm:12752`), `mnuOpen_Click` (`frm:12772`) and `Terminate` (`frm:4381`) all
+call the same `prompt` helper, which shows a three-way message box:
+
+| Answer | Behaviour |
+|---|---|
+| Yes | Save the map, then continue with the operation |
+| No | Discard the changes and continue |
+| Cancel | Abort — no new map, no open dialog, and the application stays running |
+
+The port reproduces this in `MainFrame::ConfirmDiscardChanges()`. Closing the
+window routes through `wxEVT_CLOSE_WINDOW` so that Cancel can veto the close;
+`File > Exit` therefore calls `Close(false)` rather than destroying the frame
+directly. On the non-cancelled path the close handler performs the original's
+`SaveSettings` shutdown work: preferences are written and the colour palette is
+saved back to `palettes/current.txt`.
+
+### Startup and shutdown state
+
+`appPath = App.Path` (`modConfig.bas:52`) anchors every static resource to the
+executable's own directory, and the original keeps all of its state there:
+
+| File | Read | Written |
+|---|---|---|
+| `polyworks.ini` | startup (`LoadConfig`) | exit (`SaveSettings`) |
+| `palettes/current.txt` | `frmPalette.Form_Load` (`frm:867`) | exit (`modConfig.bas:389`) |
+| `Workspace/current.ini` | startup | exit |
+
+The port matches this on Windows. On Linux and macOS the settings file is used
+only when a `polyworks.ini` already exists beside the executable, so that the
+platform's own configuration conventions apply by default while portable mode
+remains available on request; a read-only application directory always falls
+back to the per-user store.

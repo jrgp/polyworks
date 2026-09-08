@@ -16,6 +16,8 @@
 /installer/skins/
 !/installer/skins/default/
 build/
+build-*/
+/dist/
 *.o
 *.ppu
 # Platform-specific compiled vendor artifacts

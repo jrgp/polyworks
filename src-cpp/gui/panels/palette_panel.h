@@ -54,6 +54,12 @@ public:
     uint8_t GetColorMode() const;
     void GetCurrentColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
 
+    /* <appPath>/palettes — where the original keeps its palette files. */
+    static wxString PalettesDir();
+    static wxString CurrentPalettePath();
+    void LoadCurrentPalette();
+    void SaveCurrentPalette() const;
+
     /* Callbacks into the main editor */
     std::function<void(uint8_t r, uint8_t g, uint8_t b)> onColorSelected;
     std::function<void(uint8_t r, uint8_t g, uint8_t b)> onColorChanged;

@@ -94,6 +94,7 @@ void WaypointPanel::buildUI() {
     auto* fs = new wxBoxSizer(wxVERTICAL);
     fs->Add(panel, 1, wxEXPAND);
     SetSizer(fs);
+    Layout();
 
     /* Events */
     m_chkLeft ->Bind(wxEVT_CHECKBOX, &WaypointPanel::OnLeft,  this);

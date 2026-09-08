@@ -5,8 +5,11 @@
 #include "dialogs/preferences_dlg.h"
 
 #include <wx/frame.h>
+#include <wx/confbase.h>
 #include <wx/statusbr.h>
 #include <wx/stattext.h>
+
+#include <memory>
 
 class GlViewport;
 class ToolsPanel;
@@ -111,8 +114,19 @@ public:
     bool LoadDocumentFromPath(const wxString& path);
     /* Register texture/scenery search paths derived from a map's location. */
     void RegisterAssetPathsForMap(const wxString& mapPath);
+    /* Register the search paths that are relative to the executable, so a
+       portable (extract-and-run) installation resolves its own assets. */
+    void RegisterAppAssetPaths();
+    /* The directory containing the running executable (VB6 `appPath`). */
+    static wxString AppDir();
+    /* Settings store: <appPath>/polyworks.ini when writable (portable), else
+       the platform per-user store. */
+    static std::unique_ptr<wxConfigBase> OpenConfig();
     /* Resolve and open a map named on the command line (file association). */
     bool OpenCommandLineMap(const wxString& arg);
+    /* VB6 `prompt` guard: offer to save before discarding a modified map.
+       Returns false when the user cancelled the pending action. */
+    bool ConfirmDiscardChanges();
 private:
     void OnFileOpenCompiled(wxCommandEvent& event);
     void OnFileSave(wxCommandEvent& event);
@@ -148,6 +162,7 @@ private:
     void OnWindowShowAll(wxCommandEvent& event);
     void OnWindowHideAll(wxCommandEvent& event);
     void OnWindowTogglePanel(wxCommandEvent& event);
+    void OnCloseWindow(wxCloseEvent& event);
     void OnWindowLoadWorkspace(wxCommandEvent& event);
     void OnWindowSaveWorkspace(wxCommandEvent& event);
     void OnWindowResetLayout(wxCommandEvent& event);

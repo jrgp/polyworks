@@ -1,0 +1,39 @@
+/* Windows resource script for PolyWorks.
+ *
+ * Supplies the application icon (the original PW.ico, so the taskbar and
+ * Explorer show the real PolyWorks icon), version information and a manifest
+ * requesting per-monitor DPI awareness plus visual styles.
+ *
+ * DPI awareness matters: without it Windows bitmap-stretches the window, which
+ * would defeat the HiDPI-correct glViewport sizing in GlViewport::OnPaint.
+ */
+
+#include "wx/msw/wx.rc"
+
+IDI_PW_ICON ICON "../../installer/PW.ico"
+
+1 24 "polyworks.manifest"
+
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEOS          0x4L
+FILETYPE        0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "FileDescription", "PolyWorks - Soldat map editor\0"
+            VALUE "FileVersion",     "1.0.0.0\0"
+            VALUE "InternalName",    "PolyWorks\0"
+            VALUE "OriginalFilename","PolyWorks.exe\0"
+            VALUE "ProductName",     "PolyWorks\0"
+            VALUE "ProductVersion",  "1.0.0.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END
