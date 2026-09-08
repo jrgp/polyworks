@@ -479,3 +479,68 @@ Replaced by `ToolsPanel` (PORTED). See frmTaskBar notes.
 | Custom borderless window chrome | Not applicable on modern OS |
 | Installer OCX registration | Not needed |
 | VB6 `DoEvents` / message pump | wxApp main loop |
+
+---
+
+# Forensic Audit — Independent Re-verification
+
+This section records a second, independent audit that treated the existing C++
+implementation as **untrusted** and re-derived expected behaviour from the
+original VB6 sources, the original resources, `installer/PolyWorks Help.html`,
+and the 97 real Soldat maps in `maps/`.
+
+Claims in the sections above were **not** taken as evidence. Where this audit
+contradicts them, this section is authoritative.
+
+Method: behaviour was verified empirically wherever possible — parsing the real
+shipped maps to derive the true on-disk conventions, and running the GUI under
+Xvfb against real maps to confirm rendering and asset resolution, rather than
+relying on successful compilation.
+
+## Findings that were previously mis-recorded as PORTED
+
+| # | Original element | Original behaviour (evidence) | C++ before | Status | Fix |
+|---|---|---|---|---|---|
+| 1 | Edge normals, `SaveAndCompile` (`frmOpenSoldatMapEditor.frm:2642`) | `n = ((v[i].y - v[j].y), (v[j].x - v[i].x)) / len` — verified against **6483/6483** sampled edges in real maps | Negated sign convention | **INCORRECT** | `computePolyNormals()` rewritten; pinned by `compile_normal_orientation` |
+| 2 | `Perp.vertex(j).Z` | Always `1` on disk in every real map; **bounciness lives in the normal's magnitude**, recovered on load via `Z = Sqr(X²+Y²)` (`frm:1988`) | Wrote bounciness into `perp.z`; `EditorPoly` had no bounciness field at all, so `docToPmsData` zeroed it | **SILENT DATA LOSS** | `EditorPoly::bounciness[3]` added; save/load bake and recover it; `bounciness_roundtrip` test |
+| 3 | `sectorsDivision` | `int((max(halfWidth, halfHeight) + 100) / 25)` — matched exactly on **12/12** maps | Never recomputed | **INCORRECT** | Derived in `compilePms()` / `docToPmsData()` |
+| 4 | Sector table, `IsInSector` (`frm:5684`) | Per-cell polygon overlap test; `polyType == 3` (NoCollide) never appears in any real sector table; 256 entries/cell cap | Permissive bbox-overlap test, included NoCollide, no cap | **INCORRECT** | Faithful `isInSector()`/`pointInPoly()`/`isBetween()` ports |
+| 5 | `mapRandomID` | `Rnd * 999999 + 10000`; real maps span 80110–964402 | Hard-coded `1` | **INCORRECT** | `std::mt19937` in `[10000, 1009999]` |
+| 6 | Texture colour key (`modGlobals.bas:12` `COLOR_KEY = &HFF00FF00`) | **Every** texture load colour-keys opaque pure green to transparent (`modRender.bas:149,163`; `frm:2083,4287`). Soldat BMPs have no alpha and depend on it | No colour keying at all | **NOT PORTED** | `src-cpp/core/color_key.{h,cpp}`; `color_key_*` tests |
+| 7 | Texture addressing | VB6 never sets `D3DTSS_ADDRESSU/V`, so D3D's default `D3DTADDRESS_WRAP` (tiling) applies. **99% of vertices in the shipped maps have UVs outside [0,1]** (measured range ±12.75) | `GL_CLAMP_TO_EDGE` | **INCORRECT** | `GL_REPEAT` |
+| 8 | Skins directory resolution | `appPath & "\skins\" & gfxDir` — source of `notfound.bmp`, all custom cursors and skin bitmaps | `wxFileName(dir, "skins/default")` misuses the *(path, filename)* ctor (asserts on separators) and resolved to `<cwd>/default`. `getSkinsPath()` returned **empty**, disabling the entire skins system | **BROKEN** | Correct `wxFileName::DirName` + `AppendDir` traversal, plus installed-layout and build-dir candidates and a warning on failure |
+| 9 | Texture/scenery search paths | `OpenSoldatDir & "textures\"`, `& "Scenery-gfx\"` (`frm:4284`, `frm:2092`); maps live in `<soldat>/Maps/` | `wxFileName(pmsDir, wxEmptyString).GetPath()` returns `pmsDir`, **not** its parent, so the `<soldat>/Textures` fallback never worked for any real map | **BROKEN** | Single `RegisterAssetPathsForMap()` helper with correct parent traversal |
+| 10 | View reset on load (`frm:1935-1939`) | `zoomFactor = 1`, `scroll = (-ScaleWidth/2, -ScaleHeight/2)` — puts world origin at the viewport centre, framing the map | No view reset; map appeared off the bottom-right corner | **NOT PORTED** | Reset applied *after* `pmsDataToDoc` (which calls `clear()` and would otherwise zero it) |
+| 11 | Command-line map open (`frm:10648-10670`) | Opens a `.pms` named on the command line, resolving it as given, then `<appPath>/Maps/`, then `<OpenSoldatDir>/Maps/`. This is how the `.pms` file association works (`installer/pw.nsi:185`) | Command line ignored entirely | **NOT PORTED** | `MainFrame::OpenCommandLineMap()` |
+| 12 | Selected-polygon highlight (`frm:3082-3116`) | Additive fill tinted by `gPolyTypeColors(polyType)` (26-entry table, `modConfig.bas:211-235`); index 0 is the user's selection colour (default `CE4D4A`). The highlight colour identifies the polygon type | Fixed yellow outline only | **PARTIALLY PORTED** | `polyTypeColor()` + additive per-vertex-selected fill; `poly_type_colors_match_original_defaults` test |
+| 13 | `frmInfo.frm` | A six-page property **editor** (`picProp(0..5)`, switched by `mnuProp_Click` and auto-selected by `GetInfo`, `frm:4668`) covering light, map, scenery, quad, transform and polygon properties | A read-only stats readout — 1 of 6 pages, no editing | **PARTIALLY PORTED** | Full six-page editor with VB6 value formatting, `noChange` re-entrancy guard, per-type auto page selection, and undo integration |
+| 14 | `frmMap.frm cboSteps` | Steps combo, list `Hard / Soft / None` (`frmMap.frx:0x015E`), bound to `Options.Steps` (`frm:4354`, `frm:4372`) | Absent from Map Settings; `steps` persisted but unreachable | **NOT PORTED** | Added to `MapSettingsDlg` |
+| 15 | `TOOL_SCALE` / `TOOL_ROTATE` | Interactive Ctrl-drag scale and Alt-drag rotate about the selection centre (`Scaling:7170`, `Rotating:7355`, `ApplyTransform:7245`) | `ComputeCurrentFunction` produced the tools but `HandleLeftDownEdit` had **no case** for them — silent no-ops | **NOT PORTED** | `Transforming` viewport state, `MapDocument::beginTransform`/`applyTransform`, Shift→15° quantisation |
+| 16 | Snapping (`SnapSelected:8246`) | Snap-to-grid and snap-to-vertex applied on mouse-up | `viewSettings.snapToGrid` / `snapToVertices` were written by the menu handlers and **never read anywhere** — dead toggles | **NOT PORTED** | `snapSelected()` implemented and called on drag release |
+| 17 | Preferences | `modConfig.bas LoadConfig`/`SaveConfig` persist settings across runs | `OnPreferences` constructed a throwaway `AppPrefs` each time — preferences were never retained or persisted at all | **BROKEN** | `LoadPrefs`/`SavePrefs`/`ApplyPrefs` via `wxConfig`, loaded at startup |
+| 18 | Arrow-key nudge (`frm:11007-11010`) | 1 world unit; Shift = `gridSpacing / gridDivisions` | Two competing handlers (viewport and mainframe) with different step sizes and undo behaviour; which one ran depended on focus | **INCORRECT** | Single `MainFrame::NudgeSelection`; viewport handler removed |
+| 19 | `mnuDuplicate` (`frm:13147`) | Offsets **+32 in X only** | `(10, 10)` | **INCORRECT** | `(32, 0)` |
+
+## Notes on evidence quality
+
+- The pre-existing `pms_roundtrip_all_maps` test compares **counts only**, not
+  bytes. It passed throughout every one of the format bugs above and is much
+  weaker evidence than its name suggests.
+- A clean compile was explicitly not accepted as evidence. Findings 6–11 were
+  all discovered by *running* the GUI under Xvfb against real maps; several are
+  invisible to the headless suite.
+- Finding 8 was located only after adding asset-resolution diagnostics; the
+  failure was silent by design in the original.
+
+## Remaining known gaps (not fixed)
+
+| Area | Gap |
+|---|---|
+| Rendering | Back-polygons (types 24/25) are not drawn in a separate pre-scenery pass (`frm:3073` excludes them from the main pass) |
+| Rendering | Spawn/collider/waypoint markers are drawn as primitives rather than from the original `objects.bmp` sprite atlas |
+| Model | `MapDocument::rotateSelected` / `flipSelected` only transform polygons; VB6 also transforms scenery, spawns, colliders, waypoints and lights. (The new `applyTransform` path *does* cover all entity kinds.) |
+| Info panel | The Quad page is read-only; the original writes it from the loaded texture size only, so this is close to faithful, but the texture-mapping tool that consumes it is not fully ported |
+| Preferences | Several original preference categories are still absent |
+| Menus | `Open Recent` is a disabled placeholder |
+| Interaction | Sketch smudge/erase, depthmap/quad tools, `[`/`]` tool cycling, and Home/End/PgUp/PgDn z-order keys are unported |
+| Verification | GUI verification used Xvfb with software rendering; HiDPI behaviour is unverified |

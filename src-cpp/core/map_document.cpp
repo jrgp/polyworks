@@ -2,6 +2,7 @@
  * map_document.cpp — MapDocument implementation.
  */
 #include "map_document.h"
+#include "geometry.h"
 
 #include <algorithm>
 #include <cstring>
@@ -380,6 +381,84 @@ void MapDocument::moveSelected(float dx, float dy) {
 
 void MapDocument::nudgeSelectedVertices(float dx, float dy) {
     moveSelected(dx, dy);
+}
+
+/* ---- Snapping ----------------------------------------------------------- */
+
+namespace {
+/* Returns the anchor position for a snap operation, or false if nothing is
+   selected.  VB6 uses the first selected vertex of the first selected poly,
+   falling back to the first selected scenery item (frm:8283-8308). */
+bool snapAnchor(const MapDocument& doc, Vec2& out, int& polyHits) {
+    polyHits = 0;
+    bool found = false;
+    for (const auto& p : doc.polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected) {
+                if (!found) { out = p.v[i].world; found = true; }
+                ++polyHits;
+            }
+    if (found) return true;
+    for (const auto& s : doc.scenery)
+        if (s.selected) { out = {s.x, s.y}; return true; }
+    return false;
+}
+} /* namespace */
+
+bool MapDocument::snapSelectedToGrid(float gridSize) {
+    if (gridSize <= 0) return false;
+    Vec2 anchor;
+    int polyHits = 0;
+    if (!snapAnchor(*this, anchor, polyHits)) return false;
+
+    float tx = snapToGrid(anchor.x, gridSize);
+    float ty = snapToGrid(anchor.y, gridSize);
+    float dx = tx - anchor.x;
+    float dy = ty - anchor.y;
+    if (dx == 0.0f && dy == 0.0f) return false;
+
+    moveSelected(dx, dy);
+    return true;
+}
+
+bool MapDocument::snapSelectedToVertices(float snapRadius) {
+    if (snapRadius <= 0) return false;
+    Vec2 anchor;
+    int polyHits = 0;
+    if (!snapAnchor(*this, anchor, polyHits)) return false;
+
+    /* VB6 refuses to vertex-snap when the selected vertices do not all share
+       the anchor's coordinates (frm:8378-8391) — otherwise the snap would
+       collapse unrelated vertices onto one point. */
+    for (const auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected &&
+                (p.v[i].world.x != anchor.x || p.v[i].world.y != anchor.y))
+                return false;
+
+    const float r2 = snapRadius * snapRadius;
+    float best = r2 + 1.0f;
+    Vec2 target = anchor;
+    for (const auto& p : polys)
+        for (int i = 0; i < 3; ++i) {
+            if (p.v[i].selected) continue;  /* never snap to the selection */
+            float dx = p.v[i].world.x - anchor.x;
+            float dy = p.v[i].world.y - anchor.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 <= r2 && d2 <= best) { best = d2; target = p.v[i].world; }
+        }
+
+    if (target.x == anchor.x && target.y == anchor.y) return false;
+    moveSelected(target.x - anchor.x, target.y - anchor.y);
+    return true;
+}
+
+bool MapDocument::snapSelected(float snapRadius) {
+    if (viewSettings.snapToGrid && viewSettings.showGrid)
+        return snapSelectedToGrid(viewSettings.gridSize);
+    if (viewSettings.snapToVertices)
+        return snapSelectedToVertices(snapRadius);
+    return false;
 }
 
 /* ---- Entity placement -------------------------------------------------- */
@@ -822,6 +901,92 @@ void MapDocument::rotateSelected(float angleDeg) {
             }
         }
     }
+    rebuildScreenCache();
+    markModified();
+}
+
+/* ---- Interactive transform sessions ------------------------------------ */
+
+Vec2 MapDocument::selectionCenter() const {
+    bool any = false;
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+    auto acc = [&](float x, float y) {
+        if (!any) { minX = maxX = x; minY = maxY = y; any = true; return; }
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    };
+    for (const auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected) acc(p.v[i].world.x, p.v[i].world.y);
+    for (const auto& s : scenery)   if (s.selected)  acc(s.x, s.y);
+    for (const auto& s : spawns)    if (s.selected)  acc(s.x, s.y);
+    for (const auto& c : colliders) if (c.selected)  acc(c.x, c.y);
+    for (const auto& w : waypoints) if (w.selected)  acc(w.x, w.y);
+    for (const auto& l : lights)    if (l.selected)  acc(l.x, l.y);
+
+    if (!any) return {0, 0};
+    return {(minX + maxX) * 0.5f, (minY + maxY) * 0.5f};
+}
+
+void MapDocument::beginTransform(TransformSession& s) const {
+    s = TransformSession{};
+    s.center = selectionCenter();
+    for (const auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected) s.polyVerts.push_back(p.v[i].world);
+    for (const auto& e : scenery)   if (e.selected) s.scenery.push_back({e.x, e.y});
+    for (const auto& e : spawns)    if (e.selected) s.spawns.push_back({e.x, e.y});
+    for (const auto& e : colliders) if (e.selected) s.colliders.push_back({e.x, e.y});
+    for (const auto& e : waypoints) if (e.selected) s.waypoints.push_back({e.x, e.y});
+    for (const auto& e : lights)    if (e.selected) s.lights.push_back({e.x, e.y});
+}
+
+void MapDocument::applyTransform(const TransformSession& s, float sx, float sy,
+                                 float angleRad) {
+    const float c = std::cos(angleRad);
+    const float sn = std::sin(angleRad);
+
+    auto xform = [&](Vec2 orig) -> Vec2 {
+        float dx = (orig.x - s.center.x) * sx;
+        float dy = (orig.y - s.center.y) * sy;
+        return { s.center.x + dx * c - dy * sn,
+                 s.center.y + dx * sn + dy * c };
+    };
+
+    size_t k = 0;
+    for (auto& p : polys)
+        for (int i = 0; i < 3; ++i)
+            if (p.v[i].selected && k < s.polyVerts.size())
+                p.v[i].world = xform(s.polyVerts[k++]);
+
+    k = 0;
+    for (auto& e : scenery)
+        if (e.selected && k < s.scenery.size()) {
+            Vec2 v = xform(s.scenery[k++]); e.x = v.x; e.y = v.y;
+        }
+    k = 0;
+    for (auto& e : spawns)
+        if (e.selected && k < s.spawns.size()) {
+            Vec2 v = xform(s.spawns[k++]); e.x = v.x; e.y = v.y;
+        }
+    k = 0;
+    for (auto& e : colliders)
+        if (e.selected && k < s.colliders.size()) {
+            Vec2 v = xform(s.colliders[k++]); e.x = v.x; e.y = v.y;
+        }
+    k = 0;
+    for (auto& e : waypoints)
+        if (e.selected && k < s.waypoints.size()) {
+            Vec2 v = xform(s.waypoints[k++]); e.x = v.x; e.y = v.y;
+        }
+    k = 0;
+    for (auto& e : lights)
+        if (e.selected && k < s.lights.size()) {
+            Vec2 v = xform(s.lights[k++]); e.x = v.x; e.y = v.y;
+        }
+
     rebuildScreenCache();
     markModified();
 }

@@ -645,3 +645,89 @@ Escape cancels any pending in-progress state.
 | ⚠️ | Partially implemented / simplified from original |
 | ⬜ TODO | Not yet implemented |
 | ⬜ N/A | Not applicable (platform-specific feature not being ported) |
+
+---
+
+## Interaction behaviour documented by the forensic audit
+
+Behaviour verified directly against the original VB6 sources during the
+independent re-audit. These were previously undocumented, and in each case the
+C++ implementation disagreed with the original until fixed.
+
+### Transform tools (Scale / Rotate)
+
+`ComputeCurrentFunction` selects `TOOL_SCALE` (Ctrl-drag) and `TOOL_ROTATE`
+(Alt-drag), but `HandleLeftDownEdit` had no case for either, so both were
+silent no-ops. Now handled by the `Transforming` viewport state.
+
+- **Centre of transform** — VB6 `rCenter` defaults to the midpoint of the
+  selection bounding rectangle (`selRect`), not the centroid.
+- **Rotation** (`Rotating`, `frm:7355`) — angle delta via `atan2`. With Shift
+  held the angle is quantised to 15° steps as
+  `floor((deg + 7.5) / 15) * 15`.
+- **Scaling** (`Scaling`, `frm:7170`) — unconstrained by default;
+  Ctrl+Shift constrains to proportional scaling.
+- Both are applied by `ApplyTransform` (`frm:7245`) as **scale-then-rotate**
+  about the centre. The C++ port applies the transform to geometry captured at
+  drag start (`TransformSession`) rather than incrementally, which avoids
+  cumulative floating-point drift over a long drag.
+
+### Movement
+
+- `Moving()` (`frm:7076`) takes **screen-space** deltas.
+- A step of `n = zoomFactor` corresponds to exactly **1 world unit**.
+- With Shift, `n = gridSpacing / gridDivisions * zoomFactor`, i.e.
+  `gridSpacing / gridDivisions` world units.
+- Shift during a drag constrains movement to a single axis; the axis with the
+  larger delta wins.
+
+### Arrow-key nudge
+
+`frm:11007-11010`: 1 world unit per press, or `gridSpacing / gridDivisions`
+with Shift. The port previously had **two** competing handlers — one on the
+viewport (`1/zoom`, ×10 with Shift, no undo) and one on the main frame
+(`1.0`/`10.0`, with undo) — so the step size and undo behaviour depended on
+which widget had focus. The viewport handler has been removed.
+
+### Snapping
+
+`SnapSelected` (`frm:8246`) runs on **mouse-up**, not continuously during the
+drag.
+
+- Grid snapping takes priority over vertex snapping
+  (`If snapToGrid And showGrid ... ElseIf ohSnap ...`).
+- Grid snapping is gated on the grid actually being **visible**.
+- Vertex snapping never snaps to a selected vertex, and refuses to act if the
+  selected vertices do not all share the anchor's coordinates.
+
+Both `snapToGrid` and `snapToVertices` were previously written by the menu
+handlers but never read anywhere in the port.
+
+### Duplicate
+
+`mnuDuplicate` (`frm:13147`) offsets the duplicate by **+32 in X only** — not
+by X and Y, and not by 10.
+
+### Polygon properties
+
+`GetInfo` (`frm:4668`) drives the property panel, guarded by `frmInfo.noChange`
+to stop control-update events writing back into the model. Notable rules:
+
+- Bounciness is displayed as `Int((Perp.Z - 1) * 100)`, clamped to ≥ 0.
+- The bounciness field is **enabled only for `polyType == 18` (Bouncy)**.
+- Values are formatted with VB6's `Int(x * m + 0.5) / m` rounding, which the
+  port reproduces so displayed numbers match the original.
+
+### View reset on load
+
+`LoadFile` (`frm:1935-1939`) resets `zoomFactor = 1` and
+`scroll = (-ScaleWidth/2, -ScaleHeight/2)`, placing world origin at the centre
+of the viewport. Soldat maps are built around the origin, so this frames the
+map on open.
+
+### Command-line / file-association open
+
+`Form_Load` (`frm:10648-10670`) opens a `.pms` passed on the command line,
+stripping one pair of surrounding quotes and resolving the name against, in
+order: the path as given, `<appPath>/Maps/`, then `<OpenSoldatDir>/Maps/`.
+The installer registers this as the `.pms` handler (`installer/pw.nsi:185`).

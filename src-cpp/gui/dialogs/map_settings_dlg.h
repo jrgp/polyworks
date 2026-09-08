@@ -47,6 +47,7 @@ private:
 
     wxTextCtrl*  m_mapName   = nullptr;
     wxComboBox*  m_weather   = nullptr;
+    wxComboBox*  m_steps     = nullptr;
     wxComboBox*  m_jet       = nullptr;
     wxTextCtrl*  m_jetCustom = nullptr;
     wxComboBox*  m_grenades  = nullptr;
@@ -59,4 +60,5 @@ private:
     static const int kJetValues[];
     static const char* const kJetNames[];
     static const char* const kWeatherNames[];
+    static const char* const kStepsNames[];
 };

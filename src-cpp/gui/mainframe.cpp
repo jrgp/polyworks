@@ -18,6 +18,8 @@
 #include <wx/filename.h>
 #include <wx/sizer.h>
 #include <wx/config.h>
+#include <wx/stdpaths.h>
+#include <wx/log.h>
 #include <wx/utils.h>
 
 #include <array>
@@ -195,6 +197,10 @@ MainFrame::MainFrame(const wxString& skinsPath)
     if (m_viewport != nullptr) {
         m_viewport->setSkinsPath(skinsPath.ToStdString());
     }
+
+    /* VB6 read polyworks.ini at startup (modConfig.bas LoadConfig). */
+    LoadPrefs();
+    ApplyPrefs();
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_viewport, 1, wxEXPAND);
@@ -614,42 +620,111 @@ void MainFrame::OnFileOpen(wxCommandEvent& event) {
         return;
     }
 
-    PmsData data;
-    std::string error;
-    if (loadPmsFile(dialog.GetPath().ToStdString(), data, error) != PmsLoadResult::OK) {
-        wxMessageBox(wxString::FromUTF8(error.c_str()), "Open failed", wxOK | wxICON_ERROR, this);
+    LoadDocumentFromPath(dialog.GetPath());
+}
+
+/* Shared by File>Open, the recent-file list and command-line/file-association
+   startup (VB6 Form_Load command-line branch, frm:10648-10670). */
+/* Register the asset search paths for a freshly opened map.
+ *
+ * VB6 resolves textures from `OpenSoldatDir & "textures\"` and scenery from
+ * `OpenSoldatDir & "Scenery-gfx\"` (frm:4284, frm:2092).  Maps normally live
+ * in <soldat>/Maps/, so the parent of the .pms directory is the natural
+ * equivalent when no Soldat directory has been configured.  The configured
+ * directory from Preferences is added separately by ApplyPrefs().
+ */
+void MainFrame::RegisterAssetPathsForMap(const wxString& mapPath) {
+    if (m_viewport == nullptr) {
         return;
     }
 
-    pmsDataToDoc(data, m_doc);
-    m_doc.clearModified();
-    m_doc.rebuildScreenCache();
-    m_currentFilePath = dialog.GetPath();
-    if (m_viewport != nullptr) {
-        /* PMS-relative asset resolution:
-         * Search paths in priority order (mirrors Soldat directory conventions):
-         *   1. The PMS file's own directory (e.g., Maps/)
-         *   2. Textures/ sibling directory (e.g., ../Textures/)
-         *   3. Scenery-gfx/ sibling directory (e.g., ../Scenery-gfx/)
-         *   4. The parent directory of the PMS (e.g., Soldat install root)
-         */
-        wxFileName fn(dialog.GetPath());
-        fn.Normalize();
-        const wxString pmsDir    = fn.GetPath();
-        const wxFileName parent(pmsDir, wxEmptyString);
-        const wxString parentDir = parent.GetPath();
+    wxFileName fn(mapPath);
+    fn.Normalize();
+    const wxString pmsDir = fn.GetPath();
 
-        m_viewport->addTexturePath(pmsDir.ToStdString());
-        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Textures").ToStdString());
-        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+    /* NB: wxFileName(pmsDir, wxEmptyString).GetPath() returns pmsDir itself,
+       not its parent.  That bug silently disabled the <soldat>/Textures and
+       <soldat>/Scenery-gfx fallbacks for maps in the usual <soldat>/Maps/
+       location, so no real Soldat map ever found its textures. */
+    wxFileName parent = wxFileName::DirName(pmsDir);
+    if (parent.GetDirCount() > 0) {
+        parent.RemoveLastDir();
+    }
+    const wxString parentDir = parent.GetPath();
+
+    m_viewport->addTexturePath(pmsDir.ToStdString());
+    m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Textures").ToStdString());
+    m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
+    if (!parentDir.empty() && parentDir != pmsDir) {
         m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Textures").ToStdString());
         m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
         m_viewport->addTexturePath(parentDir.ToStdString());
     }
+}
+
+bool MainFrame::LoadDocumentFromPath(const wxString& path) {
+    PmsData data;
+    std::string error;
+    if (loadPmsFile(path.ToStdString(), data, error) != PmsLoadResult::OK) {
+        wxMessageBox(wxString::FromUTF8(error.c_str()), "Open failed", wxOK | wxICON_ERROR, this);
+        return false;
+    }
+
+    pmsDataToDoc(data, m_doc);
+
+    /* VB6 LoadFile resets the view (frm:1935-1939): zoomFactor = 1 and
+       scrollCoords(2) = -ScaleWidth/2, -ScaleHeight/2, which puts world origin
+       at the centre of the viewport.  Soldat maps are built around the origin,
+       so this frames the map; without it the map lands off the bottom-right.
+       Must run *after* pmsDataToDoc, which calls MapDocument::clear() and
+       would otherwise zero the scroll again. */
+    m_doc.zoom = 1.0f;
+    if (m_viewport != nullptr) {
+        const wxSize vs = m_viewport->GetClientSize();
+        m_doc.scrollX = -vs.GetWidth() / 2.0f;
+        m_doc.scrollY = -vs.GetHeight() / 2.0f;
+    } else {
+        m_doc.scrollX = 0.0f;
+        m_doc.scrollY = 0.0f;
+    }
+    m_doc.clearModified();
+    m_doc.rebuildScreenCache();
+    m_currentFilePath = path;
+    RegisterAssetPathsForMap(path);
     m_undoStack.clear();
     UpdateStatusBar();
     UpdateTitle();
     RefreshViewport();
+    return true;
+}
+
+/* VB6 Form_Load resolves a command-line map name against, in order: the path
+   as given, <appPath>/Maps/, then <OpenSoldatDir>/Maps/ (frm:10657-10668). */
+bool MainFrame::OpenCommandLineMap(const wxString& arg) {
+    wxString name = arg;
+    /* VB6 strips one pair of surrounding quotes from Command$. */
+    if (name.EndsWith("\"")) name = name.Mid(0, name.length() - 1);
+    if (name.StartsWith("\"")) name = name.Mid(1);
+
+    if (name.Lower().Right(4) != ".pms") return false;
+
+    wxArrayString candidates;
+    candidates.Add(name);
+    const wxString appDir = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
+    candidates.Add(appDir + wxFILE_SEP_PATH + "Maps" + wxFILE_SEP_PATH + name);
+    if (!m_prefs.soldatDir.empty()) {
+        candidates.Add(wxString::FromUTF8(m_prefs.soldatDir.c_str()) +
+                       wxFILE_SEP_PATH + "Maps" + wxFILE_SEP_PATH + name);
+    }
+
+    for (const wxString& c : candidates) {
+        if (!wxFileExists(c)) continue;
+        wxBusyCursor busy;   /* VB6 sets vbHourglass around the load. */
+        return LoadDocumentFromPath(c);
+    }
+
+    wxLogWarning("Could not find map \"%s\".", arg);
+    return false;
 }
 
 bool MainFrame::SaveDocumentToPath(const wxString& path) {
@@ -810,7 +885,7 @@ void MainFrame::OnEditDuplicateSelected(wxCommandEvent& event) {
     }
 
     m_undoStack.push(m_doc);
-    m_doc.duplicateSelected(10.0f, 10.0f);
+    m_doc.duplicateSelected(32.0f, 0.0f);  /* VB6 mnuDuplicate: +32 X only */
     UpdateStatusBar();
     UpdateTitle();
     RefreshViewport();
@@ -977,21 +1052,26 @@ void MainFrame::OnFileOpenCompiled(wxCommandEvent&) {
         return;
     }
     pmsDataToDoc(data, m_doc);
+
+    /* VB6 LoadFile resets the view (frm:1935-1939): zoomFactor = 1 and
+       scrollCoords(2) = -ScaleWidth/2, -ScaleHeight/2, which puts world origin
+       at the centre of the viewport.  Soldat maps are built around the origin,
+       so this frames the map; without it the map lands off the bottom-right.
+       Must run *after* pmsDataToDoc, which calls MapDocument::clear() and
+       would otherwise zero the scroll again. */
+    m_doc.zoom = 1.0f;
+    if (m_viewport != nullptr) {
+        const wxSize vs = m_viewport->GetClientSize();
+        m_doc.scrollX = -vs.GetWidth() / 2.0f;
+        m_doc.scrollY = -vs.GetHeight() / 2.0f;
+    } else {
+        m_doc.scrollX = 0.0f;
+        m_doc.scrollY = 0.0f;
+    }
     m_doc.clearModified();
     m_doc.rebuildScreenCache();
     m_currentFilePath = dialog.GetPath();
-    if (m_viewport) {
-        wxFileName fn(dialog.GetPath());
-        fn.Normalize();
-        const wxString pmsDir  = fn.GetPath();
-        const wxString parentDir = wxFileName(pmsDir, wxEmptyString).GetPath();
-        m_viewport->addTexturePath(pmsDir.ToStdString());
-        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Textures").ToStdString());
-        m_viewport->addTexturePath((pmsDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
-        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Textures").ToStdString());
-        m_viewport->addTexturePath((parentDir + wxFILE_SEP_PATH + "Scenery-gfx").ToStdString());
-        m_viewport->addTexturePath(parentDir.ToStdString());
-    }
+    RegisterAssetPathsForMap(dialog.GetPath());
     m_undoStack.clear();
     UpdateStatusBar();
     UpdateTitle();
@@ -1201,17 +1281,78 @@ void MainFrame::OnMapSettings(wxCommandEvent&) {
     }
 }
 
-void MainFrame::OnPreferences(wxCommandEvent&) {
-    AppPrefs prefs;
-    PreferencesDlg dlg(this, prefs);
-    if (dlg.ShowModal() != wxID_OK) return;
-    m_undoStack.setMaxDepth(prefs.undoDepth);
-    m_doc.viewSettings.gridSize = static_cast<float>(prefs.gridSpacing);
-    if (!prefs.soldatDir.empty()) {
-        auto& tm = m_viewport->GetTextureManager();
-        tm.addSearchPath(prefs.soldatDir + "/Textures");
-        tm.addSearchPath(prefs.soldatDir + "/Scenery-gfx");
+void MainFrame::LoadPrefs() {
+    wxConfig cfg("PolyWorks", "PolyWorks");
+    double d = 0;
+    long   l = 0;
+    if (cfg.Read("Zoom/Min",   &d)) m_prefs.minZoom   = static_cast<float>(d);
+    if (cfg.Read("Zoom/Max",   &d)) m_prefs.maxZoom   = static_cast<float>(d);
+    if (cfg.Read("Zoom/Reset", &d)) m_prefs.resetZoom = static_cast<float>(d);
+    if (cfg.Read("Grid/Spacing",   &l)) m_prefs.gridSpacing   = static_cast<int>(l);
+    if (cfg.Read("Grid/Divisions", &l)) m_prefs.gridDivisions = static_cast<int>(l);
+    if (cfg.Read("Grid/Color1", &l)) m_prefs.gridColor1 = static_cast<unsigned>(l);
+    if (cfg.Read("Grid/Color2", &l)) m_prefs.gridColor2 = static_cast<unsigned>(l);
+    if (cfg.Read("Snap/Enabled", &l)) m_prefs.snapEnabled = (l != 0);
+    if (cfg.Read("Snap/Radius",  &d)) m_prefs.snapRadius  = static_cast<float>(d);
+    if (cfg.Read("Undo/Depth",   &l)) m_prefs.undoDepth   = static_cast<int>(l);
+    if (cfg.Read("Colors/Point",     &l)) m_prefs.pointColor     = static_cast<unsigned>(l);
+    if (cfg.Read("Colors/Selection", &l)) m_prefs.selectionColor = static_cast<unsigned>(l);
+
+    wxString s;
+    if (cfg.Read("Paths/SoldatDir",  &s)) m_prefs.soldatDir  = s.ToStdString();
+    if (cfg.Read("Paths/PrefabsDir", &s)) m_prefs.prefabsDir = s.ToStdString();
+    if (cfg.Read("Paths/UncompDir",  &s)) m_prefs.uncompDir  = s.ToStdString();
+
+    /* VB6 modOSME.bas fell back to a well-known install location when the
+       configured game directory was absent. */
+    if (m_prefs.soldatDir.empty()) {
+        const char* candidates[] = {
+            "/usr/share/soldat", "/usr/local/share/soldat",
+            "/usr/share/opensoldat", "C:\\OpenSoldat", "C:\\Soldat"
+        };
+        for (const char* c : candidates)
+            if (wxDirExists(c)) { m_prefs.soldatDir = c; break; }
     }
+}
+
+void MainFrame::SavePrefs() {
+    wxConfig cfg("PolyWorks", "PolyWorks");
+    cfg.Write("Zoom/Min",   static_cast<double>(m_prefs.minZoom));
+    cfg.Write("Zoom/Max",   static_cast<double>(m_prefs.maxZoom));
+    cfg.Write("Zoom/Reset", static_cast<double>(m_prefs.resetZoom));
+    cfg.Write("Grid/Spacing",   static_cast<long>(m_prefs.gridSpacing));
+    cfg.Write("Grid/Divisions", static_cast<long>(m_prefs.gridDivisions));
+    cfg.Write("Grid/Color1", static_cast<long>(m_prefs.gridColor1));
+    cfg.Write("Grid/Color2", static_cast<long>(m_prefs.gridColor2));
+    cfg.Write("Snap/Enabled", static_cast<long>(m_prefs.snapEnabled ? 1 : 0));
+    cfg.Write("Snap/Radius",  static_cast<double>(m_prefs.snapRadius));
+    cfg.Write("Undo/Depth",   static_cast<long>(m_prefs.undoDepth));
+    cfg.Write("Colors/Point",     static_cast<long>(m_prefs.pointColor));
+    cfg.Write("Colors/Selection", static_cast<long>(m_prefs.selectionColor));
+    cfg.Write("Paths/SoldatDir",  wxString(m_prefs.soldatDir));
+    cfg.Write("Paths/PrefabsDir", wxString(m_prefs.prefabsDir));
+    cfg.Write("Paths/UncompDir",  wxString(m_prefs.uncompDir));
+    cfg.Flush();
+}
+
+void MainFrame::ApplyPrefs() {
+    m_undoStack.setMaxDepth(m_prefs.undoDepth);
+    m_doc.viewSettings.gridSize = static_cast<float>(m_prefs.gridSpacing);
+    if (m_viewport != nullptr) {
+        m_viewport->setSnapRadius(m_prefs.snapRadius);
+        if (!m_prefs.soldatDir.empty()) {
+            auto& tm = m_viewport->GetTextureManager();
+            tm.addSearchPath(m_prefs.soldatDir + "/Textures");
+            tm.addSearchPath(m_prefs.soldatDir + "/Scenery-gfx");
+        }
+    }
+}
+
+void MainFrame::OnPreferences(wxCommandEvent&) {
+    PreferencesDlg dlg(this, m_prefs);
+    if (dlg.ShowModal() != wxID_OK) return;
+    ApplyPrefs();
+    SavePrefs();
     RefreshViewport();
 }
 
@@ -1255,28 +1396,43 @@ void MainFrame::OnKeyDown(wxKeyEvent& event) {
             RefreshViewport();
             return;
 
-        /* Nudge selected 1 world-unit in arrow direction */
-        case WXK_LEFT:  m_undoStack.push(m_doc); m_doc.moveSelected(-1.0f,  0.0f); RefreshViewport(); return;
-        case WXK_RIGHT: m_undoStack.push(m_doc); m_doc.moveSelected( 1.0f,  0.0f); RefreshViewport(); return;
-        case WXK_UP:    m_undoStack.push(m_doc); m_doc.moveSelected( 0.0f, -1.0f); RefreshViewport(); return;
-        case WXK_DOWN:  m_undoStack.push(m_doc); m_doc.moveSelected( 0.0f,  1.0f); RefreshViewport(); return;
+        /* Nudge the selection.  VB6 (frm:11007-11010, 11031-11040) moves by
+           one world unit, or by one grid sub-division with Shift held. */
+        case WXK_LEFT:  NudgeSelection(-1.0f,  0.0f, false); return;
+        case WXK_RIGHT: NudgeSelection( 1.0f,  0.0f, false); return;
+        case WXK_UP:    NudgeSelection( 0.0f, -1.0f, false); return;
+        case WXK_DOWN:  NudgeSelection( 0.0f,  1.0f, false); return;
 
         default: break;
         }
     }
 
-    /* Shift+arrow: nudge 10 world units */
     if (mods == wxMOD_SHIFT) {
         switch (key) {
-        case WXK_LEFT:  m_undoStack.push(m_doc); m_doc.moveSelected(-10.0f,   0.0f); RefreshViewport(); return;
-        case WXK_RIGHT: m_undoStack.push(m_doc); m_doc.moveSelected( 10.0f,   0.0f); RefreshViewport(); return;
-        case WXK_UP:    m_undoStack.push(m_doc); m_doc.moveSelected(  0.0f, -10.0f); RefreshViewport(); return;
-        case WXK_DOWN:  m_undoStack.push(m_doc); m_doc.moveSelected(  0.0f,  10.0f); RefreshViewport(); return;
+        case WXK_LEFT:  NudgeSelection(-1.0f,  0.0f, true); return;
+        case WXK_RIGHT: NudgeSelection( 1.0f,  0.0f, true); return;
+        case WXK_UP:    NudgeSelection( 0.0f, -1.0f, true); return;
+        case WXK_DOWN:  NudgeSelection( 0.0f,  1.0f, true); return;
         default: break;
         }
     }
 
     event.Skip();
+}
+
+void MainFrame::NudgeSelection(float dirX, float dirY, bool shift) {
+    float step = 1.0f;
+    if (shift) {
+        const int div = m_prefs.gridDivisions > 0 ? m_prefs.gridDivisions : 1;
+        step = static_cast<float>(m_prefs.gridSpacing) / static_cast<float>(div);
+        if (step <= 0.0f) step = 1.0f;
+    }
+    m_undoStack.push(m_doc);
+    m_doc.moveSelected(dirX * step, dirY * step);
+    m_doc.markModified();
+    UpdateStatusBar();
+    UpdateTitle();
+    RefreshViewport();
 }
 
 void MainFrame::OnSize(wxSizeEvent& event) {

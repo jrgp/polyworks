@@ -426,7 +426,7 @@ void GlViewport::OnRightDown(wxMouseEvent& event) {
         appendCmd("Duplicate", [this]() {
             if (!m_document.anySelected()) return;
             m_undoStack.push(m_document);
-            m_document.duplicateSelected(10.0f, 10.0f);
+            m_document.duplicateSelected(32.0f, 0.0f);  /* VB6 mnuDuplicate: +32 X only */
             m_document.markModified();
             if (m_mainFrame != nullptr) { m_mainFrame->UpdateStatusBar(); m_mainFrame->UpdateTitle(); }
             Refresh(false);
@@ -592,22 +592,9 @@ void GlViewport::OnKeyDown(wxKeyEvent& event) {
         return;
     }
 
-    /* Arrow-key nudge of selected vertices */
-    float nudge = 1.0f / m_document.zoom;
-    if (event.ShiftDown()) nudge *= 10.0f;
-    bool nudged = false;
-    if (key == WXK_LEFT)  { m_document.nudgeSelectedVertices(-nudge, 0); nudged = true; }
-    if (key == WXK_RIGHT) { m_document.nudgeSelectedVertices( nudge, 0); nudged = true; }
-    if (key == WXK_UP)    { m_document.nudgeSelectedVertices(0, -nudge); nudged = true; }
-    if (key == WXK_DOWN)  { m_document.nudgeSelectedVertices(0,  nudge); nudged = true; }
-    if (nudged) {
-        if (m_mainFrame != nullptr) {
-            m_mainFrame->UpdateStatusBar();
-            m_mainFrame->UpdateTitle();
-        }
-        Refresh(false);
-        return;
-    }
+    /* Arrow-key nudge is owned by MainFrame::OnKeyDown so that the step size is
+       identical whether or not the canvas has focus (VB6 handled arrows in a
+       single global key poller). */
 
     /* Recompute effective function when modifier state changes */
     int fn = ComputeCurrentFunction(event.ShiftDown(), event.ControlDown(), event.AltDown());
@@ -784,6 +771,16 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         return;
     }
 
+    case TOOL_SCALE:
+    case TOOL_ROTATE:
+        /* Ctrl-drag scales and Alt-drag rotates the current selection about
+           the centre of its bounding rectangle (VB6 Scaling / Rotating,
+           frm:7170 / frm:7355). */
+        if (!m_document.anySelected()) return;
+        m_undoStack.push(m_document);
+        BeginTransformDrag(world);
+        return;
+
     case TOOL_SKETCH:
         m_state = ViewportState::Sketching;
         m_rubberA = world;
@@ -793,6 +790,56 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     default:
         break;
     }
+}
+
+void GlViewport::BeginTransformDrag(Vec2 world) {
+    m_document.beginTransform(m_transform);
+    if (m_transform.empty()) { m_state = ViewportState::Idle; return; }
+    m_state          = ViewportState::Transforming;
+    m_dragWorldStart = world;
+    m_dragWorldLast  = world;
+    m_didDrag        = false;
+}
+
+void GlViewport::UpdateTransformDrag(Vec2 world, bool shiftDown) {
+    const Vec2  c     = m_transform.center;
+    const Vec2  start = m_dragWorldStart;
+
+    if (m_currentFunction == TOOL_ROTATE) {
+        /* VB6 Rotating (frm:7374-7404): angle delta between the drag origin
+           and the cursor, both measured from the rotation centre.  Shift
+           quantises the total rotation to 15° steps. */
+        float a0 = std::atan2(start.y - c.y, start.x - c.x);
+        float a1 = std::atan2(world.y - c.y, world.x - c.x);
+        float delta = a1 - a0;
+        if (shiftDown) {
+            const float kPi = 3.14159265358979f;
+            float deg = delta * 180.0f / kPi;
+            delta = std::floor((deg + 7.5f) / 15.0f) * 15.0f / 180.0f * kPi;
+        }
+        m_document.applyTransform(m_transform, 1.0f, 1.0f, delta);
+        return;
+    }
+
+    /* TOOL_SCALE — VB6 Scaling (frm:7189-7209). */
+    float sx = 1.0f, sy = 1.0f;
+    if (shiftDown) {
+        /* Ctrl+Shift: proportional scale on both axes. */
+        float dnx = start.x - c.x, dny = start.y - c.y;
+        float num, den;
+        if (dnx * dny > 0) {
+            num = (world.x - c.x) + (world.y - c.y);
+            den = dnx + dny;
+        } else {
+            num = (world.x - c.x) - (world.y - c.y);
+            den = dnx - dny;
+        }
+        sx = sy = (den != 0.0f) ? num / den : 1.0f;
+    } else {
+        if (start.x != c.x) sx = 1.0f + (world.x - start.x) / (start.x - c.x);
+        if (start.y != c.y) sy = 1.0f + (world.y - start.y) / (start.y - c.y);
+    }
+    m_document.applyTransform(m_transform, sx, sy, 0.0f);
 }
 
 void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
@@ -813,6 +860,14 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
     if (screenDist > kDragThreshold)
         m_didDrag = true;
 
+    if (m_state == ViewportState::Transforming) {
+        if (m_didDrag)
+            UpdateTransformDrag(world, event.ShiftDown());
+        m_dragWorldLast = world;
+        Refresh(false);
+        return;
+    }
+
     if (m_state == ViewportState::Dragging && m_didDrag) {
         if (m_currentFunction == TOOL_VCOLOR) {
             /* Continuous vertex color painting while dragging */
@@ -822,13 +877,26 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
                                                  m_paintOpacity, m_paintBlendMode);
             if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
         } else {
-            float moveDx = world.x - m_dragWorldLast.x;
-            float moveDy = world.y - m_dragWorldLast.y;
+            /* VB6 constrains movement to one axis while Shift is held
+               (frm:11469-11474): whichever axis has moved further wins. */
+            Vec2 target = world;
+            if (event.ShiftDown()) {
+                if (std::fabs(world.x - m_dragWorldStart.x) >=
+                    std::fabs(world.y - m_dragWorldStart.y))
+                    target.y = m_dragWorldStart.y;
+                else
+                    target.x = m_dragWorldStart.x;
+            }
+            float moveDx = target.x - m_dragWorldLast.x;
+            float moveDy = target.y - m_dragWorldLast.y;
             m_document.moveSelected(moveDx, moveDy);
+            m_dragWorldLast = target;
             if (m_mainFrame != nullptr) {
                 m_mainFrame->UpdateStatusBar();
                 m_mainFrame->UpdateTitle();
             }
+            if (m_state != ViewportState::Idle) Refresh(false);
+            return;
         }
     }
 
@@ -874,6 +942,15 @@ void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
     }
 
     /* VCOLOR drag ends: undo was pushed at drag start, no extra action needed */
+
+    if (m_state == ViewportState::Transforming && !m_didDrag)
+        m_undoStack.pop();  /* click without drag: nothing changed */
+
+    /* VB6 calls SnapSelected on mouse-up after a move (frm:11607). */
+    if (m_state == ViewportState::Dragging && m_didDrag &&
+        m_currentFunction != TOOL_VCOLOR && m_currentFunction != TOOL_PCOLOR) {
+        m_document.snapSelected(m_snapRadius);
+    }
 
     if (m_state == ViewportState::Dragging && !m_didDrag &&
         m_currentFunction != TOOL_VCOLOR && m_currentFunction != TOOL_PCOLOR) {

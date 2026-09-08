@@ -52,6 +52,7 @@ enum class ViewportState {
     Dragging,        /* moving selected objects */
     CreatingPoly,    /* placing polygon vertices one by one */
     Sketching,       /* drawing a sketch line by drag */
+    Transforming,    /* Ctrl-drag scale / Alt-drag rotate about the selection */
 };
 
 class GlViewport final : public GlViewportBase {
@@ -67,6 +68,9 @@ public:
     void setPaintColor(uint8_t r, uint8_t g, uint8_t b,
                        float opacity = 1.0f, int blendMode = 0,
                        float radius = 8.0f);
+
+    /* Radius (world units) used by vertex snapping on drag release. */
+    void setSnapRadius(float r) { m_snapRadius = r; }
 
     TextureManager& GetTextureManager() { return m_texMgr; }
 
@@ -125,6 +129,13 @@ private:
     Vec2          m_dragWorldLast;    /* world pos at last move event */
     Vec2          m_rubberA, m_rubberB; /* rubber-band rect corners (world) */
     bool          m_didDrag = false;  /* true if mouse moved > threshold */
+
+    /* Ctrl-drag scale / Alt-drag rotate session (VB6 Scaling / Rotating) */
+    MapDocument::TransformSession m_transform;
+    float         m_snapRadius = 8.0f;
+
+    void BeginTransformDrag(Vec2 world);
+    void UpdateTransformDrag(Vec2 world, bool shiftDown);
 
     /* CREATE tool state */
     static constexpr int kMaxCreationVerts = 3;

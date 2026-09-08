@@ -38,6 +38,11 @@ const char* const MapSettingsDlg::kWeatherNames[] = {
     "None", "Rain", "Sandstorm", "Snow", nullptr
 };
 
+/* ---- Steps options (frmMap.frx list: Hard / Soft / None) --------------- */
+const char* const MapSettingsDlg::kStepsNames[] = {
+    "Hard", "Soft", "None", nullptr
+};
+
 /* ---- Helpers ----------------------------------------------------------- */
 
 static wxColour argbToWx(uint32_t argb) {
@@ -94,6 +99,16 @@ MapSettingsDlg::MapSettingsDlg(wxWindow* parent, MapOptions& options,
         m_weather->Append(kWeatherNames[i]);
     m_weather->SetSelection(std::min(options.weather, (uint8_t)3));
     grid->Add(m_weather, 1, wxEXPAND);
+
+    /* Steps (frmMap.frm cboSteps) */
+    addLabel("Steps:");
+    m_steps = new wxComboBox(this, wxID_ANY, wxEmptyString,
+                             wxDefaultPosition, wxDefaultSize,
+                             0, nullptr, wxCB_READONLY);
+    for (int i = 0; kStepsNames[i]; ++i)
+        m_steps->Append(kStepsNames[i]);
+    m_steps->SetSelection(std::min(options.steps, (uint8_t)2));
+    grid->Add(m_steps, 1, wxEXPAND);
 
     /* Jet fuel */
     addLabel("Jet Fuel:");
@@ -251,6 +266,7 @@ void MapSettingsDlg::onOK(wxCommandEvent&) {
     if (m_options.mapName.size() > 38) m_options.mapName.resize(38);
 
     m_options.weather      = static_cast<uint8_t>(std::max(0, m_weather->GetSelection()));
+    m_options.steps        = static_cast<uint8_t>(std::max(0, m_steps->GetSelection()));
     m_options.grenadePacks = static_cast<uint8_t>(std::max(0, m_grenades->GetSelection()));
     m_options.medikits     = static_cast<uint8_t>(std::max(0, m_medikits->GetSelection()));
     m_options.textureName  = m_texture->GetValue().ToStdString();

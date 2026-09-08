@@ -2,6 +2,7 @@
 
 #include "map_document.h"
 #include "undo_stack.h"
+#include "dialogs/preferences_dlg.h"
 
 #include <wx/frame.h>
 #include <wx/statusbr.h>
@@ -70,6 +71,14 @@ private:
 
     void OnFileNew(wxCommandEvent& event);
     void OnFileOpen(wxCommandEvent& event);
+public:
+    /* Load a .pms into the document, replacing its contents. */
+    bool LoadDocumentFromPath(const wxString& path);
+    /* Register texture/scenery search paths derived from a map's location. */
+    void RegisterAssetPathsForMap(const wxString& mapPath);
+    /* Resolve and open a map named on the command line (file association). */
+    bool OpenCommandLineMap(const wxString& arg);
+private:
     void OnFileOpenCompiled(wxCommandEvent& event);
     void OnFileSave(wxCommandEvent& event);
     void OnFileSaveAs(wxCommandEvent& event);
@@ -110,9 +119,17 @@ private:
 
     void OnExit(wxCommandEvent& event);
     void OnKeyDown(wxKeyEvent& event);
+    void NudgeSelection(float dirX, float dirY, bool shift);
     void OnSize(wxSizeEvent& event);
 
     bool SaveDocumentToPath(const wxString& path);
+
+    /* Preferences persistence (VB6 modConfig.bas wrote polyworks.ini). */
+    void LoadPrefs();
+    void SavePrefs();
+    void ApplyPrefs();
+
+    AppPrefs m_prefs;
 
     wxString m_skinsPath;
     wxString m_currentFilePath;

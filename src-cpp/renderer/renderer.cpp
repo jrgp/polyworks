@@ -2,6 +2,7 @@
 
 #include "texture_manager.h"
 #include "pms_types.h"
+#include "geometry.h"
 
 #include <algorithm>
 #include <array>
@@ -299,6 +300,37 @@ void Renderer::renderScenery(const MapDocument& doc, int level) {
 
 void Renderer::renderSelectionOverlays(const MapDocument& doc) {
 #if PW_RENDERER_HAS_OPENGL
+    /* VB6 draws selected polygons as an additive fill tinted by
+       gPolyTypeColors(polyType) (frmOpenSoldatMapEditor.frm:3082-3116), so the
+       highlight colour tells the user the polygon's type at a glance.  Only
+       *selected vertices* receive the tint; unselected ones stay black, which
+       under additive blending contributes nothing.  Index 0 (Normal) is the
+       user-configurable selection colour (modConfig.bas:79, default CE4D4A). */
+    if (doc.viewSettings.showPolys) {
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glBegin(GL_TRIANGLES);
+        for (const auto& poly : doc.polys) {
+            if (!poly.anySelected()) {
+                continue;
+            }
+            const uint32_t rgb = polyTypeColor(poly.polyType, doc.selectionColor);
+            for (const auto& vertex : poly.v) {
+                if (vertex.selected) {
+                    glColor4ub(static_cast<GLubyte>((rgb >> 16) & 0xFF),
+                               static_cast<GLubyte>((rgb >> 8) & 0xFF),
+                               static_cast<GLubyte>(rgb & 0xFF), 255);
+                } else {
+                    glColor4ub(0, 0, 0, 255);
+                }
+                const Vec2 screen = toScreen(doc, vertex.world.x, vertex.world.y);
+                glVertex2f(screen.x, screen.y);
+            }
+        }
+        glEnd();
+    }
+
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_BLEND);
 

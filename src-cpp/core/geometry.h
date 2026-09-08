@@ -76,3 +76,11 @@ inline bool inSelRect(float x, float y,
 /* Snap zoom to the nearest "nice" level. dir > 0 = zoom in, < 0 = out. */
 float snapZoom(float current, int dir, float minZoom = PMS_ZOOM_MIN,
                float maxZoom = PMS_ZOOM_MAX);
+
+/* ---- Polygon type colours (modConfig.bas:211-235 gPolyTypeColors) ------
+ *
+ * Selected polygons are highlighted with a colour that identifies their type
+ * (frmOpenSoldatMapEditor.frm:3089).  Index 0 (Normal) is the user's
+ * configurable selection colour, defaulting to 0xCE4D4A (modConfig.bas:79).
+ * Returns 0xRRGGBB. */
+uint32_t polyTypeColor(int polyType, uint32_t selectionColor = 0xCE4D4Au);

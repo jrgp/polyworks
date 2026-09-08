@@ -1,6 +1,9 @@
 #include "texture_manager.h"
 
+#include "color_key.h"
 #include "stb_image.h"
+
+#include <cstdio>
 
 #include <algorithm>
 #include <cctype>
@@ -174,6 +177,19 @@ GLuint TextureManager::loadTexture(const std::string& filename) {
 
     const std::string path = findFile(filename);
     if (path.empty()) {
+        /* The audit brief requires useful diagnostics when assets can't be
+           resolved; the original silently substituted notfound.bmp, which made
+           a missing Soldat directory very hard to diagnose. */
+        std::string searched;
+        for (const auto& sp : m_searchPaths) {
+            if (!searched.empty()) searched += ", ";
+            searched += sp;
+        }
+        std::fprintf(stderr,
+                     "PolyWorks: asset not found: \"%s\" (searched: %s)\n",
+                     filename.c_str(),
+                     searched.empty() ? "<no search paths configured>"
+                                      : searched.c_str());
         const GLuint notFoundId = getNotFoundTexture();
         if (notFoundId != 0) {
             int notFoundW = 1;
@@ -192,6 +208,7 @@ GLuint TextureManager::loadTexture(const std::string& filename) {
         return 0;
     }
 
+    applyColorKey(pixels, w, h);
     const GLuint texId = uploadTexture(pixels, w, h);
     stbi_image_free(pixels);
     if (texId == 0) {
@@ -261,6 +278,7 @@ GLuint TextureManager::getNotFoundTexture() {
         int channels = 0;
         unsigned char* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4);
         if (pixels != nullptr) {
+            applyColorKey(pixels, w, h);
             m_notFoundTexId = uploadTexture(pixels, w, h);
             stbi_image_free(pixels);
             if (m_notFoundTexId != 0) {
@@ -270,6 +288,9 @@ GLuint TextureManager::getNotFoundTexture() {
         }
     }
 
+    std::fprintf(stderr,
+                 "PolyWorks: could not load the notfound.bmp placeholder from "
+                 "the skins directory; falling back to flat magenta.\n");
     const uint8_t magenta[4] = {255, 0, 255, 255};
     m_notFoundTexId = uploadTexture(magenta, 1, 1);
     return m_notFoundTexId;
@@ -293,8 +314,13 @@ GLuint TextureManager::uploadTexture(const uint8_t* rgba, int w, int h) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    /* VB6 never sets D3DTSS_ADDRESSU/V, so Direct3D's default
+       D3DTADDRESS_WRAP applies: map textures tile.  Real Soldat maps depend on
+       this - 99% of vertices in the shipped maps have texture coordinates
+       outside [0,1] (measured range +-12.75 across maps/) - so clamping
+       smeared a single edge texel across whole polygons. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexImage2D(GL_TEXTURE_2D,
                  0,
                  GL_RGBA,

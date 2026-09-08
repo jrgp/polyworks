@@ -18,6 +18,7 @@
 #include "map_document.h"
 #include "undo_stack.h"
 #include "geometry.h"
+#include "color_key.h"
 
 #include <cstdio>
 #include <cstring>
@@ -311,6 +312,127 @@ TEST(map_document_screen_cache) {
 
 /* ---- PMS round-trip on all maps in maps/ ------------------------------- */
 
+/* The count-only check below is much weaker than its name suggests: it passed
+   throughout every edge-normal, sector-table and bounciness bug found by the
+   forensic audit.  This test does a strict *editor* round-trip instead —
+   file -> MapDocument -> file -> MapDocument — and compares every field the
+   editor is responsible for preserving, across all shipped maps. */
+TEST(editor_roundtrip_preserves_all_maps) {
+    const std::string mapsDir = "maps";
+    if (!fs::exists(mapsDir)) {
+        std::fprintf(stderr, "  [SKIP] maps/ directory not found\n");
+        return;
+    }
+
+    int checked = 0, bad = 0;
+    for (const auto& entry : fs::directory_iterator(mapsDir)) {
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext != ".pms") continue;
+
+        const std::string path = entry.path().string();
+        PmsData in;
+        std::string err;
+        if (loadPmsFile(path, in, err) != PmsLoadResult::OK) continue;
+
+        MapDocument a;
+        pmsDataToDoc(in, a);
+
+        PmsData mid;
+        docToPmsData(a, mid);
+
+        std::vector<uint8_t> bytes;
+        if (!pmsDataToBytes(mid, bytes, err)) {
+            ++bad;
+            test_fail(("serialize: " + path).c_str(), __FILE__, __LINE__, err);
+            continue;
+        }
+
+        PmsData back;
+        if (!pmsBytesToData(bytes, back, err)) {
+            ++bad;
+            test_fail(("reload: " + path).c_str(), __FILE__, __LINE__, err);
+            continue;
+        }
+
+        MapDocument b;
+        pmsDataToDoc(back, b);
+
+        bool ok = true;
+        auto note = [&](const char* what) {
+            if (!ok) return;
+            ok = false;
+            ++bad;
+            test_fail((path + ": " + what).c_str(), __FILE__, __LINE__, "");
+        };
+
+        if (a.polys.size() != b.polys.size())         note("polygon count");
+        else if (a.scenery.size() != b.scenery.size()) note("scenery count");
+        else if (a.spawns.size() != b.spawns.size())   note("spawn count");
+        else if (a.colliders.size() != b.colliders.size()) note("collider count");
+        else if (a.waypoints.size() != b.waypoints.size()) note("waypoint count");
+        else {
+            for (size_t i = 0; ok && i < a.polys.size(); ++i) {
+                const EditorPoly& p = a.polys[i];
+                const EditorPoly& q = b.polys[i];
+                if (p.polyType != q.polyType) { note("polyType"); break; }
+                for (int j = 0; j < 3; ++j) {
+                    if (std::fabs(p.v[j].world.x - q.v[j].world.x) > 1e-3f ||
+                        std::fabs(p.v[j].world.y - q.v[j].world.y) > 1e-3f) {
+                        note("vertex position"); break;
+                    }
+                    if (std::fabs(p.v[j].tu - q.v[j].tu) > 1e-4f ||
+                        std::fabs(p.v[j].tv - q.v[j].tv) > 1e-4f) {
+                        note("vertex UV"); break;
+                    }
+                    if (p.v[j].r != q.v[j].r || p.v[j].g != q.v[j].g ||
+                        p.v[j].b != q.v[j].b || p.v[j].alpha != q.v[j].alpha) {
+                        note("vertex colour"); break;
+                    }
+                    /* Bounciness survives only via the normal's magnitude. */
+                    if (std::fabs(p.bounciness[j] - q.bounciness[j]) > 1e-3f) {
+                        note("bounciness"); break;
+                    }
+                }
+            }
+            for (size_t i = 0; ok && i < a.scenery.size(); ++i) {
+                const EditorScenery& p = a.scenery[i];
+                const EditorScenery& q = b.scenery[i];
+                if (p.style != q.style) { note("scenery style"); break; }
+                if (p.level != q.level) { note("scenery level"); break; }
+                if (p.alpha != q.alpha) { note("scenery alpha"); break; }
+                if (std::fabs(p.x - q.x) > 1e-3f ||
+                    std::fabs(p.y - q.y) > 1e-3f) { note("scenery pos"); break; }
+                if (std::fabs(p.rotation - q.rotation) > 1e-4f) { note("scenery rotation"); break; }
+                if (std::fabs(p.scaleX - q.scaleX) > 1e-4f ||
+                    std::fabs(p.scaleY - q.scaleY) > 1e-4f) { note("scenery scale"); break; }
+            }
+            for (size_t i = 0; ok && i < a.spawns.size(); ++i) {
+                if (a.spawns[i].team != b.spawns[i].team ||
+                    std::fabs(a.spawns[i].x - b.spawns[i].x) > 1e-3f ||
+                    std::fabs(a.spawns[i].y - b.spawns[i].y) > 1e-3f) {
+                    note("spawn"); break;
+                }
+            }
+            for (size_t i = 0; ok && i < a.waypoints.size(); ++i) {
+                if (a.waypoints[i].connections != b.waypoints[i].connections) {
+                    note("waypoint connections"); break;
+                }
+            }
+            if (ok && a.options.mapName != b.options.mapName) note("map name");
+            if (ok && a.options.textureName != b.options.textureName) note("texture name");
+            if (ok && a.options.steps != b.options.steps) note("steps");
+            if (ok && a.options.weather != b.options.weather) note("weather");
+        }
+        ++checked;
+    }
+
+    std::fprintf(stderr, "  editor round-trip: %d maps checked, %d failed\n",
+                 checked, bad);
+    EXPECT(checked > 50);
+    EXPECT_EQ(bad, 0);
+}
+
 TEST(pms_roundtrip_all_maps) {
     const std::string mapsDir = "maps";
     if (!fs::exists(mapsDir)) {
@@ -368,8 +490,355 @@ TEST(pms_roundtrip_all_maps) {
     EXPECT_EQ(failed, 0);
 }
 
-/* ---- PMS ↔ MapDocument round-trip ------------------------------------- */
+/* ---- Compile fidelity against the shipped Soldat maps ------------------ */
+/*
+ * Every map in maps/ was produced by the original VB6 SaveAndCompile.  Loading
+ * one and recompiling it must reproduce the same collision data, because the
+ * maps are already centred on their own bounding box.  This pins down the four
+ * compile bugs found during the source-port audit:
+ *   - inverted edge-normal sign
+ *   - sectorsDivision never recomputed
+ *   - Perp.Z written as bounciness instead of 1
+ *   - POLY_NO_COLLIDE (type 3) polygons indexed into the sector table
+ */
+TEST(compile_matches_original_soldat_maps) {
+    const std::string mapsDir = "maps";
+    if (!fs::exists(mapsDir)) {
+        std::fprintf(stderr, "  [SKIP] maps/ directory not found\n");
+        return;
+    }
 
+    /* A representative spread of shipped maps. */
+    const char* names[] = { "Arena2.pms", "Bunker.pms", "ctf_Ash.pms",
+                            "Bridge.pms", "ctf_Run.pms" };
+
+    int checked = 0;
+    for (const char* name : names) {
+        std::string path = mapsDir + "/" + name;
+        if (!fs::exists(path)) continue;
+
+        PmsData orig;
+        std::string err;
+        if (loadPmsFile(path, orig, err) != PmsLoadResult::OK) continue;
+        if (orig.polys.empty()) continue;
+
+        std::string tmp = (fs::temp_directory_path() /
+                           ("pw_compile_" + std::string(name))).string();
+        EXPECT(compilePms(tmp, orig, err));
+
+        PmsData redone;
+        EXPECT(loadPmsFile(tmp, redone, err) == PmsLoadResult::OK);
+        fs::remove(tmp);
+
+        if (redone.polys.size() != orig.polys.size()) {
+            test_fail("recompiled poly count", __FILE__, __LINE__, name);
+            continue;
+        }
+
+        /* sectorsDivision must match the original file exactly. */
+        EXPECT_EQ(redone.sectorDiv, orig.sectorDiv);
+
+        /* mapRandomID must be a plausible VB6-style positive ID. */
+        EXPECT(redone.options.mapRandomID >= 10000 &&
+               redone.options.mapRandomID <= 1009999);
+
+        /* Edge normals must match the original direction and magnitude. */
+        int normalMismatch = 0, zMismatch = 0;
+        for (size_t p = 0; p < orig.polys.size(); ++p)
+            for (int i = 0; i < 3; ++i) {
+                const PmsNormal& a = orig.polys[p].poly.perp.n[i];
+                const PmsNormal& b = redone.polys[p].poly.perp.n[i];
+                if (std::fabs(a.x - b.x) > 1e-3f ||
+                    std::fabs(a.y - b.y) > 1e-3f)
+                    ++normalMismatch;
+                if (std::fabs(b.z - 1.0f) > 1e-6f)
+                    ++zMismatch;
+            }
+        if (normalMismatch != 0)
+            test_fail("edge normals differ from original", __FILE__, __LINE__,
+                      std::string(name) + ": " + std::to_string(normalMismatch));
+        else
+            test_pass("edge normals", __FILE__, __LINE__);
+        EXPECT_EQ(zMismatch, 0);
+
+        /* POLY_NO_COLLIDE must never appear in the sector table. */
+        int badType = 0, overCap = 0;
+        for (int i = 0; i < SECTOR_CELLS; ++i)
+            for (int j = 0; j < SECTOR_CELLS; ++j) {
+                if (redone.sectors[i][j].polyCount > 256) ++overCap;
+                for (int idx : redone.sectors[i][j].polyIndex)
+                    if (idx >= 0 && idx < static_cast<int>(redone.polys.size()) &&
+                        redone.polys[idx].polyType == POLY_NO_COLLIDE)
+                        ++badType;
+            }
+        EXPECT_EQ(badType, 0);
+        EXPECT_EQ(overCap, 0);
+
+        /* The regenerated sector table should closely track the original's.
+           (Exact equality is impossible: VB6 derived the centring offset from
+           editor-tracked extents that also covered scenery and waypoints.) */
+        int cellsEqual = 0;
+        for (int i = 0; i < SECTOR_CELLS; ++i)
+            for (int j = 0; j < SECTOR_CELLS; ++j)
+                if (redone.sectors[i][j].polyIndex ==
+                    orig.sectors[i][j].polyIndex) ++cellsEqual;
+        if (cellsEqual < (SECTOR_CELLS * SECTOR_CELLS * 85) / 100)
+            test_fail("sector table diverges from original", __FILE__, __LINE__,
+                      std::string(name) + ": " + std::to_string(cellsEqual) +
+                      "/" + std::to_string(SECTOR_CELLS * SECTOR_CELLS));
+        else
+            test_pass("sector table", __FILE__, __LINE__);
+
+        ++checked;
+    }
+    EXPECT(checked > 0);
+}
+
+/* ---- Bounciness survives an editor round-trip -------------------------- */
+TEST(bounciness_roundtrip) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};
+    p.v[1].world = {100, 0};
+    p.v[2].world = {50, 100};
+    p.polyType = POLY_BOUNCY;
+    p.bounciness[0] = p.bounciness[1] = p.bounciness[2] = 2.5f;
+    doc.addPoly(p);
+
+    PmsData data;
+    docToPmsData(doc, data);
+
+    /* VB6 writes Perp.Z as 1 and carries bounciness in the vector magnitude. */
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_NEAR(data.polys[0].poly.perp.n[i].z, 1.0f, 1e-6f);
+        float mag = std::sqrt(data.polys[0].poly.perp.n[i].x *
+                              data.polys[0].poly.perp.n[i].x +
+                              data.polys[0].poly.perp.n[i].y *
+                              data.polys[0].poly.perp.n[i].y);
+        EXPECT_NEAR(mag, 2.5f, 1e-3f);
+    }
+
+    MapDocument doc2;
+    pmsDataToDoc(data, doc2);
+    EXPECT_EQ(doc2.polys.size(), 1u);
+    for (int i = 0; i < 3; ++i)
+        EXPECT_NEAR(doc2.polys[0].bounciness[i], 2.5f, 1e-3f);
+}
+
+/* ---- Edge-normal convention -------------------------------------------- */
+/*
+ * VB6 (frm:2670-2683) builds the edge normal as
+ *     n = ( (v[i].y - v[j].y) , (v[j].x - v[i].x) ) / len
+ * i.e. the edge direction rotated 90° clockwise on screen (Y down).
+ * This is the opposite sign to the naive (dy, -dx) form, and it is the
+ * convention every shipped Soldat map uses.
+ */
+TEST(compile_normal_orientation) {
+    PmsData d;
+    d.version = PMS_VERSION;
+    PmsPolyEntry pe{};
+    pe.poly.v[0].x = 0;   pe.poly.v[0].y = 0;
+    pe.poly.v[1].x = 100; pe.poly.v[1].y = 0;
+    pe.poly.v[2].x = 50;  pe.poly.v[2].y = 100;
+    pe.polyType = POLY_NORMAL;
+    d.polys.push_back(pe);
+
+    std::string tmp = (fs::temp_directory_path() / "pw_normal_test.pms").string();
+    std::string err;
+    EXPECT(compilePms(tmp, d, err));
+    PmsData back;
+    EXPECT(loadPmsFile(tmp, back, err) == PmsLoadResult::OK);
+    fs::remove(tmp);
+
+    /* Edge 0 runs +X along the top edge -> normal is +Y. */
+    EXPECT_NEAR(back.polys[0].poly.perp.n[0].x, 0.0f, 1e-3f);
+    EXPECT_NEAR(back.polys[0].poly.perp.n[0].y, 1.0f, 1e-3f);
+
+    /* All normals must be unit length and perpendicular to their edge. */
+    for (int i = 0; i < 3; ++i) {
+        int j = (i + 1) % 3;
+        const PmsNormal& n = back.polys[0].poly.perp.n[i];
+        EXPECT_NEAR(std::sqrt(n.x * n.x + n.y * n.y), 1.0f, 1e-3f);
+        float ex = back.polys[0].poly.v[j].x - back.polys[0].poly.v[i].x;
+        float ey = back.polys[0].poly.v[j].y - back.polys[0].poly.v[i].y;
+        float elen = std::sqrt(ex * ex + ey * ey);
+        EXPECT_NEAR((ex * n.x + ey * n.y) / elen, 0.0f, 1e-3f);
+    }
+}
+
+/* ---- Texture colour key (modGlobals.bas COLOR_KEY = &HFF00FF00) -------- */
+TEST(color_key_makes_pure_green_transparent) {
+    /* 2x2: pure green, near-green, green with alpha 0 already, and red. */
+    unsigned char px[16] = {
+          0, 255,   0, 255,   /* exact key      -> transparent */
+          1, 255,   0, 255,   /* off by one     -> untouched   */
+          0, 255,   0,   0,   /* already alpha0 -> untouched   */
+        255,   0,   0, 255,   /* red            -> untouched   */
+    };
+    applyColorKey(px, 2, 2);
+
+    EXPECT_EQ((int)px[3], 0);      /* keyed out */
+    EXPECT_EQ((int)px[1], 0);      /* green channel zeroed to stop bleeding */
+
+    EXPECT_EQ((int)px[4], 1);      /* near-green untouched */
+    EXPECT_EQ((int)px[5], 255);
+    EXPECT_EQ((int)px[7], 255);
+
+    EXPECT_EQ((int)px[9], 255);    /* alpha already 0: not the key colour */
+    EXPECT_EQ((int)px[11], 0);
+
+    EXPECT_EQ((int)px[12], 255);   /* red fully untouched */
+    EXPECT_EQ((int)px[13], 0);
+    EXPECT_EQ((int)px[15], 255);
+}
+
+TEST(color_key_handles_degenerate_input) {
+    /* Must not crash or read out of bounds. */
+    applyColorKey(nullptr, 4, 4);
+    unsigned char one[4] = {0, 255, 0, 255};
+    applyColorKey(one, 0, 0);
+    EXPECT_EQ((int)one[3], 255);   /* untouched when the size is empty */
+    applyColorKey(one, 1, 1);
+    EXPECT_EQ((int)one[3], 0);
+}
+
+/* ---- Polygon type colours (modConfig.bas gPolyTypeColors) -------------- */
+TEST(poly_type_colors_match_original_defaults) {
+    /* Index 0 (Normal) is the user's selection colour. */
+    EXPECT_EQ((int)polyTypeColor(POLY_NORMAL), (int)0xCE4D4Au);
+    EXPECT_EQ((int)polyTypeColor(POLY_NORMAL, 0x123456u), (int)0x123456u);
+
+    EXPECT_EQ((int)polyTypeColor(1),  (int)0x7ACC29u);  /* OnlyBullets   */
+    EXPECT_EQ((int)polyTypeColor(4),  (int)0x29CCCCu);  /* Ice           */
+    EXPECT_EQ((int)polyTypeColor(9),  (int)0xCC7A29u);  /* Lava          */
+    EXPECT_EQ((int)polyTypeColor(18), (int)0x297ACCu);  /* Bouncy        */
+    EXPECT_EQ((int)polyTypeColor(24), (int)0x292929u);  /* Back          */
+    EXPECT_EQ((int)polyTypeColor(25), (int)0x7A7A7Au);  /* BackTransition*/
+
+    /* 12..17 alias 10/11 in the original. */
+    EXPECT_EQ((int)polyTypeColor(12), (int)polyTypeColor(10));
+    EXPECT_EQ((int)polyTypeColor(13), (int)polyTypeColor(11));
+    EXPECT_EQ((int)polyTypeColor(16), (int)polyTypeColor(10));
+    EXPECT_EQ((int)polyTypeColor(17), (int)polyTypeColor(11));
+
+    /* Out-of-range falls back to the selection colour, never garbage. */
+    EXPECT_EQ((int)polyTypeColor(99, 0xAABBCCu), (int)0xAABBCCu);
+    EXPECT_EQ((int)polyTypeColor(-3, 0xAABBCCu), (int)0xAABBCCu);
+}
+
+/* ---- Interactive transform sessions ------------------------------------ */
+TEST(transform_session_scale_and_rotate) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};
+    p.v[1].world = {100, 0};
+    p.v[2].world = {100, 100};
+    p.v[0].selected = p.v[1].selected = p.v[2].selected = true;
+    doc.addPoly(p);
+
+    /* Bounding rect is (0,0)-(100,100) so the centre is (50,50). */
+    Vec2 c = doc.selectionCenter();
+    EXPECT_NEAR(c.x, 50.0f, 1e-4f);
+    EXPECT_NEAR(c.y, 50.0f, 1e-4f);
+
+    MapDocument::TransformSession s;
+    doc.beginTransform(s);
+    EXPECT(!s.empty());
+
+    /* Scale ×2 about the centre. */
+    doc.applyTransform(s, 2.0f, 2.0f, 0.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, -50.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.y, -50.0f, 1e-3f);
+
+    /* Re-applying from the same session must not accumulate. */
+    doc.applyTransform(s, 2.0f, 2.0f, 0.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, -50.0f, 1e-3f);
+
+    /* Rotate 90° about the centre: (0,0) -> (100,0). */
+    doc.applyTransform(s, 1.0f, 1.0f, 3.14159265358979f / 2.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, 100.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.y,   0.0f, 1e-3f);
+
+    /* Identity transform restores the original geometry. */
+    doc.applyTransform(s, 1.0f, 1.0f, 0.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, 0.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.y, 0.0f, 1e-3f);
+}
+
+TEST(transform_session_moves_all_entity_kinds) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0, 0};
+    p.v[1].world = {100, 0};
+    p.v[2].world = {100, 100};
+    p.v[0].selected = p.v[1].selected = p.v[2].selected = true;
+    doc.addPoly(p);
+    doc.addSpawn(0, 0, SPAWN_ALPHA);
+    doc.spawns.back().selected = true;
+    doc.polys[0].v[0].selected = true;  /* addSpawn cleared the selection */
+    doc.polys[0].v[1].selected = true;
+    doc.polys[0].v[2].selected = true;
+
+    MapDocument::TransformSession s;
+    doc.beginTransform(s);
+    doc.applyTransform(s, 2.0f, 2.0f, 0.0f);
+
+    /* VB6 scales spawns along with polygons; centre is (50,50). */
+    EXPECT_NEAR(doc.spawns[0].x, -50.0f, 1e-3f);
+    EXPECT_NEAR(doc.spawns[0].y, -50.0f, 1e-3f);
+}
+
+/* ---- Snapping (previously dead menu toggles) --------------------------- */
+TEST(snap_selected_to_grid) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {13, 27};
+    p.v[1].world = {113, 27};
+    p.v[2].world = {113, 127};
+    doc.addPoly(p);
+    doc.polys[0].v[0].selected = true;
+
+    doc.viewSettings.showGrid   = true;
+    doc.viewSettings.snapToGrid = true;
+    doc.viewSettings.gridSize   = 10.0f;
+
+    EXPECT(doc.snapSelected(8.0f));
+    /* 13 -> 10, 27 -> 30; only the selected vertex moves. */
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, 10.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[0].v[0].world.y, 30.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[0].v[1].world.x, 113.0f, 1e-3f);
+}
+
+TEST(snap_selected_to_vertices) {
+    MapDocument doc;
+    EditorPoly a{};
+    a.v[0].world = {0, 0};
+    a.v[1].world = {100, 0};
+    a.v[2].world = {100, 100};
+    doc.addPoly(a);
+
+    EditorPoly b{};
+    b.v[0].world = {103, 2};   /* within 8 units of a.v[1] = (100,0) */
+    b.v[1].world = {200, 0};
+    b.v[2].world = {200, 100};
+    doc.addPoly(b);
+
+    doc.polys[1].v[0].selected = true;
+    doc.viewSettings.snapToVertices = true;
+    doc.viewSettings.snapToGrid = false;
+
+    EXPECT(doc.snapSelected(8.0f));
+    EXPECT_NEAR(doc.polys[1].v[0].world.x, 100.0f, 1e-3f);
+    EXPECT_NEAR(doc.polys[1].v[0].world.y,   0.0f, 1e-3f);
+
+    /* Nothing in range -> no movement, no false positive. */
+    doc.clearSelection();
+    doc.polys[1].v[1].selected = true;
+    EXPECT(!doc.snapSelected(8.0f));
+    EXPECT_NEAR(doc.polys[1].v[1].world.x, 200.0f, 1e-3f);
+}
+
+/* ---- PMS ↔ MapDocument round-trip ------------------------------------- */
 TEST(pms_doc_roundtrip) {
     const std::string mapsDir = "maps";
     if (!fs::exists(mapsDir)) return;

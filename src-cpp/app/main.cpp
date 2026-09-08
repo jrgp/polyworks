@@ -11,6 +11,7 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include <wx/log.h>
+#include <vector>
 #include <wx/msgdlg.h>
 
 #include <exception>
@@ -58,16 +59,47 @@ wxString getSkinsPath() {
     const wxFileName exeName(wxStandardPaths::Get().GetExecutablePath());
     const wxString exeDir = exeName.GetPath();
 
-    const wxString exeRelative = wxFileName(exeDir, "skins/default").GetFullPath();
+    /* NB: wxFileName(dir, name) treats `name` as a *file* name and asserts if
+       it contains separators, so multi-segment suffixes must be appended as
+       directories instead.  Getting this wrong silently yielded an empty skins
+       path, which disabled notfound.bmp, every custom cursor and every skin
+       bitmap. */
+    auto dirBelow = [](const wxString& base,
+                       const std::vector<wxString>& segments) {
+        wxFileName fn = wxFileName::DirName(base);
+        for (const wxString& seg : segments) {
+            fn.AppendDir(seg);
+        }
+        return fn.GetPath();
+    };
+
+    const wxString exeRelative = dirBelow(exeDir, {"skins", "default"});
     if (wxFileName::DirExists(exeRelative)) {
         return exeRelative;
     }
 
-    const wxString devRelative = wxFileName(wxFileName::GetCwd(), "installer/skins/default").GetFullPath();
-    if (wxFileName::DirExists(devRelative)) {
-        return devRelative;
+    /* Installed layout: <prefix>/bin/polyworks with skins next to the prefix. */
+    const wxString installRelative =
+        dirBelow(wxFileName(exeDir, wxEmptyString).GetPath(),
+                 {"share", "polyworks", "skins", "default"});
+    if (wxFileName::DirExists(installRelative)) {
+        return installRelative;
     }
 
+    /* Development checkout: run from the repository root or from build/. */
+    const wxString cwd = wxFileName::GetCwd();
+    for (const std::vector<wxString>& rel :
+         {std::vector<wxString>{"installer", "skins", "default"},
+          std::vector<wxString>{"skins", "default"},
+          std::vector<wxString>{"..", "installer", "skins", "default"}}) {
+        const wxString candidate = dirBelow(cwd, rel);
+        if (wxFileName::DirExists(candidate)) {
+            return candidate;
+        }
+    }
+
+    wxLogWarning("Could not locate the skins directory; custom cursors, skin "
+                 "bitmaps and the notfound.bmp placeholder will be unavailable.");
     return {};
 }
 
@@ -126,7 +158,7 @@ public:
         waypointPanel->Show(true);
 
         /* Info panel — below waypoints */
-        auto* infoPanel = new InfoPanel(mainFrame, mainFrame->m_doc);
+        auto* infoPanel = new InfoPanel(mainFrame, mainFrame->m_doc, &mainFrame->m_undoStack);
         mainFrame->AttachInfoPanel(infoPanel);
         infoPanel->SetPosition(wxPoint(rightX, framePos.y + 920));
         infoPanel->Show(true);
@@ -136,6 +168,13 @@ public:
         mainFrame->AttachPalettePanel(palettePanel);
         palettePanel->SetPosition(wxPoint(rightX + 216, framePos.y));
         /* Don't show by default — user opens via View > Color Palette */
+
+        /* VB6 Form_Load opens a map named on the command line, which is how
+           the .pms file association works (installer/pw.nsi:185 registers
+           `"OpenSoldat PolyWorks.exe" "%1"`). */
+        if (argc > 1) {
+            mainFrame->OpenCommandLineMap(argv[1]);
+        }
 
         return true;
     }

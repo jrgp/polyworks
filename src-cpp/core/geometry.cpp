@@ -125,3 +125,42 @@ float snapZoom(float current, int dir,
     if (z > maxZoom) z = maxZoom;
     return z;
 }
+
+/* ---- Polygon type colours --------------------------------------------- */
+
+uint32_t polyTypeColor(int polyType, uint32_t selectionColor) {
+    /* Defaults verbatim from modConfig.bas:211-235.  Indices 12..17 alias
+       10/11 in the original (TeamBullets / TeamPlayers reused for Bravo,
+       Charlie and Delta). */
+    static const uint32_t kColors[26] = {
+        0x000000,  /*  0 Normal          -> selectionColor          */
+        0x7ACC29,  /*  1 OnlyBullets     */
+        0xCCCC29,  /*  2 OnlyPlayer      */
+        0x29CC29,  /*  3 DoesntCollide   */
+        0x29CCCC,  /*  4 Ice             */
+        0xCC297A,  /*  5 Deadly          */
+        0xCC29CC,  /*  6 BloodyDeadly    */
+        0xCC2929,  /*  7 Hurts           */
+        0x2929CC,  /*  8 Regenerates     */
+        0xCC7A29,  /*  9 Lava            */
+        0x7A7A29,  /* 10 TeamBullets     */
+        0x7A2929,  /* 11 TeamPlayers     */
+        0x7A7A29,  /* 12 = 10            */
+        0x7A2929,  /* 13 = 11            */
+        0x7A7A29,  /* 14 = 10            */
+        0x7A2929,  /* 15 = 11            */
+        0x7A7A29,  /* 16 = 10            */
+        0x7A2929,  /* 17 = 11            */
+        0x297ACC,  /* 18 Bouncy          */
+        0xCCCCCC,  /* 19 Explosive       */
+        0xCCCC7A,  /* 20 HurtFlaggers    */
+        0x7A7ACC,  /* 21 OnlyFlagger     */
+        0x7A29CC,  /* 22 NonFlagger      */
+        0x29297A,  /* 23 FlagCollides    */
+        0x292929,  /* 24 Back            */
+        0x7A7A7A,  /* 25 BackTransition  */
+    };
+    if (polyType <= 0) return selectionColor;
+    if (polyType > 25) return selectionColor;
+    return kColors[polyType];
+}

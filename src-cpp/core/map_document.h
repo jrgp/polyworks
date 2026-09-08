@@ -47,6 +47,11 @@ struct EditorPoly {
     EditorVertex v[3];
     uint8_t      polyType = POLY_NORMAL;
 
+    /* Per-edge bounciness (VB6 Polys().Perp.vertex(j).Z).  Only meaningful for
+       POLY_BOUNCY, where 1.0 == 0% extra bounce.  VB6 recovers this from the
+       stored normal's magnitude on load and bakes it back in on save. */
+    float        bounciness[3] = {1.0f, 1.0f, 1.0f};
+
     /* True if any vertex is selected. */
     bool anySelected() const {
         return v[0].selected || v[1].selected || v[2].selected;
@@ -160,6 +165,10 @@ public:
 
     /* Viewport/camera state */
     float scrollX = 0, scrollY = 0;  /* world coords of viewport origin */
+    /* User-configurable selection highlight colour, 0xRRGGBB.
+       modConfig.bas:79 "SelectionColor", default CE4D4A. */
+    uint32_t selectionColor = 0xCE4D4Au;
+
     float zoom    = 1.0f;
     ViewSettings viewSettings;
 
@@ -297,6 +306,39 @@ public:
     void rotateSelected(float angleDeg);
     void flipSelected(bool horizontal, bool vertical);
 
+    /* ---- Interactive transform sessions --------------------------------- */
+    /*
+     * VB6 performs Ctrl-drag scaling (Scaling()) and Alt-drag rotation
+     * (Rotating()) about rCenter — the centre of the selection's bounding
+     * rectangle — recomputing absolute positions from the drag origin on every
+     * mouse-move.  A session captures the pre-drag geometry so repeated moves
+     * do not accumulate rounding drift.
+     */
+    struct TransformSession {
+        Vec2 center;
+        std::vector<Vec2> polyVerts;   /* selected poly vertices, in order */
+        std::vector<Vec2> scenery;
+        std::vector<Vec2> spawns;
+        std::vector<Vec2> colliders;
+        std::vector<Vec2> waypoints;
+        std::vector<Vec2> lights;
+        bool empty() const {
+            return polyVerts.empty() && scenery.empty() && spawns.empty() &&
+                   colliders.empty() && waypoints.empty() && lights.empty();
+        }
+    };
+
+    /* Centre of the bounding rectangle of everything currently selected. */
+    Vec2 selectionCenter() const;
+
+    /* Capture the current positions of all selected items. */
+    void beginTransform(TransformSession& s) const;
+
+    /* Re-apply the session's geometry scaled by (sx,sy) then rotated by
+       angleRad, both about s.center. */
+    void applyTransform(const TransformSession& s, float sx, float sy,
+                        float angleRad);
+
     /* Polygon operations */
     int  addPoly(const EditorPoly& p);
     bool removePoly(int index);
@@ -338,6 +380,22 @@ public:
 
     /* Vertex operations (operate on selected vertices across all polys) */
     void nudgeSelectedVertices(float dx, float dy);
+
+    /* ---- Snapping (VB6 SnapSelected, frm:8246) -------------------------- */
+    /*
+     * Applied on mouse-up after a move.  The anchor is the first selected
+     * vertex (or the first selected scenery item when no vertex is selected);
+     * the whole selection is then shifted by the anchor's snap delta.
+     *
+     * Grid snapping wins over vertex snapping, matching the original's
+     * `If snapToGrid And showGrid ... ElseIf ohSnap ...` structure.
+     * Returns true if the selection moved.
+     */
+    bool snapSelectedToGrid(float gridSize);
+    bool snapSelectedToVertices(float snapRadius);
+
+    /* Runs the appropriate snap for the current viewSettings. */
+    bool snapSelected(float snapRadius);
 
     /* Waypoint operations */
     /* Severs connections between selected waypoints.
