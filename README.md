@@ -85,10 +85,20 @@ searches beside its own executable.
 ./build_windows.sh --package
 ```
 
-The script downloads the **official wxWidgets Windows/MinGW-w64 binaries** for
-a pinned version, verifies them against recorded SHA-256 checksums and caches
-them under `.deps/`. wxWidgets is not built from source: upstream publishes a
-package whose ABI tag matches the host mingw-w64 compiler exactly.
+The script downloads the **official wxWidgets Windows/MinGW-w64 binaries** and
+caches them under `.deps/`. wxWidgets is not built from source: upstream
+publishes binaries for several GCC releases, and the build picks the one that
+matches the compiler actually installed.
+
+Only the wxWidgets *version* is pinned. The ABI is detected: the script reads
+the GCC series out of `x86_64-w64-mingw32-gcc`, asks the wxWidgets release
+index which MinGW binaries exist for that release, and selects the artifact
+built by that series — failing with the list of published ABIs if there is no
+match, rather than guessing. It also refuses to mix thread models, since a
+win32-threads and a posix-threads libstdc++ disagree about `std::thread`.
+Downloads are checked against the size upstream publishes and, where one has
+been recorded, a pinned SHA-256. The detected version, target, thread model
+and selected artifact are all printed during the build.
 
 The Windows target never consults the Linux `wx-config`, `pkg-config` or
 `libwxgtk*`; `cmake/wxMSWPrebuilt.cmake` resolves the downloaded package
