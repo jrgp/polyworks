@@ -29,14 +29,37 @@ sudo apt install build-essential cmake libwxgtk3.0-gtk3-dev libwxgtk-media3.0-gt
 
 ```sh
 ./build-linux.sh          # Linux
-./build-mac.sh            # macOS (finds wxWidgets via Homebrew)
+./build-mac.sh            # macOS (fetches and builds wxWidgets itself)
 build-windows.bat         # Windows, native MSVC
 
 # or directly
 cmake -S . -B build && cmake --build build -j
 ```
 
-Output: `build/bin/polyworks`.
+Output: `build/bin/polyworks`, or `build/bin/polyworks.app` on macOS.
+
+### macOS
+
+`./build-mac.sh` needs nothing installed but Xcode's command line tools and
+CMake — in particular **not** Homebrew's wxWidgets. It downloads the pinned
+wxWidgets source release, verifies its SHA-256, caches it under `.deps/` and
+builds it statically with wxWidgets' own copies of libpng/libjpeg/libtiff/zlib,
+so nothing from `/opt/homebrew` or `/usr/local/opt` can leak into the link.
+wxWidgets does not publish macOS binaries — its release assets are Windows
+builds, documentation and source — so this is the source-build case the Windows
+script is allowed to avoid.
+
+After linking, the script walks every Mach-O in the bundle and fails if any of
+them loads a library from outside it (bundling and re-pointing it with
+`install_name_tool` if one somehow appears), then copies the `.app` to a
+temporary directory and launches it with Homebrew removed from `PATH` — so a
+bundle that only works on the machine that built it does not get shipped.
+
+The Dock and Finder icon is the application's own icon: `installer/PW.ico`, the
+Windows resource the original has always shipped, converted to `.icns` by
+`packaging/make-icns.py`. That runs on any Python 3 and enlarges the icon's
+48x48 artwork with nearest-neighbour sampling, which keeps the original pixels
+crisp instead of smearing them.
 
 ### Testing (headless, no display required)
 

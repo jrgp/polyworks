@@ -90,6 +90,37 @@ if(wxWidgets_FOUND AND (GUI_SOURCES OR APP_SOURCES))
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
       MACOSX_BUNDLE_ICON_FILE "PW.icns"
     )
+
+    # The bundle icon is the application's own icon, converted from the
+    # Windows resource the original installer has always shipped.  See
+    # packaging/make-icns.py for why the conversion is done in Python rather
+    # than with sips/iconutil.
+    find_program(PW_PYTHON3 NAMES python3)
+    if(PW_PYTHON3)
+      set(PW_ICNS "${CMAKE_CURRENT_BINARY_DIR}/PW.icns")
+      add_custom_command(OUTPUT "${PW_ICNS}"
+        COMMAND "${PW_PYTHON3}" "${CMAKE_SOURCE_DIR}/packaging/make-icns.py"
+                "${CMAKE_SOURCE_DIR}/installer/PW.ico" "${PW_ICNS}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/installer/PW.ico"
+                "${CMAKE_SOURCE_DIR}/packaging/make-icns.py"
+        COMMENT "Generating PW.icns from installer/PW.ico"
+        VERBATIM)
+      target_sources(polyworks PRIVATE "${PW_ICNS}")
+      set_source_files_properties("${PW_ICNS}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    else()
+      message(WARNING "python3 not found — the .app will have no icon")
+    endif()
+
+    # Skins, cursors and the notfound placeholder go where a Mac application
+    # keeps its data, so that the bundle can be dragged anywhere and still
+    # find them (see getSkinsPath() in src-cpp/app/main.cpp).
+    add_custom_command(TARGET polyworks POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${CMAKE_SOURCE_DIR}/installer/skins"
+              "$<TARGET_BUNDLE_CONTENT_DIR:polyworks>/Resources/skins"
+      COMMENT "Copying skins into the application bundle"
+      VERBATIM)
   endif()
 
   # Windows resources (icon, version info, DPI-aware manifest)

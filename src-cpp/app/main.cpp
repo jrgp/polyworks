@@ -79,6 +79,15 @@ wxString getSkinsPath() {
         return exeRelative;
     }
 
+    /* Bundled layout: PolyWorks.app/Contents/Resources/skins/default.  A Mac
+       application keeps its data in Resources, not beside the executable, so
+       a bundle dragged to /Applications finds its skins only through this. */
+    const wxString bundleRelative =
+        dirBelow(wxStandardPaths::Get().GetResourcesDir(), {"skins", "default"});
+    if (wxFileName::DirExists(bundleRelative)) {
+        return bundleRelative;
+    }
+
     /* Installed layout: <prefix>/bin/polyworks with skins next to the prefix. */
     const wxString installRelative =
         dirBelow(wxFileName(exeDir, wxEmptyString).GetPath(),
