@@ -13,8 +13,9 @@
 # Usage:
 #   packaging/make-windows-zip.sh [path/to/PolyWorks.exe]
 #
-# When no executable is given, build-win/bin/PolyWorks.exe is used.  See
-# cmake/mingw-w64-x86_64.cmake for how to produce it.
+# When no executable is given, build-win/bin/PolyWorks.exe is used.  Run
+# ./build_windows.sh first: it fetches the official wxWidgets Windows binaries
+# that this script bundles alongside the executable.
 
 set -euo pipefail
 
@@ -34,26 +35,73 @@ rm -rf "$STAGE" "$ZIP"
 mkdir -p "$STAGE"
 
 # ---------------------------------------------------------------------------
-# Executable.  The Windows build links wxWidgets and the GCC runtime
-# statically, so there are no non-system DLLs to ship.  Verify that rather
-# than assume it: a dynamically linked build would silently produce a ZIP that
-# cannot run on a clean machine.
+# Executable and its runtime DLLs.
+#
+# PolyWorks links the official wxWidgets Windows binaries, which are DLL
+# builds, so the wx DLLs and the GCC runtime they import have to travel with
+# the executable.  Rather than listing them by hand -- a list that silently
+# rots the moment a dependency changes -- walk the import table transitively
+# and copy everything that is not a Windows system DLL.  Anything that cannot
+# be found is a hard error, which is what stops a ZIP that only runs on this
+# machine from being published.
 # ---------------------------------------------------------------------------
 say "Copying executable"
 install -m 0755 "$EXE" "$STAGE/PolyWorks.exe"
 
-if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then
-    SYSTEM_DLLS='^(ADVAPI32|COMCTL32|comdlg32|GDI32|KERNEL32|msvcrt|ole32|OLEACC|OLEAUT32|OPENGL32|SHELL32|SHLWAPI|USER32|UxTheme|VERSION|WINSPOOL|WS2_32|IMM32|WINMM|RPCRT4|dwmapi|bcrypt|CRYPT32|WINHTTP|UUID|GLU32)\.(dll|DRV)$'
-    NONSYS=$(x86_64-w64-mingw32-objdump -p "$STAGE/PolyWorks.exe" \
-             | sed -n 's/^\s*DLL Name: //p' | sort -u \
-             | grep -Ev "$SYSTEM_DLLS" || true)
-    if [[ -n "$NONSYS" ]]; then
-        say "Non-system DLL imports detected; they must be bundled:"
-        echo "$NONSYS"
-        die "Refusing to build a ZIP that depends on DLLs it does not ship."
-    fi
-    say "Verified: no non-system DLL imports"
+OBJDUMP=x86_64-w64-mingw32-objdump
+command -v "$OBJDUMP" >/dev/null || die "$OBJDUMP not found; cannot verify dependencies."
+
+# DLLs that are part of Windows itself and must never be redistributed.
+SYSTEM_DLLS='^(ADVAPI32|COMCTL32|COMDLG32|CRYPT32|DWMAPI|GDI32|GDIPLUS|GLU32|IMM32|KERNEL32|MSIMG32|MSVCRT|OLE32|OLEACC|OLEAUT32|OPENGL32|RPCRT4|SETUPAPI|SHELL32|SHLWAPI|USER32|USERENV|UXTHEME|VERSION|WINHTTP|WINMM|WINSPOOL|WS2_32|WSOCK32|UUID|BCRYPT|NETAPI32|IPHLPAPI)\.(DLL|DRV)$'
+
+# Where redistributable DLLs may come from: the wxWidgets package fetched by
+# build_windows.sh, and the mingw-w64 GCC runtime directory.
+DLL_SEARCH_DIRS=()
+while IFS= read -r d; do DLL_SEARCH_DIRS+=("$d"); done < <(
+    find "$REPO/.deps" -maxdepth 3 -type d -name 'gcc*_x64_dll' 2>/dev/null)
+if command -v x86_64-w64-mingw32-g++ >/dev/null; then
+    DLL_SEARCH_DIRS+=("$(dirname "$(x86_64-w64-mingw32-g++ -print-libgcc-file-name)")")
 fi
+
+imports_of() { "$OBJDUMP" -p "$1" | sed -n 's/^[[:space:]]*DLL Name: //p'; }
+
+find_dll() {
+    local want="$1" dir f
+    for dir in "${DLL_SEARCH_DIRS[@]}"; do
+        [[ -d "$dir" ]] || continue
+        # Import names are case-insensitive on Windows; the files on disk may
+        # not match the case recorded in the import table.
+        f=$(find "$dir" -maxdepth 1 -iname "$want" -print -quit 2>/dev/null)
+        [[ -n "$f" ]] && { printf '%s' "$f"; return 0; }
+    done
+    return 1
+}
+
+say "Resolving runtime DLLs"
+QUEUE=("$STAGE/PolyWorks.exe")
+BUNDLED=()
+while (( ${#QUEUE[@]} )); do
+    current="${QUEUE[0]}"; QUEUE=("${QUEUE[@]:1}")
+    while IFS= read -r dep; do
+        [[ -n "$dep" ]] || continue
+        if [[ "${dep^^}" =~ $SYSTEM_DLLS ]]; then
+            continue
+        fi
+        # Already staged?  Compare case-insensitively, as Windows would.
+        if find "$STAGE" -maxdepth 1 -iname "$dep" | grep -q .; then
+            continue
+        fi
+        src=$(find_dll "$dep") || die "Required DLL not found anywhere: $dep
+Searched: ${DLL_SEARCH_DIRS[*]}
+Run ./build_windows.sh first so the wxWidgets package is present."
+        install -m 0644 "$src" "$STAGE/$dep"
+        BUNDLED+=("$dep")
+        QUEUE+=("$STAGE/$dep")
+    done < <(imports_of "$current")
+done
+
+for d in "${BUNDLED[@]}"; do echo "    $d"; done
+say "Bundled ${#BUNDLED[@]} redistributable DLL(s)"
 
 # ---------------------------------------------------------------------------
 # Static assets.

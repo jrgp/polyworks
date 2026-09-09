@@ -74,25 +74,34 @@ arch.md          Reverse-engineered VB6 architecture documentation
 
 ### Portable Windows distribution
 
-`packaging/make-windows-zip.sh` produces `dist/PolyWorks-win64.zip`: a
-self-contained folder that runs from anywhere with no installation, no
-registry entries and no environment variables. It bundles the executable —
-statically linked, so it imports only Windows system DLLs — together with the
-skins, cursors, palettes, lists and help resources, and creates the `Textures`
-and `Scenery-gfx` folders that PolyWorks searches beside its own executable.
-
-The executable can be cross-compiled from Linux with mingw-w64 against a
-static wxWidgets build:
+`build_windows.sh` produces `dist/PolyWorks-win64.zip`: a self-contained
+folder that runs from anywhere with no installation, no registry entries and
+no environment variables. It bundles the executable, the wxWidgets and GCC
+runtime DLLs it needs, and the skins, cursors, palettes, lists and help
+resources, and creates the `Textures` and `Scenery-gfx` folders that PolyWorks
+searches beside its own executable.
 
 ```sh
-cmake -S . -B build-win \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
-  -DPW_MINGW_PREFIX=/path/to/wx-mingw-prefix \
-  -DPW_STATIC_RUNTIME=ON -DCMAKE_BUILD_TYPE=Release \
-  -DwxWidgets_CONFIG_EXECUTABLE=/path/to/wx-mingw-prefix/bin/wx-config
-cmake --build build-win -j
-./packaging/make-windows-zip.sh
+./build_windows.sh --package
 ```
+
+The script downloads the **official wxWidgets Windows/MinGW-w64 binaries** for
+a pinned version, verifies them against recorded SHA-256 checksums and caches
+them under `.deps/`. wxWidgets is not built from source: upstream publishes a
+package whose ABI tag matches the host mingw-w64 compiler exactly.
+
+The Windows target never consults the Linux `wx-config`, `pkg-config` or
+`libwxgtk*`; `cmake/wxMSWPrebuilt.cmake` resolves the downloaded package
+directly. This is deliberate — CMake's own `FindwxWidgets` falls back to
+`wx-config` whenever `CMAKE_CROSSCOMPILING` is set, which would silently link
+the host's GTK build. After linking, `build_windows.sh` inspects the
+executable's import table and fails if any GTK, X11, MSYS or Cygwin dependency
+appears, so the dependency chain is guaranteed to remain
+`PolyWorks.exe → wxWidgets MSW → Win32 → system OpenGL`.
+
+The DLLs shipped in the ZIP are not chosen by hand: `make-windows-zip.sh`
+walks the import table of the executable and of every DLL it pulls in, copies
+each non-system dependency it finds, and fails if one cannot be located.
 
 ### Asset resolution
 

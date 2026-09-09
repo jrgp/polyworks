@@ -18,6 +18,7 @@
 build/
 build-*/
 /dist/
+/.deps/
 *.o
 *.ppu
 # Platform-specific compiled vendor artifacts

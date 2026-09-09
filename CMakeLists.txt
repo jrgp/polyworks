@@ -10,7 +10,11 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
-option(PW_STATIC_RUNTIME "Statically link the C/C++ runtime (portable Windows build)" OFF)
+# Root of an extracted official wxWidgets Windows/MinGW-w64 binary package.
+# When set, it is used instead of find_package(wxWidgets); see
+# cmake/wxMSWPrebuilt.cmake for why that is necessary when cross-compiling.
+set(PW_WX_MSW_PREFIX "" CACHE PATH
+    "Extracted official wxWidgets Windows/MinGW-w64 binary package")
 
 # ── output directories ──────────────────────────────────────────────────────
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -49,25 +53,33 @@ if(TEST_SOURCES)
 endif()
 
 # ── wxWidgets GUI application (optional; core + tests build without it) ─────
-find_package(wxWidgets COMPONENTS core base gl)
-include(${wxWidgets_USE_FILE})
-
-# OpenGL
-find_package(OpenGL REQUIRED)
+if(PW_WX_MSW_PREFIX)
+  include(${CMAKE_CURRENT_LIST_DIR}/cmake/wxMSWPrebuilt.cmake)
+else()
+  find_package(wxWidgets COMPONENTS core base gl)
+  if(wxWidgets_FOUND)
+    include(${wxWidgets_USE_FILE})
+  endif()
+endif()
 
 file(GLOB_RECURSE GUI_SOURCES src-cpp/gui/*.cpp src-cpp/renderer/*.cpp)
 file(GLOB_RECURSE APP_SOURCES src-cpp/app/*.cpp)
 
 if(wxWidgets_FOUND AND (GUI_SOURCES OR APP_SOURCES))
-  include(${wxWidgets_USE_FILE})
-  find_package(OpenGL REQUIRED)
-
   add_executable(polyworks WIN32 MACOSX_BUNDLE
     ${GUI_SOURCES}
     ${APP_SOURCES}
   )
-  target_include_directories(polyworks PRIVATE src-cpp src-cpp/core src-cpp/gui src-cpp/renderer)
-  target_link_libraries(polyworks PRIVATE pw_core stb_image ${wxWidgets_LIBRARIES} OpenGL::GL)
+  target_include_directories(polyworks PRIVATE
+    src-cpp src-cpp/core src-cpp/gui src-cpp/renderer ${wxWidgets_INCLUDE_DIRS})
+  target_compile_definitions(polyworks PRIVATE ${wxWidgets_DEFINITIONS})
+  target_link_libraries(polyworks PRIVATE pw_core stb_image ${wxWidgets_LIBRARIES})
+  if(NOT PW_WX_MSW_PREFIX)
+    # The prebuilt wxMSW package already names opengl32 explicitly; elsewhere
+    # let CMake locate the system GL library.
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(polyworks PRIVATE OpenGL::GL)
+  endif()
 
   # macOS bundle setup
   if(APPLE)
@@ -87,13 +99,17 @@ if(wxWidgets_FOUND AND (GUI_SOURCES OR APP_SOURCES))
       INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/src-cpp/app")
   endif()
 
-  # The Windows distribution is portable: extract anywhere and run.  Statically
-  # linking the GCC runtime removes the libgcc/libstdc++/winpthread DLLs, so the
-  # ZIP needs no non-system DLLs at all.
-  if(WIN32 AND PW_STATIC_RUNTIME)
-    target_link_options(polyworks PRIVATE
-      -static -static-libgcc -static-libstdc++ -mwindows)
+  # The shipped executable is PolyWorks.exe, as in the original installer.
+  # -mwindows suppresses the console window that MinGW would otherwise attach.
+  # The GCC runtime is deliberately *not* linked statically: the official wx
+  # DLLs import libstdc++-6.dll, and a second, statically linked copy of the
+  # C++ runtime inside the executable would mean two sets of standard-library
+  # state on either side of every wx call.  Those DLLs are shipped instead.
+  if(WIN32)
     set_target_properties(polyworks PROPERTIES OUTPUT_NAME "PolyWorks")
+    if(MINGW)
+      target_link_options(polyworks PRIVATE -mwindows)
+    endif()
   endif()
 
   # ── install skins/assets alongside binary ─────────────────────────────────
