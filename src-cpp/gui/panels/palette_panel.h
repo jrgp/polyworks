@@ -96,6 +96,9 @@ private:
     wxPanel*     m_colorMode[3]{};  /* Precision, Normal, Dynamic */
 
     /* ToolSettings/ColorMode defaults to 1 = Normal (modConfig.bas:149). */
+    /* txtRGB_GotFocus stores the pre-edit text so LostFocus can restore it
+       when the box is left non-numeric (frmPalette.frm:1051-1076). */
+    wxString     m_focusText;
     uint8_t      m_colorModeIdx = 1;
     int          m_radius       = 8;
 };

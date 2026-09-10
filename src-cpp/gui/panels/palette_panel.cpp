@@ -86,11 +86,19 @@ void PaletteGrid::OnPaint(wxPaintEvent&) {
         }
     }
 
-    /* Draw selection indicator */
+    /* The original marks the selected cell with two overlaid shapes: shpSel2,
+       a 16x16 black rectangle on the cell, and shpSel1, a 14x14 white one
+       inset by a pixel (frmPalette.frm:278-292, positioned at frm:646).  The
+       double outline is what makes the marker visible over both light and
+       dark swatches. */
     if (m_selCol >= 0 && m_selRow >= 0) {
+        const int x = m_selCol * 16;
+        const int y = m_selRow * 16;
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
+        dc.SetPen(wxPen(*wxBLACK, 1));
+        dc.DrawRectangle(x, y, 16, 16);
         dc.SetPen(wxPen(*wxWHITE, 1));
-        dc.DrawRectangle(m_selCol * 16, m_selRow * 16, 16, 16);
+        dc.DrawRectangle(x + 1, y + 1, 14, 14);
     }
 }
 
@@ -117,6 +125,9 @@ void PaletteGrid::OnMouse(wxMouseEvent& event) {
 static const wxColour kBg(0x31, 0x3C, 0x4A);      /* BGR 0x4A3C31 */
 static const wxColour kLblBack(0x3D, 0x4B, 0x61);  /* BGR 0x614B3D */
 static const wxColour kWhite(*wxWHITE);
+
+/* mnuNewColor > "Add to Palette" (frmPalette.frm:527-532) */
+static const int kIdAddToPalette = wxID_HIGHEST + 501;
 
 /* VB6 uses `appPath & "\\palettes\\"` for every palette file operation
    (frmPalette.frm:867, 904, 923; modConfig.bas:389).  `appPath` is
@@ -195,20 +206,56 @@ void PalettePanel::SaveCurrentPalette() const {
 }
 
 void PalettePanel::BuildUI() {
+    /* frmPalette is 208x272 and lays its controls out in two columns
+       (frmPalette.frm:20-449):
+
+         left   x=8    the 63x63 colour swatch, then R:, G:, B:
+         right  x=80   "Vertex Color:", the three colour-mode buttons,
+                       then Radius:, Opacity: and the Mode: combo
+         bottom x=8    the 192x96 palette grid
+
+       Sizers rather than the original's absolute positions, because a desktop
+       font is not Arial 8.25 at 96dpi, but the same grouping - the panel had
+       been one tall single column, which is both unlike the original and
+       needlessly deep. */
     auto* mainSz = new wxBoxSizer(wxVERTICAL);
+    auto* topSz  = new wxBoxSizer(wxHORIZONTAL);
 
-    /* ---- Top section: swatch + color mode + RGB/radius/opacity ---------- */
-    auto* topSz = new wxBoxSizer(wxHORIZONTAL);
+    auto makeLabel = [this](const wxString& text) {
+        auto* lbl = new wxStaticText(this, wxID_ANY, text);
+        lbl->SetForegroundColour(kWhite);
+        lbl->SetBackgroundColour(kBg);
+        return lbl;
+    };
+    auto makeField = [this](wxTextCtrl*& field, const wxString& val) {
+        field = new wxTextCtrl(this, wxID_ANY, val,
+                               wxDefaultPosition, wxSize(48, -1), wxTE_PROCESS_ENTER);
+        return field;
+    };
 
-    /* Current color swatch (63×63) */
+    /* ---- Left column: swatch over R / G / B ----------------------------- */
+    auto* leftSz = new wxBoxSizer(wxVERTICAL);
+
     m_swatch = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(63, 63));
     m_swatch->SetBackgroundColour(*wxBLACK);
-    topSz->Add(m_swatch, 0, wxALL, 4);
+    leftSz->Add(m_swatch, 0, wxBOTTOM, 6);
 
-    /* Right side: color mode + controls */
+    const char* rgbLabels[] = { "R:", "G:", "B:" };
+    wxTextCtrl** rgbFields[] = { &m_txtR, &m_txtG, &m_txtB };
+    for (int i = 0; i < 3; ++i) {
+        auto* rowSz = new wxBoxSizer(wxHORIZONTAL);
+        rowSz->Add(makeLabel(rgbLabels[i]), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+        rowSz->Add(makeField(*rgbFields[i], "0"), 0, wxALIGN_CENTER_VERTICAL);
+        leftSz->Add(rowSz, 0, wxBOTTOM, 2);
+    }
+    topSz->Add(leftSz, 0, wxALL, 4);
+
+    /* ---- Right column ---------------------------------------------------- */
     auto* rightSz = new wxBoxSizer(wxVERTICAL);
 
-    /* Color mode row (Precision / Normal / Dynamic as toggle panels) */
+    /* lblPal(6), the heading over the colour-mode buttons (frm:301-320). */
+    rightSz->Add(makeLabel("Vertex Color:"), 0, wxBOTTOM, 4);
+
     const char* modeLabels[] = { "Precision", "Normal", "Dynamic" };
     for (int i = 0; i < 3; ++i) {
         auto* rowSz = new wxBoxSizer(wxHORIZONTAL);
@@ -235,54 +282,45 @@ void PalettePanel::BuildUI() {
             }
         });
 
-        auto* lbl = new wxStaticText(this, wxID_ANY, modeLabels[i]);
-        lbl->SetForegroundColour(kWhite);
-        lbl->SetBackgroundColour(kBg);
-
         rowSz->Add(m_colorMode[i], 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-        rowSz->Add(lbl, 0, wxALIGN_CENTER_VERTICAL);
+        rowSz->Add(makeLabel(modeLabels[i]), 0, wxALIGN_CENTER_VERTICAL);
         rightSz->Add(rowSz, 0, wxBOTTOM, 2);
     }
 
-    /* R, G, B, Opacity, Radius fields */
-    auto addField = [&](const wxString& label, wxTextCtrl*& field, const wxString& val) {
-        auto* rowSz = new wxBoxSizer(wxHORIZONTAL);
-        auto* lbl = new wxStaticText(this, wxID_ANY, label);
-        lbl->SetForegroundColour(kWhite);
-        lbl->SetBackgroundColour(kBg);
-        field = new wxTextCtrl(this, wxID_ANY, val,
-                               wxDefaultPosition, wxSize(48, -1), wxTE_PROCESS_ENTER);
-        rowSz->Add(lbl, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-        rowSz->Add(field, 0, wxALIGN_CENTER_VERTICAL);
-        rightSz->Add(rowSz, 0, wxBOTTOM, 2);
-    };
+    rightSz->AddSpacer(4);
 
-    addField("R:", m_txtR, "0");
-    addField("G:", m_txtG, "0");
-    addField("B:", m_txtB, "0");
-    addField("Opacity:", m_txtOpacity, "100");
-    addField("Radius:", m_txtRadius, "8");
+    auto* radiusSz = new wxBoxSizer(wxHORIZONTAL);
+    radiusSz->Add(makeLabel("Radius:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    radiusSz->AddStretchSpacer();
+    radiusSz->Add(makeField(m_txtRadius, "8"), 0, wxALIGN_CENTER_VERTICAL);
+    rightSz->Add(radiusSz, 0, wxEXPAND | wxBOTTOM, 2);
 
-    topSz->Add(rightSz, 1, wxEXPAND | wxALL, 4);
-    mainSz->Add(topSz, 0, wxEXPAND);
+    auto* opacitySz = new wxBoxSizer(wxHORIZONTAL);
+    opacitySz->Add(makeLabel("Opacity:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+    opacitySz->AddStretchSpacer();
+    opacitySz->Add(makeField(m_txtOpacity, "100"), 0, wxALIGN_CENTER_VERTICAL);
+    rightSz->Add(opacitySz, 0, wxEXPAND | wxBOTTOM, 2);
 
-    /* ---- Blend mode combo ---------------------------------------------- */
     auto* blendSz = new wxBoxSizer(wxHORIZONTAL);
-    auto* blendLbl = new wxStaticText(this, wxID_ANY, "Mode:");
-    blendLbl->SetForegroundColour(kWhite);
-    blendLbl->SetBackgroundColour(kBg);
-
+    blendSz->Add(makeLabel("Mode:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     m_cboBlend = new wxComboBox(this, wxID_ANY, wxEmptyString,
                                 wxDefaultPosition, wxDefaultSize,
                                 0, nullptr, wxCB_READONLY);
-    m_cboBlend->Append("Normal");
-    m_cboBlend->Append("Additive");
-    m_cboBlend->Append("Subtractive");
+    /* cboBlendMode's six items live in frmPalette.frx at offset 0x16 and are
+       the modes ApplyBlend implements (frm:9653): 0 normal, 1 multiply,
+       2 screen, 3 darken, 4 lighten, 5 difference.  The panel used to offer
+       three items named Normal/Additive/Subtractive, so half the modes were
+       unreachable and two of the three were mislabelled - picking "Additive"
+       ran multiply. */
+    for (const char* name : { "Normal", "Multiply", "Screen",
+                              "Darken", "Lighten", "Difference" })
+        m_cboBlend->Append(name);
     m_cboBlend->SetSelection(0);
+    blendSz->Add(m_cboBlend, 1, wxALIGN_CENTER_VERTICAL);
+    rightSz->Add(blendSz, 0, wxEXPAND);
 
-    blendSz->Add(blendLbl, 0, wxALIGN_CENTER_VERTICAL | wxALL, 4);
-    blendSz->Add(m_cboBlend, 0, wxALIGN_CENTER_VERTICAL | wxALL, 4);
-    mainSz->Add(blendSz, 0, wxEXPAND);
+    topSz->Add(rightSz, 1, wxEXPAND | wxALL, 4);
+    mainSz->Add(topSz, 0, wxEXPAND);
 
     /* ---- Palette grid -------------------------------------------------- */
     m_grid = new PaletteGrid(this);
@@ -312,19 +350,69 @@ void PalettePanel::BuildUI() {
     Bind(wxEVT_TEXT, &PalettePanel::OnRadiusChange,   this, m_txtRadius->GetId());
     Bind(wxEVT_COMBOBOX, &PalettePanel::OnBlendModeChange, this, m_cboBlend->GetId());
 
+    /* Every numeric box in frmPalette selects its text on focus and validates
+       on focus loss (txtRadius/txtRGB/txtOpacity _GotFocus and _LostFocus,
+       frm:1014-1106).  Without the focus-loss half, a box could be left
+       reading "500" while the value in force was still the old one - the
+       control would be lying about the editor's state. */
+    struct { wxTextCtrl* ctrl; int lo; int hi; } numeric[] = {
+        { m_txtR,       0,   255 },
+        { m_txtG,       0,   255 },
+        { m_txtB,       0,   255 },
+        { m_txtOpacity, 0,   100 },
+        { m_txtRadius,  4,   128 },
+    };
+    for (const auto& n : numeric) {
+        wxTextCtrl* ctrl = n.ctrl;
+        const int lo = n.lo, hi = n.hi;
+        ctrl->Bind(wxEVT_SET_FOCUS, [this, ctrl](wxFocusEvent& e) {
+            e.Skip();
+            m_focusText = ctrl->GetValue();
+            ctrl->CallAfter([ctrl] { ctrl->SelectAll(); });
+        });
+        ctrl->Bind(wxEVT_KILL_FOCUS, [this, ctrl, lo, hi](wxFocusEvent& e) {
+            e.Skip();
+            long v = 0;
+            if (!ctrl->GetValue().ToLong(&v)) {
+                /* Non-numeric or empty: restore what was there on focus-in
+                   (txtRGB) - the radius and opacity boxes do the same thing
+                   with their stored value, which is that same text. */
+                ctrl->ChangeValue(m_focusText);
+                return;
+            }
+            const long clamped = std::min<long>(hi, std::max<long>(lo, v));
+            if (clamped != v) ctrl->ChangeValue(wxString::Format("%ld", clamped));
+            /* Re-emit so the clamped value actually reaches the viewport. */
+            wxCommandEvent evt(wxEVT_TEXT, ctrl->GetId());
+            evt.SetEventObject(ctrl);
+            evt.SetString(ctrl->GetValue());
+            ProcessWindowEvent(evt);
+        });
+    }
+
     m_grid->onSelect = [this](int /*col*/, int /*row*/, PaletteColor c) {
         SetValues(c.r, c.g, c.b);
         if (onColorSelected) onColorSelected(c.r, c.g, c.b);
     };
     m_grid->onRightClick = [this](int col, int row) {
-        /* Set the current RGB into that cell */
-        long r = 0, g = 0, b = 0;
-        m_txtR->GetValue().ToLong(&r);
-        m_txtG->GetValue().ToLong(&g);
-        m_txtB->GetValue().ToLong(&b);
-        m_grid->SetColor(col, row, {static_cast<uint8_t>(r),
-                                    static_cast<uint8_t>(g),
-                                    static_cast<uint8_t>(b)});
+        /* picPalette_MouseDown with Button = 2 pops mnuNewColor, whose single
+           item "Add to Palette" calls NewPaletteColor (frmPalette.frm:982-996).
+           The menu is not decoration: without it a stray right-click would
+           overwrite a palette entry with no way to decline. */
+        wxMenu menu;
+        menu.Append(kIdAddToPalette, "Add to Palette");
+        menu.Bind(wxEVT_MENU, [this, col, row](wxCommandEvent&) {
+            long r = 0, g = 0, b = 0;
+            m_txtR->GetValue().ToLong(&r);
+            m_txtG->GetValue().ToLong(&g);
+            m_txtB->GetValue().ToLong(&b);
+            m_grid->SetColor(col, row, {static_cast<uint8_t>(r),
+                                        static_cast<uint8_t>(g),
+                                        static_cast<uint8_t>(b)});
+            m_grid->SetSelection(col, row);
+            SaveCurrentPalette();
+        }, kIdAddToPalette);
+        m_grid->PopupMenu(&menu);
     };
 
     /* frmPalette.picColor_Click opens the colour picker on the current colour
@@ -375,6 +463,11 @@ void PalettePanel::Refresh(uint8_t radius, float opacity, int blendMode, uint8_t
     /* frmPalette.RefreshPalette stores the radius and shows it (frm:614), and
        the radius box is clamped to 4..128 (frm:1052). */
     m_txtRadius->ChangeValue(wxString::Format("%d", std::min(128, std::max(4, static_cast<int>(radius)))));
+    /* ApplyBlend treats anything outside 0..5 as black (frm:9680), but the
+       combo would assert on an out-of-range index, so a hand-edited ini is
+       clamped back to Normal rather than being allowed through. */
+    if (blendMode < 0 || blendMode >= static_cast<int>(m_cboBlend->GetCount()))
+        blendMode = 0;
     m_cboBlend->SetSelection(blendMode);
     m_txtOpacity->ChangeValue(wxString::Format("%.0f", opacity * 100.0f));
     m_colorModeIdx = colorMode;

@@ -1177,6 +1177,37 @@ TEST(blend_color_half_opacity) {
     EXPECT_NEAR((float)b, 50.0f, 1.0f);
 }
 
+/* cboBlendMode offers six modes (frmPalette.frx:0x16) and ApplyBlend
+   (frm:9653) defines each one.  These pin the four the panel could not
+   previously reach, plus the two it mislabelled. */
+TEST(blend_color_all_six_modes) {
+    struct Case { int mode; uint8_t dst, src, want; };
+    const Case cases[] = {
+        { 0, 100, 200, 200 },   /* normal:     src                       */
+        { 1, 100, 200,  78 },   /* multiply:   100/255*200               */
+        { 2, 100, 200, 222 },   /* screen:     100 - 100/255*200 + 200   */
+        { 3, 100, 200, 100 },   /* darken:     min                       */
+        { 4, 100, 200, 200 },   /* lighten:    max                       */
+        { 5, 100, 200, 100 },   /* difference: |100 - 200|               */
+    };
+    for (const Case& c : cases) {
+        uint8_t r = c.dst, g = c.dst, b = c.dst;
+        MapDocument::blendColor(r, g, b, c.src, c.src, c.src, 1.0f, c.mode);
+        EXPECT_NEAR((float)r, (float)c.want, 1.5f);
+        EXPECT_NEAR((float)g, (float)c.want, 1.5f);
+        EXPECT_NEAR((float)b, (float)c.want, 1.5f);
+    }
+}
+
+TEST(blend_color_out_of_range_mode_is_black) {
+    /* ApplyBlend's Else branch returns black for any other index. */
+    uint8_t r = 200, g = 200, b = 200;
+    MapDocument::blendColor(r, g, b, 10, 20, 30, 1.0f, 6);
+    EXPECT_EQ((int)r, 0);
+    EXPECT_EQ((int)g, 0);
+    EXPECT_EQ((int)b, 0);
+}
+
 TEST(apply_color_to_selected) {
     MapDocument doc;
     EditorPoly p{};
