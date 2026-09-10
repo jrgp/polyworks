@@ -58,6 +58,12 @@ jobs:
       # and staging the portable ZIP.  Nothing here duplicates that.
       - name: Build and package
         run: ./build_windows.sh --package
+        env:
+          # api.github.com rate-limits unauthenticated callers by address, and
+          # a shared runner's address has plenty of other callers.  The script
+          # reads the release index to pick the wxWidgets ABI; the token only
+          # needs the read access this job already has.
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Check the expected archive exists
         run: test -f dist/PolyWorks-win64.zip

@@ -158,12 +158,79 @@ find_extracted_wx() {
 # records the sizes upstream reports, so the downloads can be checked against a
 # source other than the files themselves.  Populates WX_ASSET_SIZES.
 declare -A WX_ASSET_SIZES=()
+
+# The release index is a plain API request, and api.github.com rate-limits
+# unauthenticated callers by source address -- which on a shared CI runner is
+# an address thousands of other jobs are also using, so the first request can
+# be refused outright.  Send a token when the environment offers one (GitHub
+# Actions does), and retry, because the other failure here is a transient one.
+#
+# Writes the body to the file named by $1 rather than to stdout, so that the
+# status it records is visible to the caller instead of dying with the
+# subshell a command substitution would create.
+WX_INDEX_STATUS="not attempted"
+fetch_release_index() {
+    local out="$1"
+    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    local -a auth=()
+    [[ -n "$token" ]] && auth=(--header "Authorization: Bearer $token")
+
+    local attempt status
+    for attempt in 1 2 3; do
+        status="$(curl --location --silent --show-error --output "$out" \
+                       --write-out '%{http_code}' \
+                       "${auth[@]}" "$WX_API_URL" 2>/dev/null)" || status=""
+        WX_INDEX_STATUS="HTTP ${status:-no response}"
+        [[ "$status" == "200" ]] && return 0
+        (( attempt < 3 )) && sleep $(( attempt * 3 ))
+    done
+    return 1
+}
+
+# Without the index, the pinned checksums are the record of which ABIs have
+# been downloaded and verified by hand -- a stronger check than the size the
+# index reports, not a weaker one.  Selection still follows from the compiler:
+# only a pinned ABI whose tag decodes to this GCC series is accepted.
+select_wx_abi_from_pins() {
+    local body abi digits
+    body="$(declare -f pinned_sha256)"
+
+    for abi in $(grep -o "wxMSW-${WX_VERSION}_gcc[0-9]*_x64_Dev\.7z" <<< "$body" \
+                 | sed "s/^wxMSW-${WX_VERSION}_//; s/_x64_Dev\.7z$//"); do
+        digits="${abi#gcc}"
+        [[ "${digits:0:${#digits}-2}" == "$GCC_MAJOR" ]] || continue
+
+        set_wx_abi "$abi"
+        local f
+        for f in "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"; do
+            [[ -n "$(pinned_sha256 "$f")" ]] || continue 2
+        done
+        return 0
+    done
+    return 1
+}
+
 select_wx_abi() {
-    local json
-    json="$(curl --fail --location --silent "$WX_API_URL")" \
-        || die "Could not reach the wxWidgets release index at
+    local json="" index; index="$(mktemp)"
+    if fetch_release_index "$index"; then
+        json="$(cat "$index")"
+    fi
+    rm -f "$index"
+
+    if [[ -z "$json" ]]; then
+        if select_wx_abi_from_pins; then
+            warn "Could not reach the wxWidgets release index ($WX_INDEX_STATUS).
+Continuing with ABI ${WX_ABI}, which matches this compiler and whose archives
+all have pinned checksums."
+            printf '    %s\n' "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"
+            return 0
+        fi
+        die "Could not reach the wxWidgets release index at
   $WX_API_URL
-Network access is needed the first time a given compiler ABI is built."
+  ($WX_INDEX_STATUS)
+Network access is needed the first time a given compiler ABI is built, unless
+the archives for that ABI have pinned checksums in $(basename "$0")."
+    fi
 
     local report
     report="$(WX_VERSION="$WX_VERSION" GCC_MAJOR="$GCC_MAJOR" python3 -c '
@@ -246,6 +313,9 @@ fetch_verified() {
     local want_sha want_size
     want_sha="$(pinned_sha256 "$name")"
     want_size="${WX_ASSET_SIZES[$name]:-}"
+    [[ -n "$want_sha$want_size" ]] \
+        || die "No pinned checksum and no published size for $name; there would
+be nothing to verify the download against."
 
     check_file() {
         local f="$1" have
