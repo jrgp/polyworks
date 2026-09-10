@@ -245,6 +245,7 @@ build_wx() {
             --without-libtiff \
             --with-zlib=builtin \
             --with-expat=builtin \
+            --with-regex=builtin \
             --enable-optimise \
             CFLAGS="-arch $ARCH" CXXFLAGS="-arch $ARCH" \
             LDFLAGS="-arch $ARCH" OBJCXXFLAGS="-arch $ARCH" \
@@ -322,7 +323,7 @@ bundle_dylibs() {
 }
 
 audit_bundle() {
-    local app="$1" bad="" target dep
+    local app="$1" bad="" target dep rp
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
         while IFS= read -r dep; do
@@ -330,7 +331,25 @@ audit_bundle() {
                || [[ "$dep" == "$BUILD_DIR"* ]]; then
                 bad+="  $(basename "$target"): $dep"$'\n'
             fi
+            # An @rpath dependency names no directory at all: it is resolved at
+            # load time against the LC_RPATH list, so checking only the string
+            # above would miss a library that lives on the build machine.  The
+            # bundle carries nothing that needs @rpath -- wxWidgets is static
+            # and anything copied in is repointed at @executable_path -- so
+            # treat any remaining one as unresolved.
+            if [[ "$dep" == @rpath/* ]]; then
+                bad+="  $(basename "$target"): $dep (resolved through LC_RPATH,"
+                bad+=" not from the bundle)"$'\n'
+            fi
         done < <(dependencies_of "$target")
+
+        # LC_RPATH entries pointing outside the bundle are how such a
+        # dependency finds a Homebrew keg, so report them in their own right.
+        while IFS= read -r rp; do
+            [[ -n "$rp" ]] || continue
+            [[ "$rp" == @executable_path* || "$rp" == @loader_path* ]] && continue
+            bad+="  $(basename "$target"): runpath $rp"$'\n'
+        done < <(otool -l "$target" | awk '/LC_RPATH/{p=1} p&&/path /{print $2; p=0}')
     done < <(mach_o_files "$app")
 
     [[ -z "$bad" ]] || die "The bundle depends on libraries outside itself:
