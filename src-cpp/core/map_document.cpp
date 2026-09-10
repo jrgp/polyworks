@@ -350,11 +350,21 @@ bool MapDocument::applyColorToPolyAt(Vec2 worldPos,
 
 bool MapDocument::applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
                                             uint8_t r, uint8_t g, uint8_t b,
-                                            float opacity, int blendMode) {
+                                            float opacity, int blendMode,
+                                            std::set<uint32_t>* stroke) {
     float r2 = worldRadius * worldRadius;
     bool hasSelection = anySelected();
     bool applied = false;
-    for (auto& p : polys)
+
+    /* Stroke keys: polygon vertices are (polyIndex << 2) | vertex, scenery is
+       tagged with the high bit so the two cannot collide. */
+    auto firstTouch = [stroke](uint32_t key) {
+        if (stroke == nullptr) return true;
+        return stroke->insert(key).second;
+    };
+
+    for (std::size_t pi = 0; pi < polys.size(); ++pi) {
+        auto& p = polys[pi];
         for (int i = 0; i < 3; ++i) {
             /* Respect selection: if anything is selected, only paint selected
                vertices; otherwise paint unselected vertices (VB6 behavior). */
@@ -364,12 +374,68 @@ bool MapDocument::applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
             float dx = w.x - worldPos.x;
             float dy = w.y - worldPos.y;
             if (dx*dx + dy*dy <= r2) {
+                if (!firstTouch(static_cast<uint32_t>(pi) << 2 |
+                                static_cast<uint32_t>(i))) continue;
                 blendColor(p.v[i].r, p.v[i].g, p.v[i].b, r, g, b, opacity, blendMode);
                 applied = true;
             }
         }
+    }
+
+    /* VertexColoring tints scenery in range too (frm:7624-7652), with the
+       same selected/unselected split as the vertices above. */
+    const bool hasSceneryeSel = std::any_of(scenery.begin(), scenery.end(),
+        [](const EditorScenery& s) { return s.selected; });
+    for (std::size_t si = 0; si < scenery.size(); ++si) {
+        auto& s = scenery[si];
+        if (hasSceneryeSel && !s.selected) continue;
+        if (!hasSceneryeSel && s.selected) continue;
+        float dx = s.x - worldPos.x;
+        float dy = s.y - worldPos.y;
+        if (dx*dx + dy*dy > r2) continue;
+        if (!firstTouch(0x80000000u | static_cast<uint32_t>(si))) continue;
+
+        const uint32_t argb = static_cast<uint32_t>(s.color);
+        uint8_t dr = static_cast<uint8_t>((argb >> 16) & 0xFF);
+        uint8_t dg = static_cast<uint8_t>((argb >> 8) & 0xFF);
+        uint8_t db = static_cast<uint8_t>(argb & 0xFF);
+        blendColor(dr, dg, db, r, g, b, opacity, blendMode);
+        s.color = static_cast<int32_t>((argb & 0xFF000000u) |
+                                       (static_cast<uint32_t>(dr) << 16) |
+                                       (static_cast<uint32_t>(dg) << 8) | db);
+        applied = true;
+    }
+
     if (applied) markModified();
     return applied;
+}
+
+bool MapDocument::applyColorToNearestVertex(Vec2 worldPos, float worldRadius,
+                                             uint8_t r, uint8_t g, uint8_t b,
+                                             float opacity, int blendMode) {
+    const float r2 = worldRadius * worldRadius;
+    const bool hasSelection = anySelected();
+    float best = r2;
+    EditorVertex* target = nullptr;
+
+    for (auto& p : polys)
+        for (int i = 0; i < 3; ++i) {
+            if (hasSelection && !p.v[i].selected) continue;
+            if (!hasSelection && p.v[i].selected) continue;
+            const Vec2& w = p.v[i].world;
+            const float dx = w.x - worldPos.x;
+            const float dy = w.y - worldPos.y;
+            const float d2 = dx*dx + dy*dy;
+            if (d2 <= best) {
+                best = d2;
+                target = &p.v[i];
+            }
+        }
+
+    if (target == nullptr) return false;
+    blendColor(target->r, target->g, target->b, r, g, b, opacity, blendMode);
+    markModified();
+    return true;
 }
 
 /* ---- Editing ------------------------------------------------------------ */

@@ -14,6 +14,7 @@
 #include <wx/stattext.h>
 #include <wx/checkbox.h>
 #include <wx/radiobut.h>
+#include <wx/statbmp.h>
 
 #include <string>
 #include <vector>
@@ -40,6 +41,7 @@ public:
 
 private:
     void buildUI();
+    static wxString NotFoundBitmapPath();
     void OnScenerySelect(wxCommandEvent& event);
     void OnListRightDown(wxMouseEvent& event);
     void OnLevelBack(wxCommandEvent& event);
@@ -50,6 +52,7 @@ private:
 
     MainFrame*   m_mainFrame;
     wxListBox*   m_lstScenery   = nullptr;
+    wxStaticBitmap* m_preview   = nullptr;  /* picScenery */
     wxRadioButton* m_rbBack     = nullptr;
     wxRadioButton* m_rbMiddle   = nullptr;
     wxRadioButton* m_rbFront    = nullptr;

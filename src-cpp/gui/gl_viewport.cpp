@@ -900,13 +900,22 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
     }
 
     case TOOL_VCOLOR: {
-        /* VertexColoring: initiate a paint-drag session */
+        /* frm:11210 splits on the colour mode: precision colours the single
+           closest vertex on the click and does not paint on the drag. */
         m_undoStack.push(m_document);
-        m_state = ViewportState::Dragging;  /* re-use Dragging state for continuous paint */
-        float worldRadius = m_paintRadius / m_document.zoom;
-        m_document.applyColorToVerticesNear(world, worldRadius,
-                                             m_paintR, m_paintG, m_paintB,
-                                             m_paintOpacity, m_paintBlendMode);
+        const float worldRadius = m_paintRadius / m_document.zoom;
+        if (m_colorMode == 0) {
+            m_document.applyColorToNearestVertex(world, worldRadius,
+                                                 m_paintR, m_paintG, m_paintB,
+                                                 m_paintOpacity, m_paintBlendMode);
+        } else {
+            m_state = ViewportState::Dragging;  /* continuous paint */
+            m_colorStroke.clear();
+            m_document.applyColorToVerticesNear(world, worldRadius,
+                                                 m_paintR, m_paintG, m_paintB,
+                                                 m_paintOpacity, m_paintBlendMode,
+                                                 m_colorMode == 1 ? &m_colorStroke : nullptr);
+        }
         if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
         Refresh(false);
         return;
@@ -1157,11 +1166,14 @@ void GlViewport::HandleMouseMoveEdit(const wxMouseEvent& event) {
 
     if (m_state == ViewportState::Dragging && m_didDrag) {
         if (m_currentFunction == TOOL_VCOLOR) {
-            /* Continuous vertex color painting while dragging */
+            /* Continuous vertex color painting while dragging.  In the normal
+               colour mode each vertex is painted once per stroke (frm:7595),
+               so repeated passes with a low opacity do not build up. */
             float worldRadius = m_paintRadius / m_document.zoom;
             m_document.applyColorToVerticesNear(world, worldRadius,
                                                  m_paintR, m_paintG, m_paintB,
-                                                 m_paintOpacity, m_paintBlendMode);
+                                                 m_paintOpacity, m_paintBlendMode,
+                                                 m_colorMode == 1 ? &m_colorStroke : nullptr);
             if (m_mainFrame != nullptr) m_mainFrame->UpdateTitle();
         } else if (m_currentFunction == TOOL_DEPTHMAP) {
             m_document.applyDepthNear(world, m_paintRadius / m_document.zoom,

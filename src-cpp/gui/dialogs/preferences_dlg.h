@@ -53,6 +53,15 @@ struct AppPrefs {
     int polyBlendDest = 7;
     int wireBlendSrc  = 6;
     int wireBlendDest = 7;
+
+    /* Palette tool settings.  modConfig.bas keeps these in [ToolSettings]
+       so the painting colour, brush radius, opacity, blend mode and colour
+       mode survive a restart (modConfig.bas:146-150, 330-334). */
+    unsigned int paintColor = 0xFFFFFF;   /* CurrentColor, default FFFFFF */
+    int     colorRadius     = 16;         /* ColorRadius, default 16 */
+    float   colorOpacity    = 1.0f;       /* Opacity, stored as percent */
+    int     colorBlendMode  = 0;          /* BlendMode */
+    int     colorMode       = 1;          /* ColorMode, default Normal */
 };
 
 class PreferencesDlg final : public wxDialog {
@@ -63,6 +72,7 @@ private:
     void buildUI();
     void populateFromPrefs();
     void applyToPrefs();
+    bool ValidatePaths();
     void OnOK(wxCommandEvent& e);
     void OnCancel(wxCommandEvent& e);
 

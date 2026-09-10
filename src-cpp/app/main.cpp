@@ -146,43 +146,48 @@ public:
         /* Tools panel — right of main window */
         auto* toolsPanel = new ToolsPanel(mainFrame, skinsPath);
         mainFrame->AttachToolsPanel(toolsPanel);
-        toolsPanel->SetPosition(wxPoint(rightX, framePos.y));
+        PlacePanelOnScreen(toolsPanel, wxPoint(rightX, framePos.y));
         toolsPanel->Show(true);
 
         /* Display panel — below tools */
         auto* displayPanel = new DisplayPanel(mainFrame, mainFrame->m_doc.viewSettings);
         mainFrame->AttachDisplayPanel(displayPanel);
-        displayPanel->SetPosition(wxPoint(rightX, framePos.y + 256));
+        PlacePanelOnScreen(displayPanel, wxPoint(rightX, framePos.y + 256));
         displayPanel->Show(true);
 
         /* Scenery panel */
         auto* sceneryPanel = new SceneryPanel(mainFrame, soldatPath);
         mainFrame->AttachSceneryPanel(sceneryPanel);
-        sceneryPanel->SetPosition(wxPoint(rightX, framePos.y + 510));
+        PlacePanelOnScreen(sceneryPanel, wxPoint(rightX, framePos.y + 510));
         sceneryPanel->Show(true);
 
         /* Waypoint panel */
         auto* waypointPanel = new WaypointPanel(mainFrame);
         mainFrame->AttachWaypointPanel(waypointPanel);
-        waypointPanel->SetPosition(wxPoint(rightX, framePos.y + 740));
+        PlacePanelOnScreen(waypointPanel, wxPoint(rightX, framePos.y + 740));
         waypointPanel->Show(true);
 
         /* Info panel — below waypoints */
         auto* infoPanel = new InfoPanel(mainFrame, mainFrame->m_doc, &mainFrame->m_undoStack);
         mainFrame->AttachInfoPanel(infoPanel);
-        infoPanel->SetPosition(wxPoint(rightX, framePos.y + 920));
+        PlacePanelOnScreen(infoPanel, wxPoint(rightX, framePos.y + 920));
         infoPanel->Show(true);
 
         /* Texture panel (frmTexture) — shown on demand via Window > Texture */
         auto* texturePanel = new TexturePanel(mainFrame);
         mainFrame->AttachTexturePanel(texturePanel);
-        texturePanel->SetPosition(wxPoint(rightX + 216, framePos.y + 300));
+        PlacePanelOnScreen(texturePanel, wxPoint(rightX + 216, framePos.y + 300));
 
-        /* Palette panel — shown on demand via View menu; initially hidden */
+        /* Palette panel.  The shipped workspace has [Palette] Visible=True
+           (installer/Workspace/current.ini) and Form_Load shows it with the
+           other tool windows (frm:10608), so it is up from the start: it is
+           where the colour used for filling and vertex painting is chosen. */
         auto* palettePanel = new PalettePanel(mainFrame);
         mainFrame->AttachPalettePanel(palettePanel);
-        palettePanel->SetPosition(wxPoint(rightX + 216, framePos.y));
-        /* Don't show by default — user opens via View > Color Palette */
+        PlacePanelOnScreen(palettePanel, wxPoint(rightX + 216, framePos.y));
+        palettePanel->Show(true);
+
+        mainFrame->SyncWindowMenu();
 
         /* VB6 Form_Load opens a map named on the command line, which is how
            the .pms file association works (installer/pw.nsi:185 registers

@@ -1,5 +1,7 @@
 #include "palette_panel.h"
 
+#include "../dialogs/color_dlg.h"
+
 #include <wx/dcclient.h>
 #include <wx/dcbuffer.h>
 #include <wx/sizer.h>
@@ -9,6 +11,9 @@
 #include <wx/msgdlg.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
+
+#include <algorithm>
+#include <vector>
 
 #include <fstream>
 #include <functional>
@@ -118,10 +123,41 @@ static const wxColour kWhite(*wxWHITE);
    `App.Path`, i.e. the directory holding the executable, so the palette
    directory travels with a portable installation. */
 wxString PalettePanel::PalettesDir() {
-    wxFileName dir = wxFileName::DirName(
-        wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath());
-    dir.AppendDir("palettes");
-    return dir.GetPath();
+    auto dirBelow = [](const wxString& base,
+                       const std::vector<wxString>& segments) {
+        wxFileName fn = wxFileName::DirName(base);
+        for (const wxString& seg : segments) fn.AppendDir(seg);
+        return fn.GetPath();
+    };
+
+    const wxString exeDir =
+        wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
+    const wxString exeRelative = dirBelow(exeDir, {"palettes"});
+    if (wxFileName::DirExists(exeRelative)) return exeRelative;
+
+    /* Bundled layout: PolyWorks.app/Contents/Resources/palettes. */
+    const wxString bundleRelative =
+        dirBelow(wxStandardPaths::Get().GetResourcesDir(), {"palettes"});
+    if (wxFileName::DirExists(bundleRelative)) return bundleRelative;
+
+    /* Installed layout: <prefix>/bin/polyworks. */
+    const wxString installRelative =
+        dirBelow(wxFileName(exeDir, wxEmptyString).GetPath(),
+                 {"share", "polyworks", "palettes"});
+    if (wxFileName::DirExists(installRelative)) return installRelative;
+
+    /* Development checkout: run from the repository root or from build/. */
+    const wxString cwd = wxFileName::GetCwd();
+    for (const std::vector<wxString>& rel :
+         {std::vector<wxString>{"installer", "palettes"},
+          std::vector<wxString>{"palettes"},
+          std::vector<wxString>{"..", "installer", "palettes"}}) {
+        const wxString candidate = dirBelow(cwd, rel);
+        if (wxFileName::DirExists(candidate)) return candidate;
+    }
+
+    /* Nothing exists yet: SaveCurrentPalette creates the exe-relative one. */
+    return exeRelative;
 }
 
 wxString PalettePanel::CurrentPalettePath() {
@@ -181,6 +217,23 @@ void PalettePanel::BuildUI() {
         m_colorMode[i]->SetBackgroundColour(kBg);
         m_colorMode[i]->SetClientData(reinterpret_cast<void*>(static_cast<intptr_t>(i)));
         m_colorMode[i]->Bind(wxEVT_LEFT_UP, &PalettePanel::OnColorModeClicked, this);
+        /* frmPalette shows which mode is active by drawing the picColorMode
+           button pressed (frm:632).  Nothing but the panel colour said so
+           here, and against the window background that was invisible, so the
+           indicator is drawn explicitly. */
+        m_colorMode[i]->Bind(wxEVT_PAINT, [this, i](wxPaintEvent&) {
+            wxPaintDC dc(m_colorMode[i]);
+            const wxSize sz = m_colorMode[i]->GetClientSize();
+            const bool on = (m_colorModeIdx == i);
+            dc.SetBrush(wxBrush(on ? kLblBack : kBg));
+            dc.SetPen(wxPen(kLblBack));
+            dc.DrawRectangle(0, 0, sz.x, sz.y);
+            if (on) {
+                dc.SetBrush(wxBrush(kWhite));
+                dc.SetPen(*wxTRANSPARENT_PEN);
+                dc.DrawRectangle(sz.x / 2 - 3, sz.y / 2 - 3, 6, 6);
+            }
+        });
 
         auto* lbl = new wxStaticText(this, wxID_ANY, modeLabels[i]);
         lbl->SetForegroundColour(kWhite);
@@ -220,7 +273,7 @@ void PalettePanel::BuildUI() {
     blendLbl->SetBackgroundColour(kBg);
 
     m_cboBlend = new wxComboBox(this, wxID_ANY, wxEmptyString,
-                                wxDefaultPosition, wxSize(96, -1),
+                                wxDefaultPosition, wxDefaultSize,
                                 0, nullptr, wxCB_READONLY);
     m_cboBlend->Append("Normal");
     m_cboBlend->Append("Additive");
@@ -274,16 +327,41 @@ void PalettePanel::BuildUI() {
                                     static_cast<uint8_t>(b)});
     };
 
-    /* Swatch click opens color picker (delegate to owner via callback) */
+    /* frmPalette.picColor_Click opens the colour picker on the current colour
+       (frmPalette.frm:998).  The original shows frmColor non-modally but
+       disables every other window while it is up (frmColor.ChangeColor,
+       frm:722-739); a modal dialog is the portable equivalent. */
     m_swatch->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) {
-        long r = 0, g = 0, b = 0;
-        m_txtR->GetValue().ToLong(&r);
-        m_txtG->GetValue().ToLong(&g);
-        m_txtB->GetValue().ToLong(&b);
-        if (onColorChanged) onColorChanged(static_cast<uint8_t>(r),
-                                            static_cast<uint8_t>(g),
-                                            static_cast<uint8_t>(b));
+        uint8_t r = 0, g = 0, b = 0;
+        GetCurrentColor(r, g, b);
+        ColorDlg dlg(this, 0xFF000000u | (static_cast<unsigned>(r) << 16) |
+                            (static_cast<unsigned>(g) << 8) | b);
+        if (dlg.ShowModal() != wxID_OK) return;
+        const unsigned c = dlg.GetColor();
+        const uint8_t nr = static_cast<uint8_t>((c >> 16) & 0xFF);
+        const uint8_t ng = static_cast<uint8_t>((c >> 8) & 0xFF);
+        const uint8_t nb = static_cast<uint8_t>(c & 0xFF);
+        SetValues(nr, ng, nb);
+        CheckPalette(nr, ng, nb);
+        if (onColorChanged) onColorChanged(nr, ng, nb);
     });
+}
+
+void PaletteGrid::SetSelection(int col, int row) {
+    m_selCol = col;
+    m_selRow = row;
+    Refresh(false);
+}
+
+void PalettePanel::CheckPalette(uint8_t r, uint8_t g, uint8_t b) {
+    const auto& colors = m_grid->GetColors();
+    for (int i = 0; i < 72; ++i) {
+        if (colors[i].r == r && colors[i].g == g && colors[i].b == b) {
+            m_grid->SetSelection(i % 12, i / 12);
+            return;
+        }
+    }
+    m_grid->SetSelection(-1, -1);
 }
 
 void PalettePanel::SetValues(uint8_t r, uint8_t g, uint8_t b) {
@@ -293,7 +371,10 @@ void PalettePanel::SetValues(uint8_t r, uint8_t g, uint8_t b) {
     SyncSwatchColor();
 }
 
-void PalettePanel::Refresh(uint8_t /*r*/, float opacity, int blendMode, uint8_t colorMode) {
+void PalettePanel::Refresh(uint8_t radius, float opacity, int blendMode, uint8_t colorMode) {
+    /* frmPalette.RefreshPalette stores the radius and shows it (frm:614), and
+       the radius box is clamped to 4..128 (frm:1052). */
+    m_txtRadius->ChangeValue(wxString::Format("%d", std::min(128, std::max(4, static_cast<int>(radius)))));
     m_cboBlend->SetSelection(blendMode);
     m_txtOpacity->ChangeValue(wxString::Format("%.0f", opacity * 100.0f));
     m_colorModeIdx = colorMode;

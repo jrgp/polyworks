@@ -4,6 +4,7 @@
 
 #include <wx/panel.h>
 #include <wx/cursor.h>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -68,6 +69,11 @@ public:
     void setPaintColor(uint8_t r, uint8_t g, uint8_t b,
                        float opacity = 1.0f, int blendMode = 0,
                        float radius = 8.0f);
+
+    /* frmPalette's three colour modes (frm:1120): 0 = precision (the single
+       closest vertex, on click only), 1 = normal (a radius brush that paints
+       each vertex once per stroke), 2 = dynamic (repaints while dragging). */
+    void setColorMode(uint8_t mode) { m_colorMode = mode; }
 
     /* Radius (world units) used by vertex snapping on drag release. */
     void setSnapRadius(float r) { m_snapRadius = r; }
@@ -163,6 +169,8 @@ private:
     uint8_t m_paintR = 255, m_paintG = 255, m_paintB = 255;
     float   m_paintOpacity  = 1.0f;
     int     m_paintBlendMode = 0;
+    uint8_t m_colorMode      = 1;   /* modConfig.bas:149 defaults to 1 */
+    std::set<uint32_t> m_colorStroke;  /* vertices painted in this stroke */
     float   m_paintRadius   = 8.0f;
 
     /* Cursor management */

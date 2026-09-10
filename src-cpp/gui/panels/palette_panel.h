@@ -24,6 +24,8 @@ public:
     /* Get selected cell (-1 if none) */
     int GetSelCol() const { return m_selCol; }
     int GetSelRow() const { return m_selRow; }
+    /* Move the selection marker without firing onSelect; -1 clears it. */
+    void SetSelection(int col, int row);
 
     /* Callback: called when a cell is left-clicked */
     std::function<void(int col, int row, PaletteColor c)> onSelect;
@@ -45,6 +47,9 @@ public:
 
     /* Called to sync displayed RGB values with an external color source */
     void SetValues(uint8_t r, uint8_t g, uint8_t b);
+    /* frmPalette.CheckPalette: park the selection marker on the swatch
+       holding this colour, or off the grid when none does (frm:99-121). */
+    void CheckPalette(uint8_t r, uint8_t g, uint8_t b);
     /* Refresh grid + controls from current state */
     void Refresh(uint8_t r, float opacity, int blendMode, uint8_t colorMode);
 
@@ -90,6 +95,7 @@ private:
     wxComboBox*  m_cboBlend      = nullptr;
     wxPanel*     m_colorMode[3]{};  /* Precision, Normal, Dynamic */
 
-    uint8_t      m_colorModeIdx = 0;
+    /* ToolSettings/ColorMode defaults to 1 = Normal (modConfig.bas:149). */
+    uint8_t      m_colorModeIdx = 1;
     int          m_radius       = 8;
 };

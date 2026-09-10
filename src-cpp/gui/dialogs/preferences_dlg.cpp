@@ -7,6 +7,11 @@
 #include <wx/statbox.h>
 #include <wx/panel.h>
 #include <wx/notebook.h>
+#include <wx/dir.h>
+#include <wx/dirdlg.h>
+#include <wx/filename.h>
+#include <wx/msgdlg.h>
+#include <wx/button.h>
 
 #include <string>
 
@@ -33,6 +38,29 @@ static void addRow(wxSizer* sizer, wxWindow* parent,
     auto* row = new wxBoxSizer(wxHORIZONTAL);
     row->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxALL, 3);
     row->Add(ctrl, 0, wxALIGN_CENTER_VERTICAL | wxALL, 3);
+    sizer->Add(row, 0, wxEXPAND);
+}
+
+/* A path box with the folder button frmPreferences puts beside each one. */
+static void addBrowseRow(wxSizer* sizer, wxWindow* parent,
+                         const wxString& label, wxTextCtrl* ctrl,
+                         const wxString& prompt) {
+    auto* lbl = new wxStaticText(parent, wxID_ANY, label);
+    styleLabel(lbl);
+    auto* browse = new wxButton(parent, wxID_ANY, "...",
+                                wxDefaultPosition, wxDefaultSize,
+                                wxBU_EXACTFIT);
+    browse->SetToolTip(prompt);
+    browse->Bind(wxEVT_BUTTON, [ctrl, prompt](wxCommandEvent&) {
+        wxDirDialog dlg(ctrl->GetParent(), prompt, ctrl->GetValue(),
+                        wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+        if (dlg.ShowModal() == wxID_OK) ctrl->SetValue(dlg.GetPath());
+    });
+
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    row->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxALL, 3);
+    row->Add(ctrl, 0, wxALIGN_CENTER_VERTICAL | wxALL, 3);
+    row->Add(browse, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT | wxTOP | wxBOTTOM, 3);
     sizer->Add(row, 0, wxEXPAND);
 }
 
@@ -127,14 +155,24 @@ void PreferencesDlg::buildUI() {
     auto* ps = new wxBoxSizer(wxVERTICAL);
     m_txtSoldatDir  = new wxTextCtrl(pathPage, wxID_ANY, "", wxDefaultPosition, wxSize(260,-1));
     m_txtPrefabsDir = new wxTextCtrl(pathPage, wxID_ANY, "", wxDefaultPosition, wxSize(260,-1));
-    for (auto* t : {m_txtSoldatDir, m_txtPrefabsDir})
+    m_txtUncompDir  = new wxTextCtrl(pathPage, wxID_ANY, "", wxDefaultPosition, wxSize(260,-1));
+    for (auto* t : {m_txtSoldatDir, m_txtPrefabsDir, m_txtUncompDir})
         t->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Arial"));
-    addRow(ps, pathPage, "Soldat directory:",  m_txtSoldatDir);
-    m_txtUncompDir = new wxTextCtrl(pathPage, wxID_ANY, "", wxDefaultPosition, wxSize(260,-1));
-    m_txtUncompDir->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Arial"));
-    addRow(ps, pathPage, "Prefabs directory:", m_txtPrefabsDir);
-    /* frmPreferences txtUncomp — where uncompiled .pms maps are kept. */
-    addRow(ps, pathPage, "Uncompiled directory:", m_txtUncompDir);
+
+    /* frmPreferences pairs each path box with a folder button -- picFolder,
+       picUncomp and picPrefabs, all calling SelectFolder (frm:2488-2528). */
+    addBrowseRow(ps, pathPage, "Soldat directory:",      m_txtSoldatDir,
+                 "Select the Soldat game directory");
+    addBrowseRow(ps, pathPage, "Prefabs directory:",     m_txtPrefabsDir,
+                 "Select the prefabs directory");
+    addBrowseRow(ps, pathPage, "Uncompiled directory:",  m_txtUncompDir,
+                 "Select the uncompiled maps directory");
+
+    auto* hint = new wxStaticText(pathPage, wxID_ANY,
+        "The Soldat directory is the one holding Maps, Textures and\n"
+        "Scenery-gfx.  Textures and scenery are loaded from there.");
+    styleLabel(hint);
+    ps->Add(hint, 0, wxALL, 6);
     pathPage->SetSizer(ps);
     nb->AddPage(pathPage, "Paths");
 
@@ -216,7 +254,60 @@ void PreferencesDlg::applyToPrefs() {
     if (m_choWireDest && m_choWireDest->GetSelection() != wxNOT_FOUND) m_prefs.wireBlendDest = m_choWireDest->GetSelection();
 }
 
+/*
+ * frmPreferences validates the paths before accepting them (frm:2121-2158):
+ * the game directory must exist and must hold Maps, Textures and Scenery-gfx,
+ * and the prefabs and uncompiled directories must exist.  Each failure shows
+ * a message and leaves the dialog open rather than storing a path that
+ * nothing will resolve against.
+ */
+/*
+ * The texture/scenery resolver matches directory names case-insensitively, so
+ * the check here has to as well: a Soldat install unpacked on a case-sensitive
+ * filesystem often ends up with 'maps' or 'scenery-gfx'.
+ */
+static bool hasSubdir(const wxString& dir, const wxString& name) {
+    if (wxFileName::DirExists(wxFileName(dir, name).GetFullPath())) return true;
+    wxDir d(dir);
+    if (!d.IsOpened()) return false;
+    wxString found;
+    for (bool more = d.GetFirst(&found, wxEmptyString, wxDIR_DIRS); more;
+         more = d.GetNext(&found)) {
+        if (found.IsSameAs(name, false)) return true;
+    }
+    return false;
+}
+
+bool PreferencesDlg::ValidatePaths() {
+    auto complain = [this](const wxString& msg) {
+        wxMessageBox(msg, "Preferences", wxOK | wxICON_EXCLAMATION, this);
+        return false;
+    };
+
+    const wxString dir = m_txtSoldatDir ? m_txtSoldatDir->GetValue() : wxString();
+    if (!dir.empty() && dir.ToStdString() != m_prefs.soldatDir) {
+        if (!wxFileName::DirExists(dir))
+            return complain("Soldat directory does not exist.");
+        for (const char* sub : {"Maps", "Textures", "Scenery-gfx"}) {
+            if (!hasSubdir(dir, sub))
+                return complain(wxString::Format(
+                    "'%s' folder does not exist in Soldat directory.", sub));
+        }
+    }
+
+    const wxString prefabs = m_txtPrefabsDir ? m_txtPrefabsDir->GetValue() : wxString();
+    if (!prefabs.empty() && !wxFileName::DirExists(prefabs))
+        return complain("Prefabs directory does not exist.");
+
+    const wxString uncomp = m_txtUncompDir ? m_txtUncompDir->GetValue() : wxString();
+    if (!uncomp.empty() && !wxFileName::DirExists(uncomp))
+        return complain("Uncompiled Maps directory does not exist.");
+
+    return true;
+}
+
 void PreferencesDlg::OnOK(wxCommandEvent& /*e*/) {
+    if (!ValidatePaths()) return;
     applyToPrefs();
     EndModal(wxID_OK);
 }

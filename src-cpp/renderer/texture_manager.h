@@ -11,6 +11,9 @@ class TextureManager {
 public:
     void setBasePath(const std::string& path);
     void addSearchPath(const std::string& path);
+    /* Drop a path added earlier, so that repointing the game directory does
+       not leave the previous one behind to be searched forever. */
+    void removeSearchPath(const std::string& path);
 
     GLuint loadTexture(const std::string& filename);
     void getSize(GLuint texId, int& w, int& h) const;

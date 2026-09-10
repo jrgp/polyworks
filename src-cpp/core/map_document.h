@@ -14,6 +14,7 @@
 #include "pms_types.h"
 
 #include <string>
+#include <set>
 #include <vector>
 #include <array>
 #include <functional>
@@ -346,10 +347,23 @@ public:
     /* Paint color onto vertices within worldRadius of worldPos.
        If any vertices are selected, only paints selected vertices in range.
        If nothing is selected, paints all unselected vertices in range.
+
+       VertexColoring (frm:7570) also tints scenery in range, and in the
+       default colour mode paints each vertex at most once per stroke.  Pass
+       a `stroke` set to get that: keys already in it are skipped, and every
+       key painted is added.  Passing null repaints on every call, which is
+       what the original's "dynamic" mode does.
        Returns true if any vertex was painted. */
     bool applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
                                   uint8_t r, uint8_t g, uint8_t b,
-                                  float opacity = 1.0f, int blendMode = 0);
+                                  float opacity = 1.0f, int blendMode = 0,
+                                  std::set<uint32_t>* stroke = nullptr);
+
+    /* PrecisionColoring (frm:7496): colour only the single closest vertex
+       within worldRadius, honouring the selection the same way. */
+    bool applyColorToNearestVertex(Vec2 worldPos, float worldRadius,
+                                   uint8_t r, uint8_t g, uint8_t b,
+                                   float opacity = 1.0f, int blendMode = 0);
 
     /* ---- Editing ------------------------------------------------------- */
     void deleteSelected();

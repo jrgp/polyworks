@@ -251,6 +251,23 @@ void ColorDlg::buildUI() {
     SetSizer(outer);
     Fit();
 
+    /*
+     * GTK only knows a text control's real height once the widget has been
+     * realised, so the fit above can come out short and clip the hex row
+     * behind the button bar.  Re-fit the first time the dialog is shown.
+     */
+    Bind(wxEVT_SHOW, [this](wxShowEvent& e) {
+        e.Skip();
+        if (!e.IsShown() || m_fitted) return;
+        m_fitted = true;
+        CallAfter([this] {
+            const wxSize best = GetBestSize();
+            if (best.y > GetSize().y || best.x > GetSize().x)
+                SetClientSize(wxSize(std::max(best.x, GetSize().x),
+                                     std::max(best.y, GetSize().y)));
+        });
+    });
+
     btnOK    ->Bind(wxEVT_BUTTON, &ColorDlg::OnOK,     this);
     btnCancel->Bind(wxEVT_BUTTON, &ColorDlg::OnCancel, this);
 }

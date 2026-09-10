@@ -193,6 +193,25 @@ dispatched from `HandleLeftDownEdit` when `m_currentFunction == TOOL_PCOLOR`.
 | Alt → COLORPICK (eyedropper) | ✅ | ✅ (virtual tool switch) |
 | Undo one entry per drag session | ✅ | ✅ |
 
+**Color modes (`colorMode`, `[ToolSettings] ColorMode`, default 1):**
+
+The palette's three Precision / Normal / Dynamic buttons pick between three
+genuinely different brushes (`frm:7496`, `frm:11210`):
+
+| Mode | Name | Behavior |
+|---|---|---|
+| 0 | Precision | Colors the single closest vertex on the click; the drag paints nothing |
+| 1 | Normal | Brush paint, but each vertex is colored at most **once per stroke** (the original marks `vertexList(i).vertex(j)` and clears the marks on mouse-up) |
+| 2 | Dynamic | Brush paint with no marking, so held-still repainting keeps blending |
+
+Normal mode also tints **scenery** whose center falls inside the radius, with
+the same selected/unselected split as vertices (`frm:7624-7652`); alpha is
+preserved.
+
+`GlViewport::setColorMode()` receives the mode from
+`PalettePanel::onColorModeChanged`; the per-stroke mask lives in
+`m_colorStroke` and is passed into `applyColorToVerticesNear()`.
+
 ### 4.3 BlendColor formula (VB6 `ApplyBlend`, line 9653)
 
 ```
@@ -221,6 +240,15 @@ PalettePanel (color/opacity/blend/radius change)
     → m_paintR/G/B/Opacity/BlendMode/Radius stored in GlViewport
     → used by applyColorToVerticesNear / applyColorToSelected / applyColorToPolyAt
 ```
+
+Clicking the current-color swatch opens `ColorDlg` (the `frmColor` port) so any
+color can be reached, not just the 12x6 palette grid; the result is applied and
+`CheckPalette` parks the grid marker on the matching swatch if there is one
+(`frmPalette.picColor_Click`, `frm:998`).
+
+The painting state — color, radius, opacity, blend mode and color mode — is
+restored from `[ToolSettings]` when the panel is attached and written back on
+exit, as `modConfig.bas:146-150` / `330-334` do.
 
 **Status:** ✅ fully wired in `mainframe.cpp::AttachPalettePanel`.
 

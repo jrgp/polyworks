@@ -2,6 +2,8 @@
  * scenery_panel.cpp — Port of frmScenery.frm
  */
 #include "scenery_panel.h"
+#include <algorithm>
+#include <wx/stdpaths.h>
 #include "gui/mainframe.h"
 #include "pms_types.h"
 
@@ -19,7 +21,11 @@ static const wxColour BG_COL(0x31, 0x3C, 0x4A);
 static const wxColour FG_COL(*wxWHITE);
 
 /* Prefix marking a scenery file that the current map actually references. */
-static const char* const kInUseMark = "\u2022 ";
+/* The bullet has to be decoded explicitly.  Handing wxString the UTF-8 bytes
+   as a narrow literal runs them through the C locale, which rejects them
+   under LC_ALL=C and yields an *empty* string -- StartsWith() then matches
+   every name and the Mid() below eats the first four characters of it. */
+static wxString InUseMark() { return wxString::FromUTF8("\xE2\x80\xA2 "); }
 
 SceneryPanel::SceneryPanel(MainFrame* parent, const wxString& soldatPath)
     : wxFrame(parent, wxID_ANY, "Scenery",
@@ -43,6 +49,13 @@ void SceneryPanel::buildUI() {
     panel->SetBackgroundColour(wxColour(0x31, 0x3C, 0x4A));
 
     auto* mainSizer = new wxBoxSizer(wxVERTICAL);
+
+    /* frmScenery's 65x65 picScenery preview of the highlighted entry
+       (frmScenery.frm:102, filled by lstScenery_Click at frm:534). */
+    m_preview = new wxStaticBitmap(panel, wxID_ANY, wxBitmap(),
+                                   wxDefaultPosition, wxSize(65, 65));
+    m_preview->SetBackgroundColour(wxColour(0x31, 0x3C, 0x4A));
+    mainSizer->Add(m_preview, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP, 4);
 
     /* Scenery list */
     m_lstScenery = new wxListBox(panel, wxID_ANY,
@@ -122,6 +135,8 @@ void SceneryPanel::ListScenery(const wxString& soldatPath) {
 
     if (m_lstScenery->GetCount() > 0) {
         m_lstScenery->SetSelection(0);
+        wxCommandEvent evt(wxEVT_LISTBOX);
+        OnScenerySelect(evt);   /* frm:429 selects and clicks the first entry */
     }
 }
 
@@ -133,9 +148,10 @@ void SceneryPanel::UpdateInUse(const std::vector<std::string>& names) {
     if (!m_lstScenery) return;
     const int sel = m_lstScenery->GetSelection();
     for (unsigned i = 0; i < m_lstScenery->GetCount(); ++i) {
+        const wxString mark = InUseMark();
         wxString label = m_lstScenery->GetString(i);
-        const bool marked = label.StartsWith(kInUseMark);
-        wxString bare = marked ? label.Mid(wxStrlen(kInUseMark)) : label;
+        const bool marked = !mark.empty() && label.StartsWith(mark);
+        wxString bare = marked ? label.Mid(mark.length()) : label;
         bool used = false;
         for (const auto& n : names) {
             if (bare.IsSameAs(wxString::FromUTF8(n.c_str()), false)) {
@@ -143,7 +159,7 @@ void SceneryPanel::UpdateInUse(const std::vector<std::string>& names) {
                 break;
             }
         }
-        const wxString want = used ? (wxString(kInUseMark) + bare) : bare;
+        const wxString want = used ? (mark + bare) : bare;
         if (want != label) m_lstScenery->SetString(i, want);
     }
     if (sel != wxNOT_FOUND) m_lstScenery->SetSelection(sel);
@@ -172,11 +188,64 @@ wxString SceneryPanel::GetSelectedScenery() const {
     int sel = m_lstScenery ? m_lstScenery->GetSelection() : wxNOT_FOUND;
     if (sel == wxNOT_FOUND) return {};
     wxString name = m_lstScenery->GetString(sel);
-    if (name.StartsWith(kInUseMark)) name = name.Mid(wxStrlen(kInUseMark));
+    const wxString mark = InUseMark();
+    if (!mark.empty() && name.StartsWith(mark)) name = name.Mid(mark.length());
     return name;
 }
 
-void SceneryPanel::OnScenerySelect(wxCommandEvent& /*event*/) {}
+/* lstScenery_Click (frmScenery.frm:522-546): show the highlighted image in
+   the preview box, treating pure green as transparent, and fall back to the
+   skin's notfound.bmp when the file is missing.  The list entry also becomes
+   the control's tooltip. */
+void SceneryPanel::OnScenerySelect(wxCommandEvent& /*event*/) {
+    if (m_preview == nullptr) return;
+    const wxString name = GetSelectedScenery();
+    if (name.empty()) {
+        m_preview->SetBitmap(wxBitmap());
+        return;
+    }
+    m_lstScenery->SetToolTip(name);
+
+    wxString path = wxFileName(wxFileName(m_soldatPath, "Scenery-gfx").GetFullPath(),
+                               name).GetFullPath();
+    if (!wxFileExists(path)) path = NotFoundBitmapPath();
+
+    wxImage img;
+    if (path.empty() || !wxFileExists(path) || !img.LoadFile(path)) {
+        m_preview->SetBitmap(wxBitmap());
+        return;
+    }
+    /* RGB(0,255,0) is the original's transparency key. */
+    img.SetMaskColour(0, 255, 0);
+
+    /* picScenery is a fixed 65x65 box; shrink anything larger to fit. */
+    const int kBox = 65;
+    if (img.GetWidth() > kBox || img.GetHeight() > kBox) {
+        const double scale = std::min(double(kBox) / img.GetWidth(),
+                                      double(kBox) / img.GetHeight());
+        img = img.Scale(std::max(1, int(img.GetWidth() * scale)),
+                        std::max(1, int(img.GetHeight() * scale)),
+                        wxIMAGE_QUALITY_HIGH);
+    }
+    m_preview->SetBitmap(wxBitmap(img));
+    Layout();
+}
+
+/* The skin's placeholder, resolved the same way the main window resolves
+   skin bitmaps: next to the executable, then from a development checkout. */
+wxString SceneryPanel::NotFoundBitmapPath() {
+    wxFileName exeDir(wxStandardPaths::Get().GetExecutablePath());
+    const wxString roots[] = {exeDir.GetPath(), wxFileName::GetCwd()};
+    const wxString rels[] = {"skins/default/notfound.bmp",
+                             "installer/skins/default/notfound.bmp",
+                             "../installer/skins/default/notfound.bmp"};
+    for (const wxString& root : roots)
+        for (const wxString& rel : rels) {
+            const wxString candidate = root + wxFILE_SEP_PATH + rel;
+            if (wxFileExists(candidate)) return candidate;
+        }
+    return {};
+}
 
 void SceneryPanel::OnLevelBack(wxCommandEvent& /*event*/)   { m_level = SCENERY_BACK;   }
 void SceneryPanel::OnLevelMiddle(wxCommandEvent& /*event*/) { m_level = SCENERY_MIDDLE; }

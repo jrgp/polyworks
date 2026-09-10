@@ -26,6 +26,11 @@ class wxSizeEvent;
 wxString GetToolName(int tool);
 wxString GetToolHotkey(int tool);
 
+/* Put a floating tool window at `pos`, nudged so it stays on the display the
+   main window is on.  The VB6 layout offsets assume a large desktop; without
+   this a panel can land completely off a smaller screen and look missing. */
+void PlacePanelOnScreen(wxWindow* panel, const wxPoint& pos);
+
 class MainFrame final : public wxFrame {
 public:
     explicit MainFrame(const wxString& skinsPath);
@@ -42,6 +47,8 @@ public:
     void RefreshSceneryInUse();
     void AttachSceneryPanel(SceneryPanel* sceneryPanel);
     void AttachWaypointPanel(WaypointPanel* waypointPanel);
+    /* Make the Window menu ticks agree with the panels that are on screen. */
+    void SyncWindowMenu();
     void AttachPalettePanel(PalettePanel* palettePanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
@@ -180,6 +187,9 @@ private:
     void ApplyPrefs();
 
     AppPrefs m_prefs;
+    /* Game directory the texture search paths and scenery list were last
+       built from, so ApplyPrefs() can tell when it has actually changed. */
+    std::string m_appliedSoldatDir;
 
     wxString m_skinsPath;
     wxString m_currentFilePath;

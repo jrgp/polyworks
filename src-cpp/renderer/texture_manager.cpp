@@ -168,6 +168,20 @@ void TextureManager::addSearchPath(const std::string& path) {
     m_searchPaths.insert(m_searchPaths.begin(), path);
 }
 
+void TextureManager::removeSearchPath(const std::string& path) {
+    if (path.empty()) {
+        return;
+    }
+
+    const std::string key = normalizePathKey(path);
+    for (auto it = m_searchPaths.begin(); it != m_searchPaths.end(); ++it) {
+        if (normalizePathKey(*it) == key) {
+            m_searchPaths.erase(it);
+            return;
+        }
+    }
+}
+
 GLuint TextureManager::loadTexture(const std::string& filename) {
     if (filename.empty()) {
         return 0;

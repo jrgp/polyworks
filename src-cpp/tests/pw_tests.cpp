@@ -1152,6 +1152,64 @@ TEST(apply_color_vertices_near_respects_selection) {
 
 /* ---- Polygon operations ------------------------------------------------ */
 
+/* The normal colour mode paints each vertex once per stroke (frm:7595), so a
+   half-opacity brush dragged back and forth must not keep darkening. */
+TEST(apply_color_stroke_paints_each_vertex_once) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {10,0}; p.v[2].world = {5,10};
+    for (auto& v : p.v) { v.r = 0; v.g = 0; v.b = 0; }
+    doc.addPoly(p);
+
+    std::set<uint32_t> stroke;
+    EXPECT(doc.applyColorToVerticesNear({0,0}, 4.0f, 255, 255, 255, 0.5f, 0, &stroke));
+    const uint8_t afterFirst = doc.polys[0].v[0].r;
+    EXPECT(afterFirst > 0 && afterFirst < 255);
+
+    /* Same spot again in the same stroke: no further change. */
+    EXPECT(!doc.applyColorToVerticesNear({0,0}, 4.0f, 255, 255, 255, 0.5f, 0, &stroke));
+    EXPECT_EQ(doc.polys[0].v[0].r, afterFirst);
+
+    /* A new stroke (or the dynamic mode, which passes no set) paints again. */
+    EXPECT(doc.applyColorToVerticesNear({0,0}, 4.0f, 255, 255, 255, 0.5f, 0, nullptr));
+    EXPECT(doc.polys[0].v[0].r > afterFirst);
+}
+
+/* Precision mode colours only the closest vertex, not everything in range. */
+TEST(apply_color_nearest_vertex_picks_one) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {10,0}; p.v[2].world = {5,10};
+    for (auto& v : p.v) { v.r = 50; v.g = 50; v.b = 50; }
+    doc.addPoly(p);
+
+    EXPECT(doc.applyColorToNearestVertex({1,0}, 100.0f, 255, 0, 0, 1.0f, 0));
+    EXPECT_EQ(doc.polys[0].v[0].r, 255);
+    EXPECT_EQ(doc.polys[0].v[1].r, 50);
+    EXPECT_EQ(doc.polys[0].v[2].r, 50);
+
+    /* Nothing within the radius: nothing painted. */
+    EXPECT(!doc.applyColorToNearestVertex({500,500}, 5.0f, 0, 255, 0, 1.0f, 0));
+}
+
+/* VertexColoring tints scenery in range as well as vertices (frm:7624). */
+TEST(apply_color_vertices_near_tints_scenery) {
+    MapDocument doc;
+    EditorScenery s{};
+    s.x = 0; s.y = 0;
+    s.color = static_cast<int32_t>(0xFF000000u);  /* opaque black */
+    doc.scenery.push_back(s);
+
+    EXPECT(doc.applyColorToVerticesNear({0,0}, 10.0f, 255, 0, 0, 1.0f, 0));
+    const uint32_t argb = static_cast<uint32_t>(doc.scenery[0].color);
+    EXPECT_EQ((int)((argb >> 24) & 0xFF), 255);  /* alpha preserved */
+    EXPECT_EQ((int)((argb >> 16) & 0xFF), 255);
+    EXPECT_EQ((int)((argb >> 8) & 0xFF), 0);
+
+    /* Out of range leaves it alone. */
+    EXPECT(!doc.applyColorToVerticesNear({500,500}, 10.0f, 0, 255, 0, 1.0f, 0));
+}
+
 TEST(split_at_vertex_creates_new_poly) {
     MapDocument doc;
     EditorPoly p{};

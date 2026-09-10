@@ -19,6 +19,7 @@
 #include <wx/filename.h>
 #include <wx/sizer.h>
 #include <wx/config.h>
+#include <wx/display.h>
 #include <wx/fileconf.h>
 #include <wx/stdpaths.h>
 #include <wx/log.h>
@@ -354,6 +355,9 @@ void MainFrame::AttachInfoPanel(InfoPanel* infoPanel) {
 
 void MainFrame::AttachSceneryPanel(SceneryPanel* sceneryPanel) {
     m_sceneryPanel = sceneryPanel;
+    /* The list has to come from the configured game directory, which is only
+       known once LoadPrefs() has run -- the panel cannot find it itself. */
+    sceneryPanel->ListScenery(wxString::FromUTF8(m_prefs.soldatDir.c_str()));
 }
 
 void MainFrame::AttachWaypointPanel(WaypointPanel* waypointPanel) {
@@ -445,6 +449,28 @@ void MainFrame::AttachPalettePanel(PalettePanel* palettePanel) {
     palettePanel->onRadiusChanged = [syncPaintColor](int) {
         syncPaintColor();
     };
+    palettePanel->onColorModeChanged = [this](uint8_t mode) {
+        if (m_viewport != nullptr) m_viewport->setColorMode(mode);
+    };
+
+    /* Restore the [ToolSettings] painting state the original persists
+       (modConfig.bas:146-150) before pushing it into the viewport. */
+    palettePanel->Refresh(static_cast<uint8_t>(m_prefs.colorRadius),
+                          m_prefs.colorOpacity, m_prefs.colorBlendMode,
+                          static_cast<uint8_t>(m_prefs.colorMode));
+    palettePanel->SetValues(static_cast<uint8_t>((m_prefs.paintColor >> 16) & 0xFF),
+                            static_cast<uint8_t>((m_prefs.paintColor >> 8) & 0xFF),
+                            static_cast<uint8_t>(m_prefs.paintColor & 0xFF));
+    palettePanel->CheckPalette(static_cast<uint8_t>((m_prefs.paintColor >> 16) & 0xFF),
+                               static_cast<uint8_t>((m_prefs.paintColor >> 8) & 0xFF),
+                               static_cast<uint8_t>(m_prefs.paintColor & 0xFF));
+
+    /* Push the palette's colour straight away.  Until this ran, the tools
+       painted with the viewport's built-in default rather than the colour
+       the palette was actually showing. */
+    syncPaintColor();
+    if (m_viewport != nullptr)
+        m_viewport->setColorMode(palettePanel->GetColorMode());
 }
 
 void MainFrame::GetPaintColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
@@ -1385,6 +1411,23 @@ bool PanelVisible(wxWindow* panel) {
 }
 }  // namespace
 
+/* The Window menu ticks have to start out agreeing with what is actually on
+   screen; VB6 drives them the other way round, setting each window's Visible
+   from the workspace's mnu*.Checked (frm:10614-10621). */
+void MainFrame::SyncWindowMenu() {
+    struct { wxMenuItem* item; wxWindow* panel; } kWindows[] = {
+        {m_winItemTools,      m_toolsPanel},
+        {m_winItemDisplay,    m_displayPanel},
+        {m_winItemPalette,    m_palettePanel},
+        {m_winItemWaypoints,  m_waypointPanel},
+        {m_winItemScenery,    m_sceneryPanel},
+        {m_winItemProperties, m_infoPanel},
+        {m_winItemTexture,    m_texturePanel},
+    };
+    for (const auto& w : kWindows)
+        if (w.item != nullptr) w.item->Check(PanelVisible(w.panel));
+}
+
 void MainFrame::OnWindowShowAll(wxCommandEvent&) {
     SetPanelVisible(m_toolsPanel,     m_winItemTools,      true);
     SetPanelVisible(m_displayPanel,   m_winItemDisplay,    true);
@@ -1403,6 +1446,21 @@ void MainFrame::OnWindowHideAll(wxCommandEvent&) {
     SetPanelVisible(m_sceneryPanel,   m_winItemScenery,    false);
     SetPanelVisible(m_infoPanel,      m_winItemProperties, false);
     SetPanelVisible(m_texturePanel,   m_winItemTexture,    false);
+}
+
+void PlacePanelOnScreen(wxWindow* panel, const wxPoint& pos) {
+    if (panel == nullptr) return;
+    const int display = wxDisplay::GetFromWindow(panel->GetParent() != nullptr
+                                                 ? panel->GetParent() : panel);
+    const wxRect area = wxDisplay(display == wxNOT_FOUND ? 0 : display)
+                            .GetClientArea();
+    const wxSize size = panel->GetSize();
+    wxPoint p = pos;
+    p.x = std::min(p.x, area.GetRight()  - size.x + 1);
+    p.y = std::min(p.y, area.GetBottom() - size.y + 1);
+    p.x = std::max(p.x, area.GetLeft());
+    p.y = std::max(p.y, area.GetTop());
+    panel->Move(p);
 }
 
 void MainFrame::OnWindowTogglePanel(wxCommandEvent& event) {
@@ -1437,17 +1495,32 @@ void MainFrame::OnWindowLoadWorkspace(wxCommandEvent&) {
     if (dlg.ShowModal() != wxID_OK) return;
     wxConfig cfg("PolyWorks", wxEmptyString, dlg.GetPath());
     if (m_toolsPanel    && cfg.HasEntry("/Tools/x"))
-        m_toolsPanel->Move(cfg.ReadLong("/Tools/x", 0), cfg.ReadLong("/Tools/y", 0));
+        PlacePanelOnScreen(m_toolsPanel, wxPoint(cfg.ReadLong("/Tools/x", 0), cfg.ReadLong("/Tools/y", 0)));
     if (m_displayPanel  && cfg.HasEntry("/Display/x"))
-        m_displayPanel->Move(cfg.ReadLong("/Display/x", 0), cfg.ReadLong("/Display/y", 0));
+        PlacePanelOnScreen(m_displayPanel, wxPoint(cfg.ReadLong("/Display/x", 0), cfg.ReadLong("/Display/y", 0)));
     if (m_sceneryPanel  && cfg.HasEntry("/Scenery/x"))
-        m_sceneryPanel->Move(cfg.ReadLong("/Scenery/x", 0), cfg.ReadLong("/Scenery/y", 0));
+        PlacePanelOnScreen(m_sceneryPanel, wxPoint(cfg.ReadLong("/Scenery/x", 0), cfg.ReadLong("/Scenery/y", 0)));
     if (m_waypointPanel && cfg.HasEntry("/Waypoints/x"))
-        m_waypointPanel->Move(cfg.ReadLong("/Waypoints/x", 0), cfg.ReadLong("/Waypoints/y", 0));
+        PlacePanelOnScreen(m_waypointPanel, wxPoint(cfg.ReadLong("/Waypoints/x", 0), cfg.ReadLong("/Waypoints/y", 0)));
     if (m_infoPanel     && cfg.HasEntry("/Info/x"))
-        m_infoPanel->Move(cfg.ReadLong("/Info/x", 0), cfg.ReadLong("/Info/y", 0));
+        PlacePanelOnScreen(m_infoPanel, wxPoint(cfg.ReadLong("/Info/x", 0), cfg.ReadLong("/Info/y", 0)));
     if (m_palettePanel  && cfg.HasEntry("/Palette/x"))
-        m_palettePanel->Move(cfg.ReadLong("/Palette/x", 0), cfg.ReadLong("/Palette/y", 0));
+        PlacePanelOnScreen(m_palettePanel, wxPoint(cfg.ReadLong("/Palette/x", 0), cfg.ReadLong("/Palette/y", 0)));
+
+    /* The workspace file records Visible for every window as well as its
+       position (modConfig.bas:498-528, installer/Workspace/current.ini). */
+    struct { const char* group; wxWindow* panel; } kWindows[] = {
+        {"Tools",      m_toolsPanel},    {"Display",    m_displayPanel},
+        {"Scenery",    m_sceneryPanel},  {"Waypoints",  m_waypointPanel},
+        {"Info",       m_infoPanel},     {"Palette",    m_palettePanel},
+        {"Texture",    m_texturePanel},
+    };
+    for (const auto& w : kWindows) {
+        const wxString key = wxString::Format("/%s/visible", w.group);
+        if (w.panel != nullptr && cfg.HasEntry(key))
+            w.panel->Show(cfg.ReadBool(key, true));
+    }
+    SyncWindowMenu();
 }
 
 void MainFrame::OnWindowSaveWorkspace(wxCommandEvent&) {
@@ -1461,6 +1534,7 @@ void MainFrame::OnWindowSaveWorkspace(wxCommandEvent&) {
         wxPoint p = w->GetPosition();
         cfg.Write(wxString::Format("/%s/x", group), (long)p.x);
         cfg.Write(wxString::Format("/%s/y", group), (long)p.y);
+        cfg.Write(wxString::Format("/%s/visible", group), w->IsShown());
     };
     savePos("Tools",     m_toolsPanel);
     savePos("Display",   m_displayPanel);
@@ -1468,6 +1542,7 @@ void MainFrame::OnWindowSaveWorkspace(wxCommandEvent&) {
     savePos("Waypoints", m_waypointPanel);
     savePos("Info",      m_infoPanel);
     savePos("Palette",   m_palettePanel);
+    savePos("Texture",   m_texturePanel);
     cfg.Flush();
 }
 
@@ -1598,6 +1673,13 @@ void MainFrame::LoadPrefs() {
     if (cfg.Read("Blend/WireDest", &l)) m_prefs.wireBlendDest = static_cast<int>(l);
     if (cfg.Read("Colors/Point",     &l)) m_prefs.pointColor     = static_cast<unsigned>(l);
     if (cfg.Read("Colors/Selection", &l)) m_prefs.selectionColor = static_cast<unsigned>(l);
+    if (cfg.Read("ToolSettings/CurrentColor", &l))
+        m_prefs.paintColor = static_cast<unsigned>(l) & 0xFFFFFFu;
+    if (cfg.Read("ToolSettings/ColorRadius", &l)) m_prefs.colorRadius = static_cast<int>(l);
+    if (cfg.Read("ToolSettings/Opacity", &d))
+        m_prefs.colorOpacity = static_cast<float>(d) / 100.0f;
+    if (cfg.Read("ToolSettings/BlendMode", &l)) m_prefs.colorBlendMode = static_cast<int>(l);
+    if (cfg.Read("ToolSettings/ColorMode", &l)) m_prefs.colorMode = static_cast<int>(l);
 
     wxString s;
     if (cfg.Read("Paths/SoldatDir",  &s)) m_prefs.soldatDir  = s.ToStdString();
@@ -1647,6 +1729,21 @@ void MainFrame::SavePrefs() {
     cfg.Write("Blend/WireDest", static_cast<long>(m_prefs.wireBlendDest));
     cfg.Write("Colors/Point",     static_cast<long>(m_prefs.pointColor));
     cfg.Write("Colors/Selection", static_cast<long>(m_prefs.selectionColor));
+    if (m_palettePanel != nullptr) {
+        uint8_t r = 0, g = 0, b = 0;
+        m_palettePanel->GetCurrentColor(r, g, b);
+        m_prefs.paintColor = (static_cast<unsigned>(r) << 16) |
+                             (static_cast<unsigned>(g) << 8) | b;
+        m_prefs.colorRadius    = m_palettePanel->GetRadius();
+        m_prefs.colorOpacity   = m_palettePanel->GetOpacity();
+        m_prefs.colorBlendMode = m_palettePanel->GetBlendMode();
+        m_prefs.colorMode      = m_palettePanel->GetColorMode();
+    }
+    cfg.Write("ToolSettings/CurrentColor", static_cast<long>(m_prefs.paintColor));
+    cfg.Write("ToolSettings/ColorRadius",  static_cast<long>(m_prefs.colorRadius));
+    cfg.Write("ToolSettings/Opacity",      static_cast<double>(m_prefs.colorOpacity * 100.0f));
+    cfg.Write("ToolSettings/BlendMode",    static_cast<long>(m_prefs.colorBlendMode));
+    cfg.Write("ToolSettings/ColorMode",    static_cast<long>(m_prefs.colorMode));
     cfg.Write("Paths/SoldatDir",  wxString(m_prefs.soldatDir));
     cfg.Write("Paths/PrefabsDir", wxString(m_prefs.prefabsDir));
     cfg.Write("Paths/UncompDir",  wxString(m_prefs.uncompDir));
@@ -1668,12 +1765,26 @@ void MainFrame::ApplyPrefs() {
     if (m_viewport != nullptr) {
         m_viewport->setSnapRadius(m_prefs.snapRadius);
         m_viewport->setZoomLimits(m_prefs.minZoom, m_prefs.maxZoom);
+        auto& tm = m_viewport->GetTextureManager();
+        /* Repointing the game directory has to retire the old one, or a stale
+           path keeps being searched (and, worse, keeps resolving). */
+        if (!m_appliedSoldatDir.empty() && m_appliedSoldatDir != m_prefs.soldatDir) {
+            tm.removeSearchPath(m_appliedSoldatDir + "/Textures");
+            tm.removeSearchPath(m_appliedSoldatDir + "/Scenery-gfx");
+        }
         if (!m_prefs.soldatDir.empty()) {
-            auto& tm = m_viewport->GetTextureManager();
             tm.addSearchPath(m_prefs.soldatDir + "/Textures");
             tm.addSearchPath(m_prefs.soldatDir + "/Scenery-gfx");
         }
     }
+
+    /* The scenery list is a directory listing of the game directory, so it has
+       to be rebuilt whenever that directory changes (VB6 rebuilds it from
+       frmScenery.Form_Load and the list's Reload item, frmScenery.frm:574). */
+    if (m_sceneryPanel != nullptr && m_appliedSoldatDir != m_prefs.soldatDir) {
+        m_sceneryPanel->ListScenery(wxString::FromUTF8(m_prefs.soldatDir.c_str()));
+    }
+    m_appliedSoldatDir = m_prefs.soldatDir;
 }
 
 void MainFrame::OnPreferences(wxCommandEvent&) {

@@ -72,6 +72,7 @@ private:
     unsigned int  m_color = 0xFFFFFFFF;
     float         m_h = 0, m_s = 1, m_v = 1, m_a = 1;
     bool          m_updating = false;
+    bool          m_fitted   = false;
 
     SpectrumPanel* m_spectrum   = nullptr;
     GradientBar*   m_valBar     = nullptr;
