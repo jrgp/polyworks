@@ -60,7 +60,7 @@ WX_SHA256="939e5b77ddc5b6092d1d7d29491fe67010a2433cf9b9c0d841ee4d04acb9dce7"
 
 # Oldest macOS the result is expected to run on.  10.10 is wxWidgets 3.2's own
 # floor; overridable for anyone who needs to target something newer.
-MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-10.10}"
+MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
 
 # ---------------------------------------------------------------------------
 require() { command -v "$1" >/dev/null || die "$2"; }
