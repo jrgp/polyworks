@@ -19,28 +19,30 @@ jobs:
   windows:
     name: Windows (cross-compiled on Linux)
     runs-on: ubuntu-latest
+    # Debian bookworm rather than the bare Ubuntu runner, so the cross
+    # toolchain is the one this project is developed and verified against:
+    # mingw-w64 GCC 12.2.0, which resolves to the wxWidgets gcc1220 package
+    # whose checksums are pinned in build_windows.sh.
+    #
+    # It also settles the thread model by itself.  Debian gives the win32
+    # mingw alternative priority 60 against posix's 30, so the default is
+    # already the win32-threads compiler the official wxWidgets binaries are
+    # built with; Ubuntu ranks them the other way round and would need the
+    # alternative selected by hand.
+    container: debian:bookworm
     steps:
+      # Everything the build needs, and nothing else.  Only the win32 variant
+      # of the compiler is installed, so there is no second thread model for
+      # the alternatives system to choose between.
+      - name: Install the toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git cmake make python3 zip \
+            g++-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # mingw-w64 is not on the runner image.  Install the win32 thread model
-      # explicitly and select it: Ubuntu defaults these alternatives to posix,
-      # and the official wxWidgets binaries are win32-threads builds, so a
-      # posix compiler would put two incompatible libstdc++ configurations on
-      # either side of the wx ABI boundary.  build_windows.sh checks for this
-      # and would stop the build.
-      - name: Install mingw-w64
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc \
-            /usr/bin/x86_64-w64-mingw32-gcc-win32
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ \
-            /usr/bin/x86_64-w64-mingw32-g++-win32
-
-      # The wxWidgets archives are large and pinned, so they are worth keeping
-      # between runs.  The key covers the script that decides which package to
-      # fetch, so bumping the wxWidgets version invalidates the cache.
       - name: Cache wxWidgets download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

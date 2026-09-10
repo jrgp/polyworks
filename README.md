@@ -145,7 +145,9 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-`.github/workflows/release.yml` cross-compiles Windows on a Linux runner and
+`.github/workflows/release.yml` cross-compiles Windows in a Debian bookworm
+container — the toolchain this project is developed against, so CI uses the
+same mingw-w64 GCC and the same pinned wxWidgets package a developer does — and
 builds macOS natively on an Apple silicon runner — macOS cannot be
 cross-compiled, and the two jobs run in parallel. Each job runs the same build
 script a developer would (`./build_windows.sh --package`, `./build-mac.sh
