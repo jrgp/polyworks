@@ -6,6 +6,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Both builds obtain their own dependencies and take a while, so being able
+  # to run them without minting a release is worth the two lines: a manual run
+  # builds and uploads the artifacts, and stops short of publishing.
+  workflow_dispatch:
 
 # The two builds are independent and run in parallel.  Neither can substitute
 # for the other: Windows is cross-compiled from Linux, and macOS cannot be
@@ -110,6 +114,9 @@ jobs:
 
   release:
     name: Publish release
+    # A manual run is for checking that the builds work, not for releasing;
+    # there is no tag to release in that case.
+    if: startsWith(github.ref, 'refs/tags/')
     # `needs` is what makes a failure on either platform cancel the release:
     # this job does not start unless both builds succeeded.
     needs: [windows, macos]

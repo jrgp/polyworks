@@ -52,7 +52,7 @@ done
 #
 # and never a hardcoded ABI that the host may not actually have.
 # ---------------------------------------------------------------------------
-WX_VERSION="3.2.6"
+WX_VERSION="3.2.11"
 WX_TAG="v${WX_VERSION}"
 WX_BASE_URL="https://github.com/wxWidgets/wxWidgets/releases/download/${WX_TAG}"
 WX_API_URL="https://api.github.com/repos/wxWidgets/wxWidgets/releases/tags/${WX_TAG}"
@@ -65,16 +65,16 @@ CROSS_CC="x86_64-w64-mingw32-gcc"
 # the script says so out loud and prints the hash to add here.
 pinned_sha256() {
     case "$1" in
-        wxWidgets-3.2.6-headers.7z)
-            echo e683d94c057d57bc44d075d5dcdea0d930927114629ea3d8d8faf7a1d983c449 ;;
-        wxMSW-3.2.6_gcc1220_x64_Dev.7z)
-            echo 2634ed5e7672b3f7ed02042eb281f128cef1a7e435c54c589e82cb9fb8a99c1a ;;
-        wxMSW-3.2.6_gcc1220_x64_ReleaseDLL.7z)
-            echo dab13373f1b5e3aa86a1f18fac0151505e89db5cf3bece8c6df746915932c951 ;;
-        wxMSW-3.2.6_gcc1320_x64_Dev.7z)
-            echo 66b4e1fe525657bea02581bea98d26770f85c6e4795c8cd92293d63ef0f83725 ;;
-        wxMSW-3.2.6_gcc1320_x64_ReleaseDLL.7z)
-            echo 9ac711489b8840f1eb4a60e997a2b94643e7620dd94e12720e2967bc6f0b77eb ;;
+        wxWidgets-3.2.11-headers.7z)
+            echo 886de90e6f428f268541e395b18261126476288fedfb87c147ea8ab426059d77 ;;
+        wxMSW-3.2.11_gcc1220_x64_Dev.7z)
+            echo c675ddbd94d275489be579598c8b28ab89bc26f6230c703c1cc726db8736179d ;;
+        wxMSW-3.2.11_gcc1220_x64_ReleaseDLL.7z)
+            echo 01bf23323babfcea4165c6e1c022d40d36d28c21a8d08193c2e182ad5a412a67 ;;
+        wxMSW-3.2.11_gcc1320_x64_Dev.7z)
+            echo 178efcd52c1a5e6fb4f091e93cc666e578786f459bcf68420fa7bd194e719705 ;;
+        wxMSW-3.2.11_gcc1320_x64_ReleaseDLL.7z)
+            echo 8315137256bb8918c757739305d1df9c706de4ac61a370030f253fcd12bb9ee1 ;;
         *) echo "" ;;
     esac
 }

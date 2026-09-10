@@ -159,6 +159,10 @@ polyworks-1.0.0-win-x64.zip
 polyworks-1.0.0-macos-arm64.zip
 ```
 
+The workflow can also be started by hand from the Actions tab, which builds and
+uploads both artifacts without creating a release — useful for checking a
+change to either build script.
+
 ### Asset resolution
 
 Textures and scenery are looked up, in order:

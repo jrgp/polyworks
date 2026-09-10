@@ -46,20 +46,27 @@ done
 # the bundle and rewritten to make the result distributable at all.
 #
 # The build is static (--disable-shared) and uses wxWidgets' bundled copies of
-# libpng/libjpeg/libtiff/zlib/expat, so the finished binary links nothing from
-# outside the SDK.  That is also what keeps configure from quietly picking up
-# whatever Homebrew happens to have installed on the build machine.
+# libpng/libjpeg/zlib/expat, so the finished binary links nothing from outside
+# the SDK.  That is also what keeps configure from quietly picking up whatever
+# Homebrew happens to have installed on the build machine.  TIFF is left out
+# entirely: PolyWorks reads BMP, PNG, JPEG and GIF, no part of the editor or
+# of Soldat's assets uses TIFF, and building a library nothing loads only adds
+# code to the binary.
 #
 # The version is pinned and the archive is checksummed; the installed prefix is
-# kept under .deps/ so this cost is paid once.
+# kept under .deps/ so this cost is paid once.  3.2.11 is the current 3.2
+# release and the earliest that builds against a current macOS SDK: the
+# upstream changelog records "Fix build under macOS 26 Tahoe" and "Fix building
+# third party libraries with Xcode 16.3" after 3.2.6.  build_windows.sh pins
+# the same version, so both platforms ship one wxWidgets.
 # ---------------------------------------------------------------------------
-WX_VERSION="3.2.6"
+WX_VERSION="3.2.11"
 WX_ARCHIVE="wxWidgets-${WX_VERSION}.tar.bz2"
 WX_URL="https://github.com/wxWidgets/wxWidgets/releases/download/v${WX_VERSION}/${WX_ARCHIVE}"
-WX_SHA256="939e5b77ddc5b6092d1d7d29491fe67010a2433cf9b9c0d841ee4d04acb9dce7"
+WX_SHA256="6a129015bce2e914e4bf61ec4411854ad962801d47e92f2eb8340adb6a90af08"
 
-# Oldest macOS the result is expected to run on.  10.10 is wxWidgets 3.2's own
-# floor; overridable for anyone who needs to target something newer.
+# Oldest macOS the result is expected to run on.  Overridable for anyone who
+# needs to target something else; wxWidgets 3.2's own floor is 10.10.
 MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
 
 # ---------------------------------------------------------------------------
@@ -123,11 +130,81 @@ Refusing to build against an archive that is not the pinned release."
     mv "$path.part" "$path"
 }
 
+# ---------------------------------------------------------------------------
+# Fixes to the bundled third-party sources.
+#
+# wxWidgets 3.2 ships copies of zlib 1.2.13 and libpng 1.6.37 that each decide
+# they are being compiled for Classic Mac OS when TARGET_OS_MAC is defined:
+#
+#   zlib   src/zlib/zutil.h    #define fdopen(fd,mode) NULL
+#   libpng src/png/pngpriv.h   #include <fp.h>
+#
+# That test was written when TARGET_OS_MAC meant MPW/CodeWarrior on Mac OS 9.
+# Today TargetConditionals.h defines it as 1 on every Apple platform, and the
+# macOS 26 SDK reaches it from <stdio.h>, so both libraries take the Classic
+# branch: zlib redefines fdopen out from under the real declaration in stdio.h
+# (three errors in zutil.c) and libpng includes a header that has not existed
+# since Carbon (a fatal error in every png source file).
+#
+# Neither library is at fault for a system that changed underneath it, and
+# neither branch can be turned off from the command line -- the macro is
+# defined by a system header, so -U cannot reach it.  Correct the two
+# conditions in place instead.  Both are exact-match and verified, so a
+# wxWidgets upgrade that fixes or moves them fails here rather than silently
+# building unpatched.
+# ---------------------------------------------------------------------------
+patch_wx_source() {
+    local src="$1"
+    python3 - "$src" <<'PY' || die "failed to patch the bundled third-party sources"
+import sys, pathlib
+
+root = pathlib.Path(sys.argv[1])
+# file, text to find, replacement, and what the change is for.
+edits = [
+    ("src/zlib/zutil.h",
+     "#if defined(MACOS) || defined(TARGET_OS_MAC)",
+     "#if defined(MACOS)",
+     "zlib: keep the Classic Mac OS fdopen() stub out of a real macOS build"),
+    ("src/png/pngpriv.h",
+     "defined(THINK_C) || defined(__SC__) || defined(TARGET_OS_MAC)",
+     "defined(THINK_C) || defined(__SC__)",
+     "libpng: use <math.h> rather than Classic Mac OS <fp.h>"),
+]
+
+for name, old, new, why in edits:
+    path = root / name
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    if new in text and old not in text:
+        continue                      # already patched
+    if text.count(old) != 1:
+        sys.exit("%s: expected exactly one occurrence of\n  %s\nfound %d.  "
+                 "The bundled sources have changed; review this patch."
+                 % (name, old, text.count(old)))
+    path.write_text(text.replace(old, new), encoding="utf-8",
+                    errors="surrogateescape")
+    print("    %s" % why)
+PY
+}
+
+# A parallel make interleaves its output, so the last few lines of the log are
+# usually the tail of some unrelated warning rather than the failure.  Show the
+# lines that actually report an error, with the tail only as a fallback for a
+# failure that produced none.
+report_build_failure() {
+    local log="$1"
+    if grep -qE '(error|Error)[: ]' "$log"; then
+        printf '%s\n' "--- errors from $(basename "$log") ---"
+        grep -E '(error|Error)[: ]' "$log" | head -25
+    else
+        tail -40 "$log"
+    fi
+}
+
 build_wx() {
     # The stamp records which package and settings the prefix holds, so
     # changing any of them rebuilds instead of leaving a stale mixture.
     local stamp="$WX_PREFIX/.stamp"
-    local want="${WX_VERSION} ${ARCH} ${MACOS_MIN} static"
+    local want="${WX_VERSION} ${ARCH} ${MACOS_MIN} static notiff"
     if [[ -f "$stamp" ]] && [[ "$(cat "$stamp")" == "$want" ]]; then
         say "wxWidgets ${WX_VERSION} (${ARCH}, static) ready"
         return 0
@@ -142,6 +219,7 @@ build_wx() {
         mkdir -p "$DEPS_DIR/src"
         tar -xjf "$CACHE_DIR/$WX_ARCHIVE" -C "$DEPS_DIR/src"
     fi
+    patch_wx_source "$src"
 
     local objdir="$DEPS_DIR/build/wx-${WX_VERSION}-${ARCH}"
     rm -rf "$objdir" "$WX_PREFIX"
@@ -164,7 +242,7 @@ build_wx() {
             --with-macosx-version-min="$MACOS_MIN" \
             --with-libpng=builtin \
             --with-libjpeg=builtin \
-            --with-libtiff=builtin \
+            --without-libtiff \
             --with-zlib=builtin \
             --with-expat=builtin \
             --enable-optimise \
@@ -174,9 +252,9 @@ build_wx() {
             || { tail -40 configure.log; die "wxWidgets configure failed (see $objdir/configure.log)"; }
 
         make -j"$JOBS" > build.log 2>&1 \
-            || { tail -40 build.log; die "wxWidgets build failed (see $objdir/build.log)"; }
+            || { report_build_failure build.log; die "wxWidgets build failed (see $objdir/build.log)"; }
         make install  >> build.log 2>&1 \
-            || { tail -40 build.log; die "wxWidgets install failed (see $objdir/build.log)"; }
+            || { report_build_failure build.log; die "wxWidgets install failed (see $objdir/build.log)"; }
     )
 
     [[ -x "$WX_PREFIX/bin/wx-config" ]] || die "wx-config missing after install"
