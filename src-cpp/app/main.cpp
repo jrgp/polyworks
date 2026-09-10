@@ -142,6 +142,11 @@ public:
         const wxPoint framePos  = mainFrame->GetPosition();
         const wxSize  frameSize = mainFrame->GetSize();
         const int     rightX    = framePos.x + frameSize.x + 4;
+        /* The tool windows form two columns to the right of the editor.  The
+           second column has to clear the widest panel in the first one - the
+           Display panel, whose two columns of checkboxes are wider under a
+           desktop font than the original's 208px form. */
+        const int     rightX2   = rightX + 240;
 
         /* Tools panel — right of main window */
         auto* toolsPanel = new ToolsPanel(mainFrame, skinsPath);
@@ -176,7 +181,7 @@ public:
         /* Texture panel (frmTexture) — shown on demand via Window > Texture */
         auto* texturePanel = new TexturePanel(mainFrame);
         mainFrame->AttachTexturePanel(texturePanel);
-        PlacePanelOnScreen(texturePanel, wxPoint(rightX + 216, framePos.y + 300));
+        PlacePanelOnScreen(texturePanel, wxPoint(rightX2, framePos.y + 300));
 
         /* Palette panel.  The shipped workspace has [Palette] Visible=True
            (installer/Workspace/current.ini) and Form_Load shows it with the
@@ -184,7 +189,7 @@ public:
            where the colour used for filling and vertex painting is chosen. */
         auto* palettePanel = new PalettePanel(mainFrame);
         mainFrame->AttachPalettePanel(palettePanel);
-        PlacePanelOnScreen(palettePanel, wxPoint(rightX + 216, framePos.y));
+        PlacePanelOnScreen(palettePanel, wxPoint(rightX2, framePos.y));
         palettePanel->Show(true);
 
         mainFrame->SyncWindowMenu();

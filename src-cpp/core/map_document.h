@@ -158,6 +158,16 @@ struct ViewSettings {
     bool showSketch     = true;
     bool showTexture    = true;
     bool showBackground = true;
+    /* frmDisplay's "Scenery" checkbox (VB6 `showScenery`).  It is the master
+       switch: it gates all three layers, the scenery point overlay, scenery
+       picking (frm:6800) and scenery colouring (frm:7624).  The three
+       per-layer flags below are the View > Scenery Layers submenu
+       (mnuShowSceneryLayers). */
+    bool showScenery       = true;
+    /* frmPreferences "Scenery vertices" (modConfig.bas:82 SceneryVerts,
+       default False): when on, a scenery sprite exposes all four corners as
+       selectable points instead of just its anchor. */
+    bool sceneryVerts      = false;
     bool showSceneryBack   = true;
     bool showSceneryMiddle = true;
     bool showSceneryFront  = true;
@@ -297,6 +307,21 @@ public:
         return selectVertexAt(worldPos, tolerance,
                               additive ? SelectMode::Add : SelectMode::Replace);
     }
+
+    /* True when worldPos falls inside the scenery sprite's rotated rectangle.
+       Ports PointInProp (frm:9511): the sprite is anchored at (x,y) - its
+       top-left corner - and rotates about that corner, so the click is rotated
+       by +rotation into sprite space and tested against 0..w*scaleX,
+       0..h*scaleY. */
+    bool pointInScenery(const EditorScenery& s, Vec2 worldPos) const;
+
+    /* Picks the nearest editable object under the cursor for the Move tool.
+       Ports SelNearest (frm:6746) exactly: polygon vertex within 8px, else the
+       nearest vertex within 64px of a polygon containing the click, else
+       scenery, spawn, collider, waypoint - each gated on the matching display
+       flag.  Distances marked "px" are screen pixels, so they are divided by
+       the zoom factor here.  Returns true when something was picked. */
+    bool selectNearestObject(Vec2 worldPos, SelectMode mode = SelectMode::Replace);
 
     /* Selects the polygon at worldPos; returns true if found. */
     bool selectPolyAt(Vec2 worldPos, SelectMode mode = SelectMode::Replace);

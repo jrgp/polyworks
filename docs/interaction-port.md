@@ -428,17 +428,48 @@ visible, so selection appeared to ignore the zoom level.
 
 ## 7. Mouse Hit Testing Priority
 
-When objects overlap, the original VB6 hit-test priority (inferred from code order):
+### 7.1 `SelNearest` — the Move tool's click-pick (`frm:6746-6870`)
 
-1. Vertices (nearest within snap radius)
-2. Polygon body (PointInPoly)
-3. Scenery
-4. Spawn points
-5. Colliders
-6. Waypoints
-7. Lights
+This is not an inference: the original runs one search, in one order, and stops at
+the first stage that matches.  Ported verbatim as `MapDocument::selectNearestObject()`.
 
-The C++ implementation checks in approximately this order, dispatched per-tool.
+| # | Stage | Tolerance | Skipped when |
+|---|---|---|---|
+| 1 | Polygon vertices | 8 **screen pixels** (`8 / zoom` in world units) | Polygons hidden |
+| 2 | Nearest vertex of a polygon containing the click | 64 **screen pixels** | Polygons hidden |
+| 3 | First scenery whose sprite contains the click (`PointInProp`) | the sprite's own rectangle | Scenery hidden |
+| 4 | Nearest spawn point | 8 **world units** | Objects hidden |
+| 5 | Collider | the collider's own `radius / 2` | Objects hidden |
+| 6 | Nearest waypoint | 8 **world units** | Waypoints hidden |
+
+Notes that matter and are easy to get wrong:
+
+* **The tolerance spaces are mixed.**  Stages 1-2 are pixel distances, so they widen
+  as you zoom out; stages 4 and 6 are world distances and do not.  This is the
+  original's behaviour, not an oversight in the port.
+* **Stage 1 selects *every* vertex at that position**, not just the closest one.
+  That is how a vertex shared between two polygons drags both of them.
+* **Lights are not pickable this way.**  `SelNearest` has no light branch.
+* **The selection is transient.**  A pick the Move tool made itself is dropped on
+  mouse-up (`mnuDeselect_Click`, `frm:11734`), and while it is live it suppresses
+  the move selection rectangle (`frm:3549`).  The port tracks this as
+  `GlViewport::m_moveTransientSel`.  If something was *already* selected, the Move
+  tool drags that selection and does not re-pick at all.
+
+### 7.2 Rectangle selection (`VertexSelBox` / `VertexSelSelect`, `frm:8840-9145`)
+
+Dragging a box is not vertex-only.  It selects, each gated on that layer's display flag:
+
+* polygon vertices
+* scenery — its anchor corner, plus the other three corners when the
+  `SceneryVerts` preference is on (`frm:9010`)
+* spawn points
+* colliders
+* waypoints
+* lights
+
+`RegionSelPolys` (`frm:8515`), the fallback used when a plain click hits no vertex,
+is capped at **64 world units**, so a click in empty space selects nothing.
 
 ---
 

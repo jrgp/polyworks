@@ -1044,6 +1044,119 @@ TEST(select_vertices_rect_add_multi_poly) {
     EXPECT(doc.polys[1].anySelected());
 }
 
+/* ---- SelNearest / object picking (frm:6746) ---------------------------- */
+
+static EditorScenery makeScenery(float x, float y, int w, int h) {
+    EditorScenery s{};
+    s.style = 1; s.x = x; s.y = y;
+    s.width = w; s.height = h;
+    s.scaleX = 1.0f; s.scaleY = 1.0f;
+    s.alpha = 255; s.color = -1;
+    return s;
+}
+
+TEST(point_in_scenery_anchor_is_top_left) {
+    MapDocument doc;
+    EditorScenery s = makeScenery(100, 100, 40, 20);
+    /* frm:9541 tests 0..w, 0..h from the anchor, so the sprite extends right
+       and down from its map coordinate - not around it. */
+    EXPECT( doc.pointInScenery(s, {101, 101}));
+    EXPECT( doc.pointInScenery(s, {139, 119}));
+    EXPECT(!doc.pointInScenery(s, {99, 99}));
+    EXPECT(!doc.pointInScenery(s, {141, 110}));
+}
+
+TEST(point_in_scenery_rotated) {
+    MapDocument doc;
+    EditorScenery s = makeScenery(0, 0, 40, 20);
+    s.rotation = 1.57079633f;  /* +90 degrees */
+    /* local (w,0) maps to (cos, -sin) * w = (0, -40) in the y-down frame. */
+    EXPECT( doc.pointInScenery(s, {1, -20}));
+    EXPECT(!doc.pointInScenery(s, {20, 5}));
+}
+
+TEST(select_nearest_prefers_vertex_then_scenery) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {100,0}; p.v[2].world = {50,100};
+    doc.addPoly(p);
+    doc.scenery.push_back(makeScenery(0, 0, 200, 200));
+
+    /* Right on a vertex: the polygon wins even though the scenery covers it. */
+    EXPECT(doc.selectNearestObject({2, 2}));
+    EXPECT(doc.polys[0].v[0].selected);
+    EXPECT(!doc.scenery[0].selected);
+
+    /* Far from every vertex but still inside the sprite: scenery is picked. */
+    doc.clearSelection();
+    EXPECT(doc.selectNearestObject({180, 180}));
+    EXPECT(doc.scenery[0].selected);
+}
+
+TEST(select_nearest_honours_display_flags) {
+    MapDocument doc;
+    doc.scenery.push_back(makeScenery(0, 0, 100, 100));
+    EditorSpawn sp{}; sp.x = 300; sp.y = 300; doc.spawns.push_back(sp);
+    EditorWaypoint wp{}; wp.x = 500; wp.y = 500; doc.waypoints.push_back(wp);
+
+    doc.viewSettings.showScenery = false;
+    EXPECT(!doc.selectNearestObject({50, 50}));
+
+    doc.viewSettings.showObjects = false;
+    EXPECT(!doc.selectNearestObject({301, 301}));
+    doc.viewSettings.showObjects = true;
+    EXPECT(doc.selectNearestObject({301, 301}));
+    EXPECT(doc.spawns[0].selected);
+
+    doc.viewSettings.showWaypoints = false;
+    doc.clearSelection();
+    EXPECT(!doc.selectNearestObject({500, 500}));
+}
+
+TEST(select_nearest_collider_uses_half_radius) {
+    MapDocument doc;
+    EditorCollider c{}; c.x = 0; c.y = 0; c.radius = 40; doc.colliders.push_back(c);
+    EXPECT( doc.selectNearestObject({15, 0}));   /* inside radius/2 = 20 */
+    doc.clearSelection();
+    EXPECT(!doc.selectNearestObject({25, 0}));
+}
+
+TEST(select_nearest_region_pick_capped_at_64) {
+    MapDocument doc;
+    EditorPoly p{};
+    p.v[0].world = {0,0}; p.v[1].world = {1000,0}; p.v[2].world = {500,1000};
+    doc.addPoly(p);
+    /* Deep inside a huge polygon, every vertex is more than 64 units away, so
+       frm:6779 selects nothing at all. */
+    EXPECT(!doc.selectNearestObject({500, 400}));
+}
+
+TEST(rect_select_covers_objects) {
+    MapDocument doc;
+    doc.scenery.push_back(makeScenery(10, 10, 20, 20));
+    EditorSpawn sp{}; sp.x = 20; sp.y = 20; doc.spawns.push_back(sp);
+    EditorCollider c{}; c.x = 30; c.y = 30; c.radius = 10; doc.colliders.push_back(c);
+    EditorWaypoint wp{}; wp.x = 40; wp.y = 40; doc.waypoints.push_back(wp);
+    EditorLight li{}; li.x = 50; li.y = 50; doc.lights.push_back(li);
+
+    doc.selectVerticesInRect({0,0}, {100,100});
+    EXPECT(doc.scenery[0].selected);
+    EXPECT(doc.spawns[0].selected);
+    EXPECT(doc.colliders[0].selected);
+    EXPECT(doc.waypoints[0].selected);
+    EXPECT(doc.lights[0].selected);
+
+    /* Hidden classes are skipped entirely (frm:8857). */
+    doc.clearSelection();
+    doc.viewSettings.showObjects = false;
+    doc.viewSettings.showLights  = false;
+    doc.selectVerticesInRect({0,0}, {100,100});
+    EXPECT( doc.scenery[0].selected);
+    EXPECT(!doc.spawns[0].selected);
+    EXPECT(!doc.colliders[0].selected);
+    EXPECT(!doc.lights[0].selected);
+}
+
 /* ---- Color painting tests ---------------------------------------------- */
 
 TEST(blend_color_normal) {

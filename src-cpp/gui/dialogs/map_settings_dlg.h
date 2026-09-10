@@ -18,32 +18,38 @@
 #include <wx/colordlg.h>
 #include <wx/colourdata.h>
 #include <wx/clrpicker.h>
+#include <wx/statbmp.h>
 
 #include <string>
 #include <vector>
 
 class MapSettingsDlg final : public wxDialog {
 public:
-    /* skinsPath: path to installer/skins/default (for texture enumeration) */
+    /* soldatDir: the configured game directory; frmMap.LoadTextures enumerates
+       <OpenSoldatDir>/textures/*.bmp and *.png (frmMap.frm:550/585).
+       skinsPath: installer/skins/default, used as a fallback when no game
+       directory has been configured yet. */
     MapSettingsDlg(wxWindow* parent, MapOptions& options,
-                   const std::string& skinsPath);
+                   const std::string& skinsPath,
+                   const std::string& soldatDir = std::string());
 
     /* Returns the modified options on OK, original on Cancel */
     const MapOptions& result() const { return m_options; }
 
 private:
     void populateTextureList();
+    void updateTexturePreview();
+    wxString findTextureFile(const wxString& name) const;
     void syncJetComboFromValue();
     void onJetComboChange(wxCommandEvent&);
     void onJetTextChange(wxCommandEvent&);
     void onOK(wxCommandEvent&);
     void onCancel(wxCommandEvent&);
-    void onBgColor1(wxCommandEvent&);
-    void onBgColor2(wxCommandEvent&);
 
     MapOptions& m_options;          /* reference to caller's options */
     MapOptions  m_savedOptions;     /* snapshot for Cancel */
     std::string m_skinsPath;
+    std::string m_soldatDir;
 
     wxTextCtrl*  m_mapName   = nullptr;
     wxComboBox*  m_weather   = nullptr;
@@ -55,6 +61,8 @@ private:
     wxComboBox*  m_texture   = nullptr;
     wxColourPickerCtrl* m_bgColor1 = nullptr;
     wxColourPickerCtrl* m_bgColor2 = nullptr;
+    /* frmMap picTexture: a 128x128 preview of the selected texture. */
+    wxStaticBitmap*     m_preview  = nullptr;
 
     /* Jet-level numeric values matching VB6 */
     static const int kJetValues[];

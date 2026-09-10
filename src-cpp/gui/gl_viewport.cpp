@@ -849,10 +849,34 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
 
     case TOOL_VSELECT:
     case TOOL_VSELADD:
-    case TOOL_VSELSUB:
-    case TOOL_MOVE: {
+    case TOOL_VSELSUB: {
         MapDocument::SelectMode mode = selectMode();
         bool hit = m_document.selectVertexAt(world, WorldTolerance(), mode);
+        if (hit) {
+            m_state = ViewportState::Dragging;
+            m_undoStack.push(m_document);
+        } else {
+            if (mode == MapDocument::SelectMode::Replace)
+                m_document.clearSelection();
+            m_state   = ViewportState::RubberBanding;
+            m_rubberA = world;
+            m_rubberB = world;
+        }
+        Refresh(false);
+        return;
+    }
+
+    case TOOL_MOVE: {
+        /* VB6 MouseDownMove (frm:6730): an existing selection is dragged as-is;
+           only when nothing is selected does SelNearest pick the object under
+           the cursor - and that transient pick is deselected again on mouse-up
+           (frm:11734). */
+        MapDocument::SelectMode mode = selectMode();
+        bool hit = m_document.anySelected();
+        if (!hit) {
+            hit = m_document.selectNearestObject(world, mode);
+            m_moveTransientSel = hit;
+        }
         if (hit) {
             m_state = ViewportState::Dragging;
             m_undoStack.push(m_document);
@@ -1076,6 +1100,20 @@ void GlViewport::HandleLeftDownEdit(const wxMouseEvent& event) {
         m_undoStack.push(m_document);
         const int level = m_mainFrame->GetSceneryLevel();
         m_document.addSceneryInstance(idx, world.x, world.y, level);
+        /* frm:2737 writes the source texture's pixel size into the saved prop,
+           so a freshly placed sprite needs its metrics filled in for both
+           saving and hit-testing. */
+        if (!m_document.scenery.empty()) {
+            EditorScenery& placed = m_document.scenery.back();
+            if (placed.width == 0 || placed.height == 0) {
+                const GLuint texId =
+                    m_texMgr.loadTexture(m_document.sceneryNames[static_cast<size_t>(idx)]);
+                int texW = 0, texH = 0;
+                m_texMgr.getSize(texId, texW, texH);
+                placed.width  = texW;
+                placed.height = texH;
+            }
+        }
         m_document.markModified();
         m_mainFrame->UpdateStatusBar();
         m_mainFrame->UpdateTitle();
@@ -1315,10 +1353,22 @@ void GlViewport::HandleLeftUpEdit(const wxMouseEvent& event) {
         bool isPoly = (m_currentFunction == TOOL_PSELECT ||
                        m_currentFunction == TOOL_PSELADD ||
                        m_currentFunction == TOOL_PSELSUB);
-        if (isPoly)
+        if (m_currentFunction == TOOL_MOVE) {
+            /* The Move tool already picked in HandleLeftDownEdit via
+               SelNearest; re-picking here would override it with a
+               polygon-only hit. */
+        } else if (isPoly) {
             m_document.selectPolyAt(world, rubberMode());
-        else
+        } else {
             m_document.selectVertexAt(world, WorldTolerance(), rubberMode());
+        }
+    }
+
+    /* frm:11734: a selection the Move tool made for itself via SelNearest is
+       released again as soon as the button comes up. */
+    if (m_moveTransientSel) {
+        m_document.clearSelection();
+        m_moveTransientSel = false;
     }
 
     m_state   = ViewportState::Idle;

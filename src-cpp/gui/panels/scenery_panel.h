@@ -39,6 +39,12 @@ public:
     bool GetRotate() const { return m_rotate; }
     bool GetScale() const { return m_scale; }
 
+    /* Used by the viewport's scenery context menu, which offers the same three
+       options the panel does; the controls must follow. */
+    void SetLevel(int level);
+    void SetRotate(bool on);
+    void SetScale(bool on);
+
 private:
     void buildUI();
     static wxString NotFoundBitmapPath();

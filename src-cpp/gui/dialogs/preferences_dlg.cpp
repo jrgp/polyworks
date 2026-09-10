@@ -126,6 +126,13 @@ void PreferencesDlg::buildUI() {
     m_txtSnapRadius = makeFloat(snapPage, "8.0");
     ss->Add(m_chkSnap, 0, wxALL, 4);
     addRow(ss, snapPage, "Snap radius (px):", m_txtSnapRadius);
+    /* frmPreferences picScenery: "Use 4 verts for scenery" - when on, a scenery
+       sprite offers all four of its corners to rubber-band selection and the
+       point overlay instead of only its anchor. */
+    m_chkSceneryVerts = new wxCheckBox(snapPage, wxID_ANY, "Use 4 verts for scenery");
+    m_chkSceneryVerts->SetForegroundColour(*wxWHITE);
+    m_chkSceneryVerts->SetBackgroundColour(BG);
+    ss->Add(m_chkSceneryVerts, 0, wxALL, 4);
     snapPage->SetSizer(ss);
     nb->AddPage(snapPage, "Snap");
 
@@ -221,6 +228,7 @@ void PreferencesDlg::populateFromPrefs() {
     if (m_spinDivisions) m_spinDivisions->SetValue(m_prefs.gridDivisions);
     if (m_spinUndo)      m_spinUndo     ->SetValue(m_prefs.undoDepth);
     if (m_chkSnap)       m_chkSnap      ->SetValue(m_prefs.snapEnabled);
+    if (m_chkSceneryVerts) m_chkSceneryVerts->SetValue(m_prefs.sceneryVerts);
     if (m_txtSnapRadius) m_txtSnapRadius->SetValue(wxString::Format("%.4g", m_prefs.snapRadius));
     if (m_txtSoldatDir)  m_txtSoldatDir ->SetValue(m_prefs.soldatDir);
     if (m_txtPrefabsDir) m_txtPrefabsDir->SetValue(m_prefs.prefabsDir);
@@ -242,6 +250,7 @@ void PreferencesDlg::applyToPrefs() {
     if (m_spinDivisions) m_prefs.gridDivisions = m_spinDivisions->GetValue();
     if (m_spinUndo)      m_prefs.undoDepth     = m_spinUndo->GetValue();
     if (m_chkSnap)       m_prefs.snapEnabled   = m_chkSnap->GetValue();
+    if (m_chkSceneryVerts) m_prefs.sceneryVerts = m_chkSceneryVerts->GetValue();
     if (m_txtSnapRadius && m_txtSnapRadius->GetValue().ToDouble(&v)) m_prefs.snapRadius = static_cast<float>(v);
     if (m_txtSoldatDir)  m_prefs.soldatDir  = m_txtSoldatDir ->GetValue().ToStdString();
     if (m_txtPrefabsDir) m_prefs.prefabsDir = m_txtPrefabsDir->GetValue().ToStdString();

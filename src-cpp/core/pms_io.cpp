@@ -715,10 +715,20 @@ void pmsDataToDoc(const PmsData& data, MapDocument& doc) {
     for (const auto& sn : data.sceneryNames)
         doc.sceneryNames.push_back(pms_read_string(sn.name, 50));
 
-    /* Scenery props */
+    /* Scenery props.  frm:2019-2050 validates each prop and silently drops the
+       broken ones; note the `active` flag is deliberately NOT consulted - the
+       original keys validity off Style/coordinates/scale alone, so honouring
+       `active` here would discard scenery that PolyWorks itself loads. */
     doc.scenery.reserve(data.props.size());
     for (const auto& p : data.props) {
-        if (!p.active) continue;
+        if (p.x > 32766.0f || p.x < -32766.0f || p.y > 32766.0f || p.y < -32766.0f) continue;
+        if (p.width < 0 || p.height < 0) continue;
+        if (static_cast<int>(p.scaleX * 1000.0f) == 0 ||
+            static_cast<int>(p.scaleY * 1000.0f) == 0) continue;
+        if (p.scaleX < -10000.0f || p.scaleX > 10000.0f ||
+            p.scaleY < -10000.0f || p.scaleY > 10000.0f) continue;
+        if (p.style < 1) continue;
+
         EditorScenery es{};
         es.style    = p.style;
         es.x        = p.x;
@@ -728,9 +738,11 @@ void pmsDataToDoc(const PmsData& data, MapDocument& doc) {
         es.scaleY   = p.scaleY;
         es.width    = p.width;
         es.height   = p.height;
-        es.alpha    = static_cast<uint8_t>(p.alpha);
+        /* frm:2037: out-of-range alpha becomes fully opaque. */
+        es.alpha    = (p.alpha < 1 || p.alpha > 255) ? 255
+                                                     : static_cast<uint8_t>(p.alpha);
         es.color    = p.color;
-        es.level    = p.level;
+        es.level    = (p.level >= 0 && p.level <= 255) ? p.level : 0;
         doc.scenery.push_back(es);
     }
 

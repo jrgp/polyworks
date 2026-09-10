@@ -38,6 +38,10 @@ struct AppPrefs {
     /* Undo */
     int     undoDepth    = 16;
 
+    /* frmPreferences picScenery, captioned "Use 4 verts for scenery"
+       (modConfig.bas:82 SceneryVerts, default False). */
+    bool    sceneryVerts = false;
+
     /* Paths */
     std::string soldatDir;
     std::string prefabsDir;
@@ -84,6 +88,7 @@ private:
     wxSpinCtrl*  m_spinSpacing   = nullptr;
     wxSpinCtrl*  m_spinDivisions = nullptr;
     wxSpinCtrl*  m_spinUndo      = nullptr;
+    wxCheckBox*  m_chkSceneryVerts = nullptr;
     wxCheckBox*  m_chkSnap       = nullptr;
     wxTextCtrl*  m_txtSnapRadius = nullptr;
     wxTextCtrl*  m_txtSoldatDir  = nullptr;

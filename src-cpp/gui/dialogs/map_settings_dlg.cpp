@@ -21,6 +21,7 @@
 #include <wx/dir.h>
 #include <wx/stattext.h>
 #include <wx/statbox.h>
+#include <wx/dcmemory.h>
 
 #include <algorithm>
 #include <cstring>
@@ -63,13 +64,15 @@ static uint32_t wxToArgb(const wxColour& c, uint8_t a = 0xFF) {
 /* ---- Constructor ------------------------------------------------------- */
 
 MapSettingsDlg::MapSettingsDlg(wxWindow* parent, MapOptions& options,
-                                const std::string& skinsPath)
+                                const std::string& skinsPath,
+                                const std::string& soldatDir)
     : wxDialog(parent, wxID_ANY, "Map Settings",
                wxDefaultPosition, wxSize(380, 380),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_options(options),
       m_savedOptions(options),
-      m_skinsPath(skinsPath)
+      m_skinsPath(skinsPath),
+      m_soldatDir(soldatDir)
 {
     SetBackgroundColour(wxColour(0x4A, 0x3C, 0x31));
     SetForegroundColour(*wxWHITE);
@@ -155,6 +158,11 @@ MapSettingsDlg::MapSettingsDlg(wxWindow* parent, MapOptions& options,
     grid->Add(m_texture, 1, wxEXPAND);
     populateTextureList();
 
+    /* frmMap picTexture (frm:780): selecting a texture shows it immediately. */
+    addLabel("Preview:");
+    m_preview = new wxStaticBitmap(this, wxID_ANY, wxBitmap(128, 128));
+    grid->Add(m_preview, 0);
+
     /* Background colors */
     addLabel("Top BG Color:");
     m_bgColor1 = new wxColourPickerCtrl(this, wxID_ANY,
@@ -182,6 +190,15 @@ MapSettingsDlg::MapSettingsDlg(wxWindow* parent, MapOptions& options,
     Centre();
 
     Bind(wxEVT_COMBOBOX, &MapSettingsDlg::onJetComboChange, this, m_jet->GetId());
+    m_texture->Bind(wxEVT_COMBOBOX, [this](wxCommandEvent& e) {
+        e.Skip();
+        updateTexturePreview();
+    });
+    m_texture->Bind(wxEVT_TEXT, [this](wxCommandEvent& e) {
+        e.Skip();
+        updateTexturePreview();
+    });
+    updateTexturePreview();
     Bind(wxEVT_TEXT, &MapSettingsDlg::onJetTextChange, this, m_jetCustom->GetId());
     Bind(wxEVT_BUTTON, &MapSettingsDlg::onOK, this, wxID_OK);
     Bind(wxEVT_BUTTON, &MapSettingsDlg::onCancel, this, wxID_CANCEL);
@@ -189,22 +206,72 @@ MapSettingsDlg::MapSettingsDlg(wxWindow* parent, MapOptions& options,
 
 /* ---- Texture list ------------------------------------------------------- */
 
+wxString MapSettingsDlg::findTextureFile(const wxString& name) const {
+    if (name.empty()) return {};
+    wxArrayString dirs;
+    if (!m_soldatDir.empty()) {
+        const wxString root = wxString::FromUTF8(m_soldatDir.c_str());
+        dirs.Add(wxFileName(root, "Textures").GetFullPath());
+        dirs.Add(wxFileName(root, "textures").GetFullPath());
+    }
+    if (!m_skinsPath.empty()) {
+        const wxString parent = wxFileName(m_skinsPath).GetPath();
+        dirs.Add(wxFileName(parent, "textures").GetFullPath());
+        dirs.Add(m_skinsPath);
+    }
+    for (const wxString& dir : dirs) {
+        const wxString candidate = wxFileName(dir, name).GetFullPath();
+        if (wxFileExists(candidate)) return candidate;
+    }
+    return {};
+}
+
+void MapSettingsDlg::updateTexturePreview() {
+    if (m_preview == nullptr) return;
+    const wxString path = findTextureFile(m_texture->GetValue());
+    wxImage img;
+    if (!path.empty() && img.LoadFile(path) && img.IsOk()) {
+        /* frmMap's picTexture is a fixed 128x128 box. */
+        img = img.Scale(128, 128, wxIMAGE_QUALITY_HIGH);
+        m_preview->SetBitmap(wxBitmap(img));
+    } else {
+        wxBitmap blank(128, 128);
+        wxMemoryDC dc(blank);
+        dc.SetBackground(wxBrush(wxColour(0x2A, 0x22, 0x1C)));
+        dc.Clear();
+        dc.SetTextForeground(*wxWHITE);
+        dc.DrawText("no preview", 24, 56);
+        dc.SelectObject(wxNullBitmap);
+        m_preview->SetBitmap(blank);
+    }
+    Layout();
+}
+
 void MapSettingsDlg::populateTextureList() {
     m_texture->Clear();
 
-    /* Enumerate .bmp/.png files in the textures folder */
+    /* frmMap.LoadTextures/LoadTextures2 list <OpenSoldatDir>/textures/*.bmp and
+       *.png.  The bundled skin directory is only a fallback for a fresh
+       install where no game directory has been configured yet. */
     wxArrayString files;
-    if (!m_skinsPath.empty()) {
-        /* skinsPath is e.g. ".../skins/default"; textures one level up */
+    if (!m_soldatDir.empty()) {
+        const wxString root = wxString::FromUTF8(m_soldatDir.c_str());
+        for (const char* sub : {"Textures", "textures"}) {
+            const wxString dir = wxFileName(root, sub).GetFullPath();
+            if (!wxFileName::DirExists(dir)) continue;
+            wxDir::GetAllFiles(dir, &files, "*.bmp", wxDIR_FILES);
+            wxDir::GetAllFiles(dir, &files, "*.png", wxDIR_FILES);
+            break;
+        }
+    }
+
+    if (files.IsEmpty() && !m_skinsPath.empty()) {
         wxString textureDir = wxFileName(m_skinsPath).GetPath();
         textureDir = wxFileName(textureDir, "textures").GetFullPath();
-
         if (wxFileName::DirExists(textureDir)) {
             wxDir::GetAllFiles(textureDir, &files, "*.bmp", wxDIR_FILES);
             wxDir::GetAllFiles(textureDir, &files, "*.png", wxDIR_FILES);
         }
-
-        /* Also look in the skins/default directory itself */
         wxDir::GetAllFiles(m_skinsPath, &files, "*.bmp", wxDIR_FILES);
     }
 

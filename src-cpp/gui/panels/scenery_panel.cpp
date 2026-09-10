@@ -247,6 +247,24 @@ wxString SceneryPanel::NotFoundBitmapPath() {
     return {};
 }
 
+void SceneryPanel::SetLevel(int level) {
+    if (level < SCENERY_BACK || level > SCENERY_FRONT) return;
+    m_level = level;
+    if (m_rbBack   != nullptr) m_rbBack->SetValue(level == SCENERY_BACK);
+    if (m_rbMiddle != nullptr) m_rbMiddle->SetValue(level == SCENERY_MIDDLE);
+    if (m_rbFront  != nullptr) m_rbFront->SetValue(level == SCENERY_FRONT);
+}
+
+void SceneryPanel::SetRotate(bool on) {
+    m_rotate = on;
+    if (m_chkRotate != nullptr) m_chkRotate->SetValue(on);
+}
+
+void SceneryPanel::SetScale(bool on) {
+    m_scale = on;
+    if (m_chkScale != nullptr) m_chkScale->SetValue(on);
+}
+
 void SceneryPanel::OnLevelBack(wxCommandEvent& /*event*/)   { m_level = SCENERY_BACK;   }
 void SceneryPanel::OnLevelMiddle(wxCommandEvent& /*event*/) { m_level = SCENERY_MIDDLE; }
 void SceneryPanel::OnLevelFront(wxCommandEvent& /*event*/)  { m_level = SCENERY_FRONT;  }

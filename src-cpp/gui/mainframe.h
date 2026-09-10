@@ -49,17 +49,27 @@ public:
     void AttachWaypointPanel(WaypointPanel* waypointPanel);
     /* Make the Window menu ticks agree with the panels that are on screen. */
     void SyncWindowMenu();
+
+    /* Re-checks the View menu's layer items from the document's ViewSettings so
+       the menu and the floating Display panel never disagree. */
+    void SyncViewMenu();
     void AttachPalettePanel(PalettePanel* palettePanel);
     void SetActiveTool(int tool);
     int GetActiveTool() const { return m_activeTool; }
     void SetCurrentSpawnTeam(int team) { m_currentSpawnTeam = team; }
     int GetCurrentSpawnTeam() const { return m_currentSpawnTeam; }
-    void SetSceneryRotate(bool v) { m_sceneryRotate = v; }
-    bool GetSceneryRotate() const { return m_sceneryRotate; }
-    void SetSceneryScale(bool v) { m_sceneryScale = v; }
-    bool GetSceneryScale() const { return m_sceneryScale; }
-    void SetSceneryLevel(int v) { m_sceneryLevel = v; }
-    int GetSceneryLevel() const { return m_sceneryLevel; }
+    /* frmScenery owns the rotate/scale/level options in the original (its
+       rotateScenery/scaleScenery/level members at frmScenery.frm:363-365 are
+       read straight off the form at frm:8211).  These accessors therefore
+       delegate to the floating Scenery panel whenever it exists, so the panel
+       controls and the viewport context menu can never disagree; the members
+       below are only the fallback for a frame without that panel. */
+    void SetSceneryRotate(bool v);
+    bool GetSceneryRotate() const;
+    void SetSceneryScale(bool v);
+    bool GetSceneryScale() const;
+    void SetSceneryLevel(int v);
+    int  GetSceneryLevel() const;
 
     /* Polygon type applied to newly created polygons (VB6 `polyType`,
        set from the mnuPolyTypes context menu). */

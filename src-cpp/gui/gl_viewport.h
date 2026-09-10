@@ -143,6 +143,9 @@ private:
     Vec2          m_dragWorldLast;    /* world pos at last move event */
     Vec2          m_rubberA, m_rubberB; /* rubber-band rect corners (world) */
     bool          m_didDrag = false;  /* true if mouse moved > threshold */
+    /* VB6 noneSelected (frm:1533): the Move tool's own SelNearest pick, which
+       is dropped again on mouse-up. */
+    bool          m_moveTransientSel = false;
 
     /* Ctrl-drag scale / Alt-drag rotate session (VB6 Scaling / Rotating) */
     MapDocument::TransformSession m_transform;

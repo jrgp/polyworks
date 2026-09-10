@@ -85,6 +85,7 @@ enum MenuId {
     ID_VIEW_SKETCH,
     ID_VIEW_TEXTURES,
     ID_VIEW_BACKGROUND,
+    ID_VIEW_SCENERY,
     ID_VIEW_SCENERY_BACK,
     ID_VIEW_SCENERY_MIDDLE,
     ID_VIEW_SCENERY_FRONT,
@@ -258,6 +259,7 @@ MainFrame::MainFrame(const wxString& skinsPath)
     bindLayerToggle(ID_VIEW_SKETCH);
     bindLayerToggle(ID_VIEW_TEXTURES);
     bindLayerToggle(ID_VIEW_BACKGROUND);
+    bindLayerToggle(ID_VIEW_SCENERY);
     bindLayerToggle(ID_VIEW_SCENERY_BACK);
     bindLayerToggle(ID_VIEW_SCENERY_MIDDLE);
     bindLayerToggle(ID_VIEW_SCENERY_FRONT);
@@ -569,6 +571,7 @@ void MainFrame::buildMenuBar() {
     viewMenu->AppendCheckItem(ID_VIEW_SKETCH,         "S&ketch")->Check(true);
     viewMenu->AppendCheckItem(ID_VIEW_TEXTURES,       "&Textures")->Check(true);
     viewMenu->AppendCheckItem(ID_VIEW_BACKGROUND,     "&Background")->Check(true);
+    viewMenu->AppendCheckItem(ID_VIEW_SCENERY,        "&Scenery")->Check(true);
     viewMenu->AppendCheckItem(ID_VIEW_SCENERY_BACK,   "Scenery &Back")->Check(true);
     viewMenu->AppendCheckItem(ID_VIEW_SCENERY_MIDDLE, "Scenery &Middle")->Check(true);
     viewMenu->AppendCheckItem(ID_VIEW_SCENERY_FRONT,  "Scenery &Front")->Check(true);
@@ -1138,6 +1141,63 @@ void MainFrame::OnPolyTexTransform(wxCommandEvent& event) {
     RefreshViewport();
 }
 
+void MainFrame::SetSceneryRotate(bool v) {
+    m_sceneryRotate = v;
+    if (m_sceneryPanel != nullptr) m_sceneryPanel->SetRotate(v);
+}
+
+bool MainFrame::GetSceneryRotate() const {
+    return m_sceneryPanel != nullptr ? m_sceneryPanel->GetRotate() : m_sceneryRotate;
+}
+
+void MainFrame::SetSceneryScale(bool v) {
+    m_sceneryScale = v;
+    if (m_sceneryPanel != nullptr) m_sceneryPanel->SetScale(v);
+}
+
+bool MainFrame::GetSceneryScale() const {
+    return m_sceneryPanel != nullptr ? m_sceneryPanel->GetScale() : m_sceneryScale;
+}
+
+void MainFrame::SetSceneryLevel(int v) {
+    m_sceneryLevel = v;
+    if (m_sceneryPanel != nullptr) m_sceneryPanel->SetLevel(v);
+}
+
+int MainFrame::GetSceneryLevel() const {
+    return m_sceneryPanel != nullptr ? m_sceneryPanel->GetLevel() : m_sceneryLevel;
+}
+
+void MainFrame::SyncViewMenu() {
+    wxMenuBar* bar = GetMenuBar();
+    if (bar == nullptr) return;
+    const ViewSettings& vs = m_doc.viewSettings;
+    const struct { int id; bool value; } items[] = {
+        {ID_VIEW_POLYGONS,        vs.showPolys},
+        {ID_VIEW_WIREFRAME,       vs.showWireframe},
+        {ID_VIEW_POINTS,          vs.showPoints},
+        {ID_VIEW_GRID,            vs.showGrid},
+        {ID_VIEW_OBJECTS,         vs.showObjects},
+        {ID_VIEW_WAYPOINTS,       vs.showWaypoints},
+        {ID_VIEW_LIGHTS,          vs.showLights},
+        {ID_VIEW_SKETCH,          vs.showSketch},
+        {ID_VIEW_TEXTURES,        vs.showTexture},
+        {ID_VIEW_BACKGROUND,      vs.showBackground},
+        {ID_VIEW_SCENERY,         vs.showScenery},
+        {ID_VIEW_SCENERY_BACK,    vs.showSceneryBack},
+        {ID_VIEW_SCENERY_MIDDLE,  vs.showSceneryMiddle},
+        {ID_VIEW_SCENERY_FRONT,   vs.showSceneryFront},
+        {ID_VIEW_BLEND_WIREFRAME, vs.blendWireframe},
+        {ID_VIEW_BLEND_POLYS,     vs.blendPolys},
+        {ID_VIEW_SNAP_TO_GRID,    vs.snapToGrid},
+        {ID_VIEW_SNAP_TO_VERTS,   vs.snapToVertices},
+    };
+    for (const auto& it : items) {
+        wxMenuItem* mi = bar->FindItem(it.id);
+        if (mi != nullptr && mi->IsCheckable()) mi->Check(it.value);
+    }
+}
+
 void MainFrame::OnViewLayerToggle(wxCommandEvent& event) {
     const int id = event.GetId();
     const bool v = event.IsChecked();
@@ -1152,6 +1212,7 @@ void MainFrame::OnViewLayerToggle(wxCommandEvent& event) {
     else if (id == ID_VIEW_SKETCH)         vs.showSketch = v;
     else if (id == ID_VIEW_TEXTURES)       vs.showTexture = v;
     else if (id == ID_VIEW_BACKGROUND)     vs.showBackground = v;
+    else if (id == ID_VIEW_SCENERY)        vs.showScenery = v;
     else if (id == ID_VIEW_SCENERY_BACK)   vs.showSceneryBack = v;
     else if (id == ID_VIEW_SCENERY_MIDDLE) vs.showSceneryMiddle = v;
     else if (id == ID_VIEW_SCENERY_FRONT)  vs.showSceneryFront = v;
@@ -1159,6 +1220,7 @@ void MainFrame::OnViewLayerToggle(wxCommandEvent& event) {
     else if (id == ID_VIEW_BLEND_POLYS)    vs.blendPolys = v;
     else if (id == ID_VIEW_SNAP_TO_GRID)   vs.snapToGrid = v;
     else if (id == ID_VIEW_SNAP_TO_VERTS)  vs.snapToVertices = v;
+    if (m_displayPanel != nullptr) m_displayPanel->Sync();
     RefreshViewport();
 }
 
@@ -1559,7 +1621,7 @@ void MainFrame::OnWindowResetLayout(wxCommandEvent&) {
 }
 
 void MainFrame::OnMapSettings(wxCommandEvent&) {
-    MapSettingsDlg dlg(this, m_doc.options, m_skinsPath.ToStdString());
+    MapSettingsDlg dlg(this, m_doc.options, m_skinsPath.ToStdString(), m_prefs.soldatDir);
     if (dlg.ShowModal() == wxID_OK) {
         m_doc.markModified();
         UpdateTitle();
@@ -1663,6 +1725,7 @@ void MainFrame::LoadPrefs() {
     if (cfg.Read("Grid/Color1", &l)) m_prefs.gridColor1 = static_cast<unsigned>(l);
     if (cfg.Read("Grid/Color2", &l)) m_prefs.gridColor2 = static_cast<unsigned>(l);
     if (cfg.Read("Snap/Enabled", &l)) m_prefs.snapEnabled = (l != 0);
+    if (cfg.Read("Preferences/SceneryVerts", &l)) m_prefs.sceneryVerts = (l != 0);
     if (cfg.Read("Snap/Radius",  &d)) m_prefs.snapRadius  = static_cast<float>(d);
     if (cfg.Read("Undo/Depth",   &l)) m_prefs.undoDepth   = static_cast<int>(l);
     if (cfg.Read("Grid/Alpha1", &d)) m_prefs.gridAlpha1 = static_cast<float>(d);
@@ -1719,6 +1782,7 @@ void MainFrame::SavePrefs() {
     cfg.Write("Grid/Color1", static_cast<long>(m_prefs.gridColor1));
     cfg.Write("Grid/Color2", static_cast<long>(m_prefs.gridColor2));
     cfg.Write("Snap/Enabled", static_cast<long>(m_prefs.snapEnabled ? 1 : 0));
+    cfg.Write("Preferences/SceneryVerts", static_cast<long>(m_prefs.sceneryVerts ? 1 : 0));
     cfg.Write("Snap/Radius",  static_cast<double>(m_prefs.snapRadius));
     cfg.Write("Undo/Depth",   static_cast<long>(m_prefs.undoDepth));
     cfg.Write("Grid/Alpha1", static_cast<double>(m_prefs.gridAlpha1));
@@ -1762,6 +1826,7 @@ void MainFrame::ApplyPrefs() {
     m_doc.viewSettings.polyBlendDest = m_prefs.polyBlendDest;
     m_doc.viewSettings.wireBlendSrc  = m_prefs.wireBlendSrc;
     m_doc.viewSettings.wireBlendDest = m_prefs.wireBlendDest;
+    m_doc.viewSettings.sceneryVerts  = m_prefs.sceneryVerts;
     if (m_viewport != nullptr) {
         m_viewport->setSnapRadius(m_prefs.snapRadius);
         m_viewport->setZoomLimits(m_prefs.minZoom, m_prefs.maxZoom);

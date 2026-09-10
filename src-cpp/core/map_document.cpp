@@ -229,7 +229,10 @@ bool MapDocument::selectVertexAt(Vec2 worldPos, float tolerance, SelectMode mode
     int pi = findPolyAt(worldPos);
     int bestFlat = -1;
     if (pi >= 0) {
-        float best = std::numeric_limits<float>::max();
+        /* frm:8539 caps the region pick at 64 world units, so clicking the
+           middle of a large polygon selects nothing rather than yanking a
+           distant vertex. */
+        float best = 64.0f * 64.0f;
         for (int vi = 0; vi < 3; ++vi) {
             const Vec2& w = polys[pi].v[vi].world;
             float dx = w.x - worldPos.x;
@@ -251,6 +254,128 @@ bool MapDocument::selectVertexAt(Vec2 worldPos, float tolerance, SelectMode mode
     return true;
 }
 
+bool MapDocument::pointInScenery(const EditorScenery& s, Vec2 worldPos) const {
+    const float w = static_cast<float>(s.width)  * s.scaleX;
+    const float h = static_cast<float>(s.height) * s.scaleY;
+    if (w == 0.0f || h == 0.0f) return false;
+
+    const float dx = worldPos.x - s.x;
+    const float dy = worldPos.y - s.y;
+    const float c  = std::cos(s.rotation);
+    const float sn = std::sin(s.rotation);
+    /* frm:9538: local = Rot(+rotation) * (point - anchor) */
+    const float lx = dx * c - dy * sn;
+    const float ly = dx * sn + dy * c;
+
+    const float x0 = std::min(0.0f, w), x1 = std::max(0.0f, w);
+    const float y0 = std::min(0.0f, h), y1 = std::max(0.0f, h);
+    return lx >= x0 && lx <= x1 && ly >= y0 && ly <= y1;
+}
+
+bool MapDocument::selectNearestObject(Vec2 worldPos, SelectMode mode) {
+    if (mode == SelectMode::Replace) clearSelection();
+    const bool  value = (mode != SelectMode::Subtract);
+    const float z     = (zoom > 0.0f) ? zoom : 1.0f;
+    const float tolVertex = 8.0f  / z;
+    const float tolRegion = 64.0f / z;
+
+    bool hit = false;
+
+    /* --- Polygon vertices (frm:6763) ---------------------------------- */
+    if (viewSettings.showPolys) {
+        for (auto& p : polys) {
+            for (int j = 0; j < 3; ++j) {
+                const Vec2& w = p.v[j].world;
+                if (nearCoord(worldPos.x, w.x, tolVertex) &&
+                    nearCoord(worldPos.y, w.y, tolVertex)) {
+                    p.v[j].selected = value;
+                    hit = true;
+                }
+            }
+        }
+
+        /* frm:6777: only when no vertex was grabbed directly, fall back to the
+           nearest vertex (within 64px) of a polygon containing the click. */
+        if (!hit) {
+            float best = tolRegion * tolRegion + 1.0f;
+            int bestPoly = -1, bestVert = -1;
+            for (size_t i = 0; i < polys.size(); ++i) {
+                if (!PointInTri(worldPos, polys[i].v[0].world, polys[i].v[1].world,
+                                polys[i].v[2].world))
+                    continue;
+                for (int j = 0; j < 3; ++j) {
+                    const Vec2& w = polys[i].v[j].world;
+                    if (!nearCoord(worldPos.x, w.x, tolRegion) ||
+                        !nearCoord(worldPos.y, w.y, tolRegion))
+                        continue;
+                    const float dx = w.x - worldPos.x, dy = w.y - worldPos.y;
+                    const float d2 = dx * dx + dy * dy;
+                    if (d2 < best) { best = d2; bestPoly = static_cast<int>(i); bestVert = j; }
+                }
+            }
+            if (bestPoly >= 0) {
+                polys[static_cast<size_t>(bestPoly)].v[bestVert].selected = value;
+                hit = true;
+            }
+        }
+    }
+
+    /* --- Scenery (frm:6800) ------------------------------------------- */
+    if (!hit && viewSettings.showScenery) {
+        for (auto& s : scenery) {
+            if (pointInScenery(s, worldPos)) { s.selected = value; hit = true; break; }
+        }
+    }
+
+    /* --- Spawns (frm:6810) -------------------------------------------- */
+    if (!hit && viewSettings.showObjects) {
+        float best = tolVertex * tolVertex + 1.0f;
+        int   pick = -1;
+        for (size_t i = 0; i < spawns.size(); ++i) {
+            if (!nearCoord(worldPos.x, spawns[i].x, tolVertex) ||
+                !nearCoord(worldPos.y, spawns[i].y, tolVertex))
+                continue;
+            const float dx = spawns[i].x - worldPos.x, dy = spawns[i].y - worldPos.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; pick = static_cast<int>(i); }
+        }
+        if (pick >= 0) { spawns[static_cast<size_t>(pick)].selected = value; hit = true; }
+    }
+
+    /* --- Colliders (frm:6830): tolerance is the collider's own radius/2 - */
+    if (!hit && viewSettings.showObjects) {
+        float best = tolRegion * tolRegion + 1.0f;
+        int   pick = -1;
+        for (size_t i = 0; i < colliders.size(); ++i) {
+            const float r = colliders[i].radius / 2.0f;
+            if (!nearCoord(worldPos.x, colliders[i].x, r) ||
+                !nearCoord(worldPos.y, colliders[i].y, r))
+                continue;
+            const float dx = colliders[i].x - worldPos.x, dy = colliders[i].y - worldPos.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; pick = static_cast<int>(i); }
+        }
+        if (pick >= 0) { colliders[static_cast<size_t>(pick)].selected = value; hit = true; }
+    }
+
+    /* --- Waypoints (frm:6849) ----------------------------------------- */
+    if (!hit && viewSettings.showWaypoints) {
+        float best = tolVertex * tolVertex + 1.0f;
+        int   pick = -1;
+        for (size_t i = 0; i < waypoints.size(); ++i) {
+            if (!nearCoord(worldPos.x, waypoints[i].x, tolVertex) ||
+                !nearCoord(worldPos.y, waypoints[i].y, tolVertex))
+                continue;
+            const float dx = waypoints[i].x - worldPos.x, dy = waypoints[i].y - worldPos.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; pick = static_cast<int>(i); }
+        }
+        if (pick >= 0) { waypoints[static_cast<size_t>(pick)].selected = value; hit = true; }
+    }
+
+    return hit;
+}
+
 bool MapDocument::selectPolyAt(Vec2 worldPos, SelectMode mode) {
     if (mode == SelectMode::Replace) clearSelection();
     int idx = findPolyAt(worldPos);
@@ -266,16 +391,52 @@ void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, SelectMode mode
     float x1 = std::max(worldA.x, worldB.x);
     float y0 = std::min(worldA.y, worldB.y);
     float y1 = std::max(worldA.y, worldB.y);
-    for (auto& p : polys)
-        for (int i = 0; i < 3; ++i) {
-            const Vec2& w = p.v[i].world;
-            if (w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1) {
-                if (mode == SelectMode::Subtract)
-                    p.v[i].selected = false;
-                else
-                    p.v[i].selected = true;
+    const bool value = (mode != SelectMode::Subtract);
+    auto inRect = [&](float x, float y) {
+        return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    };
+
+    /* VB6 VertexSel (frm:8840) runs one pass per object class, each gated on
+       the matching display flag; hidden classes are never picked. */
+    if (viewSettings.showPolys || viewSettings.showWireframe || viewSettings.showPoints) {
+        for (auto& p : polys)
+            for (int i = 0; i < 3; ++i)
+                if (inRect(p.v[i].world.x, p.v[i].world.y)) p.v[i].selected = value;
+    }
+
+    /* VertexSelScenery (frm:8990) tests the sprite's anchor corner; the other
+       three corners only count when the SceneryVerts preference is on. */
+    if (viewSettings.showScenery) {
+        for (auto& s : scenery) {
+            bool in = inRect(s.x, s.y);
+            if (!in && viewSettings.sceneryVerts) {
+                const float w = static_cast<float>(s.width)  * s.scaleX;
+                const float h = static_cast<float>(s.height) * s.scaleY;
+                const float c = std::cos(s.rotation), sn = std::sin(s.rotation);
+                const Vec2 corner[3] = {
+                    { s.x + c * w,          s.y - sn * w },
+                    { s.x + sn * h,         s.y + c * h  },
+                    { s.x + c * w + sn * h, s.y - sn * w + c * h },
+                };
+                for (const auto& cv : corner) if (inRect(cv.x, cv.y)) { in = true; break; }
             }
+            if (in) s.selected = value;
         }
+    }
+
+    /* VertexSelObjects (frm:9046) */
+    if (viewSettings.showObjects) {
+        for (auto& s : spawns)    if (inRect(s.x, s.y)) s.selected = value;
+        for (auto& c : colliders) if (inRect(c.x, c.y)) c.selected = value;
+    }
+
+    /* VertexSelWaypoints (frm:9118) */
+    if (viewSettings.showWaypoints)
+        for (auto& w : waypoints) if (inRect(w.x, w.y)) w.selected = value;
+
+    /* VertexSelLights (frm:9091) */
+    if (viewSettings.showLights)
+        for (auto& l : lights) if (inRect(l.x, l.y)) l.selected = value;
 }
 
 void MapDocument::selectPolysInRect(Vec2 worldA, Vec2 worldB, SelectMode mode) {
@@ -382,11 +543,12 @@ bool MapDocument::applyColorToVerticesNear(Vec2 worldPos, float worldRadius,
         }
     }
 
-    /* VertexColoring tints scenery in range too (frm:7624-7652), with the
-       same selected/unselected split as the vertices above. */
+    /* VertexColoring tints scenery in range too (frm:7624-7652), gated on
+       showScenery, with the same selected/unselected split as the vertices
+       above. */
     const bool hasSceneryeSel = std::any_of(scenery.begin(), scenery.end(),
         [](const EditorScenery& s) { return s.selected; });
-    for (std::size_t si = 0; si < scenery.size(); ++si) {
+    for (std::size_t si = 0; viewSettings.showScenery && si < scenery.size(); ++si) {
         auto& s = scenery[si];
         if (hasSceneryeSel && !s.selected) continue;
         if (!hasSceneryeSel && s.selected) continue;

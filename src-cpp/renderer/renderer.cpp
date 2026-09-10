@@ -134,7 +134,7 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
         renderPolygons(doc, mapTexId, true);
     }
 
-    if (view.showSceneryBack) {
+    if (view.showScenery && view.showSceneryBack) {
         renderScenery(doc, SCENERY_BACK);
     }
 
@@ -142,7 +142,7 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
         renderPolygons(doc, mapTexId, false);
     }
 
-    if (view.showSceneryMiddle) {
+    if (view.showScenery && view.showSceneryMiddle) {
         renderScenery(doc, SCENERY_MIDDLE);
     }
 
@@ -152,7 +152,7 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
         renderMoveSelectionRect(doc);
     }
 
-    if (view.showSceneryFront) {
+    if (view.showScenery && view.showSceneryFront) {
         renderScenery(doc, SCENERY_FRONT);
     }
 
@@ -345,24 +345,27 @@ void Renderer::renderScenery(const MapDocument& doc, int level) {
 
         const auto tint = sceneryTint(scenery);
         const Vec2 screen = toScreen(doc, scenery.x, scenery.y);
-        const float halfWidth = width * 0.5f;
-        const float halfHeight = height * 0.5f;
 
         glBindTexture(GL_TEXTURE_2D, texId);
         glColor4ub(tint[0], tint[1], tint[2], tint[3]);
         glPushMatrix();
+        /* VB6 draws the sprite with rotationCenter = (0,0) and translation =
+           screenTr (frm:2879/2987), i.e. the map coordinate is the sprite's
+           top-left corner and the sprite rotates about that corner.  The sign
+           is negative because the outline math at frm:3421 maps local (w,0) to
+           (+cos*w, -sin*w) in the y-down screen frame. */
         glTranslatef(screen.x, screen.y, 0.0f);
-        glRotatef(scenery.rotation * kRadToDeg, 0.0f, 0.0f, 1.0f);
+        glRotatef(-scenery.rotation * kRadToDeg, 0.0f, 0.0f, 1.0f);
         glScalef(scenery.scaleX * doc.zoom, scenery.scaleY * doc.zoom, 1.0f);
         glBegin(GL_QUADS);
         glTexCoord2f(0.0f, 0.0f);
-        glVertex2f(-halfWidth, -halfHeight);
+        glVertex2f(0.0f, 0.0f);
         glTexCoord2f(1.0f, 0.0f);
-        glVertex2f(halfWidth, -halfHeight);
+        glVertex2f(width, 0.0f);
         glTexCoord2f(1.0f, 1.0f);
-        glVertex2f(halfWidth, halfHeight);
+        glVertex2f(width, height);
         glTexCoord2f(0.0f, 1.0f);
-        glVertex2f(-halfWidth, halfHeight);
+        glVertex2f(0.0f, height);
         glEnd();
         glPopMatrix();
     }
@@ -453,49 +456,78 @@ void Renderer::renderSelectionOverlays(const MapDocument& doc) {
         }
     }
 
-    glEnable(GL_LINE_STIPPLE);
-    glLineStipple(1, 0x00FF);
-    glColor4ub(255, 255, 0, 255);
-    for (const auto& scenery : doc.scenery) {
-        if (!scenery.selected) {
-            continue;
-        }
-
-        float width = static_cast<float>(scenery.width);
-        float height = static_cast<float>(scenery.height);
-        if ((width <= 0.0f || height <= 0.0f) && m_texMgr != nullptr && scenery.style > 0 &&
-            scenery.style < static_cast<int>(doc.sceneryNames.size())) {
-            const GLuint texId = m_texMgr->loadTexture(doc.sceneryNames[scenery.style]);
-            int texW = 0;
-            int texH = 0;
-            m_texMgr->getSize(texId, texW, texH);
-            if (width <= 0.0f) {
-                width = static_cast<float>(texW);
+    /* VB6 frm:3383 draws every scenery sprite's outline/corner points, gated on
+       showScenery.  The outline appears when wireframe is on or the sprite is
+       selected; the anchor point appears when showPoints is on or the sprite is
+       selected, and the other three corners only when the SceneryVerts
+       preference is enabled (frm:3436). */
+    if (doc.viewSettings.showScenery) {
+        for (const auto& scenery : doc.scenery) {
+            float width = static_cast<float>(scenery.width);
+            float height = static_cast<float>(scenery.height);
+            if ((width <= 0.0f || height <= 0.0f) && m_texMgr != nullptr && scenery.style > 0 &&
+                scenery.style < static_cast<int>(doc.sceneryNames.size())) {
+                const GLuint texId = m_texMgr->loadTexture(doc.sceneryNames[scenery.style]);
+                int texW = 0;
+                int texH = 0;
+                m_texMgr->getSize(texId, texW, texH);
+                if (width <= 0.0f) {
+                    width = static_cast<float>(texW);
+                }
+                if (height <= 0.0f) {
+                    height = static_cast<float>(texH);
+                }
             }
-            if (height <= 0.0f) {
-                height = static_cast<float>(texH);
+            if (width <= 0.0f || height <= 0.0f) {
+                continue;
+            }
+
+            const bool drawOutline = scenery.selected || doc.viewSettings.showWireframe;
+            const bool drawPoints  = scenery.selected || doc.viewSettings.showPoints;
+            if (!drawOutline && !drawPoints) {
+                continue;
+            }
+
+            /* frm:3421: corner 1 = anchor + (cos, -sin) * w, corner 3 = anchor +
+               (sin, cos) * h, corner 2 = corner1 + corner3 - anchor. */
+            const float w = width  * scenery.scaleX * doc.zoom;
+            const float h = height * scenery.scaleY * doc.zoom;
+            const float c = std::cos(scenery.rotation);
+            const float s = std::sin(scenery.rotation);
+            const Vec2  a = toScreen(doc, scenery.x, scenery.y);
+            const Vec2  corner[4] = {
+                a,
+                { a.x + c * w,          a.y - s * w },
+                { a.x + c * w + s * h,  a.y - s * w + c * h },
+                { a.x + s * h,          a.y + c * h },
+            };
+
+            if (scenery.selected) {
+                glColor4ub(255, 255, 0, 255);
+            } else {
+                glColor4ub(255, 255, 255, 160);
+            }
+
+            if (drawOutline) {
+                glEnable(GL_LINE_STIPPLE);
+                glLineStipple(1, 0x00FF);
+                glBegin(GL_LINE_LOOP);
+                for (const auto& cv : corner) glVertex2f(cv.x, cv.y);
+                glEnd();
+                glDisable(GL_LINE_STIPPLE);
+            }
+
+            if (drawPoints) {
+                glPointSize(3.0f);
+                glBegin(GL_POINTS);
+                glVertex2f(corner[0].x, corner[0].y);
+                if (doc.viewSettings.sceneryVerts) {
+                    for (int i = 1; i < 4; ++i) glVertex2f(corner[i].x, corner[i].y);
+                }
+                glEnd();
             }
         }
-        if (width <= 0.0f || height <= 0.0f) {
-            continue;
-        }
-
-        const Vec2 screen = toScreen(doc, scenery.x, scenery.y);
-        const float halfWidth = width * 0.5f;
-        const float halfHeight = height * 0.5f;
-        glPushMatrix();
-        glTranslatef(screen.x, screen.y, 0.0f);
-        glRotatef(scenery.rotation * kRadToDeg, 0.0f, 0.0f, 1.0f);
-        glScalef(scenery.scaleX * doc.zoom, scenery.scaleY * doc.zoom, 1.0f);
-        glBegin(GL_LINE_LOOP);
-        glVertex2f(-halfWidth, -halfHeight);
-        glVertex2f(halfWidth, -halfHeight);
-        glVertex2f(halfWidth, halfHeight);
-        glVertex2f(-halfWidth, halfHeight);
-        glEnd();
-        glPopMatrix();
     }
-    glDisable(GL_LINE_STIPPLE);
 #else
     (void)doc;
 #endif

@@ -37,7 +37,6 @@ private:
     wxCheckBox* m_chkWaypoints      = nullptr;
     wxCheckBox* m_chkLights         = nullptr;
     wxCheckBox* m_chkSketch         = nullptr;
-    wxCheckBox* m_chkSceneryBack    = nullptr;
-    wxCheckBox* m_chkSceneryMiddle  = nullptr;
-    wxCheckBox* m_chkSceneryFront   = nullptr;
+    wxCheckBox* m_chkScenery        = nullptr;
+    bool        m_fitted            = false;
 };
