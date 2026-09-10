@@ -415,10 +415,16 @@ if (( DO_CLEAN )); then
 fi
 
 say "Configuring"
+# Nothing is loaded through a runpath: wxWidgets is linked statically, and any
+# dylib bundle_dylibs copies in is repointed at @executable_path.  Left to
+# itself CMake would still record the wxWidgets library directory as a build
+# rpath, baking this machine's .deps path into the shipped binary.
 cmake -S "$REPO" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
+    -DCMAKE_SKIP_BUILD_RPATH=ON \
+    -DCMAKE_SKIP_INSTALL_RPATH=ON \
     -DwxWidgets_CONFIG_EXECUTABLE="$WX_PREFIX/bin/wx-config"
 
 say "Building"
