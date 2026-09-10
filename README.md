@@ -136,6 +136,27 @@ The DLLs shipped in the ZIP are not chosen by hand: `make-windows-zip.sh`
 walks the import table of the executable and of every DLL it pulls in, copies
 each non-system dependency it finds, and fails if one cannot be located.
 
+### Releases
+
+Pushing a version tag builds and publishes both platforms:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`.github/workflows/release.yml` cross-compiles Windows on a Linux runner and
+builds macOS natively on an Apple silicon runner — macOS cannot be
+cross-compiled, and the two jobs run in parallel. Each job runs the same build
+script a developer would (`./build_windows.sh --package`, `./build-mac.sh
+--package`); the workflow contains no build or packaging logic of its own. The
+release is created only if both succeed, and carries:
+
+```
+polyworks-1.0.0-win-x64.zip
+polyworks-1.0.0-macos-arm64.zip
+```
+
 ### Asset resolution
 
 Textures and scenery are looked up, in order:

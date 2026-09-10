@@ -71,6 +71,10 @@ pinned_sha256() {
             echo 2634ed5e7672b3f7ed02042eb281f128cef1a7e435c54c589e82cb9fb8a99c1a ;;
         wxMSW-3.2.6_gcc1220_x64_ReleaseDLL.7z)
             echo dab13373f1b5e3aa86a1f18fac0151505e89db5cf3bece8c6df746915932c951 ;;
+        wxMSW-3.2.6_gcc1320_x64_Dev.7z)
+            echo 66b4e1fe525657bea02581bea98d26770f85c6e4795c8cd92293d63ef0f83725 ;;
+        wxMSW-3.2.6_gcc1320_x64_ReleaseDLL.7z)
+            echo 9ac711489b8840f1eb4a60e997a2b94643e7620dd94e12720e2967bc6f0b77eb ;;
         *) echo "" ;;
     esac
 }

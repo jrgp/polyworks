@@ -8,7 +8,7 @@
 # command line tools and CMake.
 #
 # Usage:
-#   ./build-mac.sh [--clean] [--skip-test]
+#   ./build-mac.sh [--package] [--clean] [--skip-test]
 
 set -euo pipefail
 
@@ -23,8 +23,10 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 DO_CLEAN=0
 DO_TEST=1
+DO_PACKAGE=0
 for arg in "$@"; do
     case "$arg" in
+        --package)   DO_PACKAGE=1 ;;
         --clean)     DO_CLEAN=1 ;;
         --skip-test) DO_TEST=0 ;;
         -h|--help)   sed -n '2,11p' "$0"; exit 0 ;;
@@ -336,6 +338,27 @@ dependencies_of "$APP/Contents/MacOS/polyworks" | sed 's/^/    /'
 
 if (( DO_TEST )); then
     smoke_test "$APP"
+fi
+
+# Archive with ditto rather than zip(1): it is the tool that understands
+# application bundles, and it preserves the symlinks, permissions and extended
+# attributes that a .app needs in order to still be launchable after a
+# round-trip through an archive.
+package_app() {
+    local dist="$REPO/dist"
+    local zip="$dist/PolyWorks-macos.zip"
+    mkdir -p "$dist"
+    rm -f "$zip"
+    say "Creating $zip"
+    ( cd "$(dirname "$APP")" && ditto -c -k --keepParent --sequesterRsrc \
+          "$(basename "$APP")" "$zip" )
+    [[ -f "$zip" ]] || die "ditto produced no archive"
+    say "Done"
+    ls -lh "$zip"
+}
+
+if (( DO_PACKAGE )); then
+    package_app
 fi
 
 say "Built $APP"

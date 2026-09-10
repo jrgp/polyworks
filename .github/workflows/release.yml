@@ -1,0 +1,153 @@
+name: Release
+
+# Tagging is the whole trigger: `git tag v1.0.0 && git push origin v1.0.0`
+# produces a release with a Windows and a macOS build attached.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# The two builds are independent and run in parallel.  Neither can substitute
+# for the other: Windows is cross-compiled from Linux, and macOS cannot be
+# cross-compiled at all, so it needs a real Mac.
+#
+# Only the job that publishes gets write access; the builds are read-only.
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (cross-compiled on Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # mingw-w64 is not on the runner image.  Install the win32 thread model
+      # explicitly and select it: Ubuntu defaults these alternatives to posix,
+      # and the official wxWidgets binaries are win32-threads builds, so a
+      # posix compiler would put two incompatible libstdc++ configurations on
+      # either side of the wx ABI boundary.  build_windows.sh checks for this
+      # and would stop the build.
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc \
+            /usr/bin/x86_64-w64-mingw32-gcc-win32
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ \
+            /usr/bin/x86_64-w64-mingw32-g++-win32
+
+      # The wxWidgets archives are large and pinned, so they are worth keeping
+      # between runs.  The key covers the script that decides which package to
+      # fetch, so bumping the wxWidgets version invalidates the cache.
+      - name: Cache wxWidgets download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .deps/cache
+          key: wx-msw-${{ runner.os }}-${{ hashFiles('build_windows.sh') }}
+
+      # build_windows.sh owns everything: fetching and verifying wxWidgets,
+      # cross-compiling, checking the executable imports nothing from GTK/X11,
+      # and staging the portable ZIP.  Nothing here duplicates that.
+      - name: Build and package
+        run: ./build_windows.sh --package
+
+      - name: Check the expected archive exists
+        run: test -f dist/PolyWorks-win64.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-zip
+          path: dist/PolyWorks-win64.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  macos:
+    name: macOS (native, arm64)
+    # macos-latest is Apple silicon, which is what makes this the arm64 build.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # wxWidgets has no macOS binary release, so build-mac.sh compiles it from
+      # source.  That is slow enough to be worth caching the built prefix, not
+      # just the download; the script's stamp file makes a stale prefix safe,
+      # as it rebuilds when the version, architecture or deployment target
+      # changes.
+      - name: Cache wxWidgets build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .deps/cache
+            .deps/wx-*-macos-*
+          key: wx-macos-${{ runner.arch }}-${{ hashFiles('build-mac.sh') }}
+
+      # build-mac.sh owns everything: fetching and verifying the wxWidgets
+      # source, building it statically so no Homebrew library can leak in,
+      # producing the bundle, auditing every Mach-O in it for references
+      # outside the bundle, and archiving it with ditto.
+      - name: Build and package
+        run: ./build-mac.sh --package
+
+      # The archive can only be trusted if the thing inside it is a real
+      # bundle, so check for the executable rather than just the .app name.
+      - name: Check the bundle and archive exist
+        run: |
+          test -f dist/PolyWorks-macos.zip
+          test -d build/bin/polyworks.app
+          test -x build/bin/polyworks.app/Contents/MacOS/polyworks
+          test -f build/bin/polyworks.app/Contents/Resources/PW.icns
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-zip
+          path: dist/PolyWorks-macos.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish release
+    # `needs` is what makes a failure on either platform cancel the release:
+    # this job does not start unless both builds succeeded.
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      # Release filenames carry the version without the leading v, so
+      # refs/tags/v1.0.0 becomes polyworks-1.0.0-win-x64.zip.  The builds are
+      # not told the version: they produce the same archive whether or not a
+      # tag is involved, and naming is a release-time concern.
+      - name: Name the archives for the release
+        id: collect
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ -n "$version" ]] || { echo "::error::Tag ${GITHUB_REF_NAME} has no version"; exit 1; }
+
+          mkdir -p release
+          cp artifacts/windows-zip/PolyWorks-win64.zip "release/polyworks-${version}-win-x64.zip"
+          cp artifacts/macos-zip/PolyWorks-macos.zip   "release/polyworks-${version}-macos-arm64.zip"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          ls -l release
+
+      # Created with the GitHub CLI, which is maintained by GitHub, preinstalled
+      # on the runners and the method GitHub's own documentation gives for this.
+      # actions/create-release, the action that used to fill this role, was
+      # archived in 2021 and is no longer maintained.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            release/polyworks-${{ steps.collect.outputs.version }}-win-x64.zip \
+            release/polyworks-${{ steps.collect.outputs.version }}-macos-arm64.zip
