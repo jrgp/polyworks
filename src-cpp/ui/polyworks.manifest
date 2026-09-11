@@ -7,7 +7,7 @@
       processorArchitecture="*"/>
   <description>PolyWorks - Soldat map editor</description>
 
-  <!-- Common Controls 6 so wxWidgets gets themed native controls. -->
+  <!-- Common Controls 6: the standard Windows dialogs GLFW may raise. -->
   <dependency>
     <dependentAssembly>
       <assemblyIdentity

@@ -3,7 +3,7 @@
  * map_document.h — Editor-side document model.
  *
  * This is what the editor works with at runtime.  It is richer than the
- * on-disk PMS format and must never depend on wxWidgets or OpenGL.
+ * on-disk PMS format and must never depend on Dear ImGui, GLFW or OpenGL.
  *
  * Coordinate system (matches VB6 original):
  *   World coords: float X/Y, Y increases downward.
