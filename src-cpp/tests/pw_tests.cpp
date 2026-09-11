@@ -16,6 +16,7 @@
 #include "pms_types.h"
 #include "pms_io.h"
 #include "map_document.h"
+#include "prefs.h"
 #include "undo_stack.h"
 #include "geometry.h"
 #include "color_key.h"
@@ -297,6 +298,71 @@ TEST(map_document_move_selected) {
     doc.moveSelected(5.0f, -3.0f);
     EXPECT_NEAR(doc.polys[0].v[0].world.x, 15.0f, 1e-4f);
     EXPECT_NEAR(doc.polys[0].v[0].world.y, 17.0f, 1e-4f);
+}
+
+/* mnuFixedTexture (frm:7106): moving a vertex with the option on advances its
+   UV by the world delta in texture pixels, so the texture stays put in world
+   space.  With the option off, or with no texture size known, the UV is
+   untouched. */
+/* LoadConfig (modConfig.bas:101-123) repairs a hand-edited zoom range rather
+   than trusting it. */
+TEST(prefs_sanitise_zoom) {
+    pw::AppPrefs p;
+    p.minZoom = 4.0f; p.maxZoom = 0.25f; p.resetZoom = 1.0f;
+    p.sanitiseZoom();
+    EXPECT_NEAR(p.minZoom, 0.25f, 1e-6f);
+    EXPECT_NEAR(p.maxZoom, 4.0f, 1e-6f);
+    EXPECT_NEAR(p.resetZoom, 1.0f, 1e-6f);
+
+    /* Equal limits are not a range; both go back to the defaults. */
+    pw::AppPrefs q;
+    q.minZoom = q.maxZoom = 2.0f;
+    q.sanitiseZoom();
+    EXPECT(q.minZoom < q.maxZoom);
+
+    /* The reset zoom is pulled into whatever range survives. */
+    pw::AppPrefs r;
+    r.minZoom = 0.5f; r.maxZoom = 2.0f; r.resetZoom = 8.0f;
+    r.sanitiseZoom();
+    EXPECT_NEAR(r.resetZoom, 2.0f, 1e-6f);
+    r.resetZoom = 0.1f;
+    r.sanitiseZoom();
+    EXPECT_NEAR(r.resetZoom, 0.5f, 1e-6f);
+}
+
+TEST(map_document_fixed_texture_move) {
+    MapDocument doc;
+    EditorPoly p{};
+    for (int i = 0; i < 3; ++i) {
+        p.v[i].selected = true;
+        p.v[i].tu = 0.25f;
+        p.v[i].tv = 0.5f;
+    }
+    p.v[0].world = {0, 0};
+    p.v[1].world = {100, 0};
+    p.v[2].world = {50, 100};
+    doc.addPoly(p);
+    doc.textureW = 200;
+    doc.textureH = 400;
+
+    doc.viewSettings.fixedTexture = false;
+    doc.moveSelected(50.0f, 40.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].tu, 0.25f, 1e-5f);
+    EXPECT_NEAR(doc.polys[0].v[0].tv, 0.5f, 1e-5f);
+
+    doc.viewSettings.fixedTexture = true;
+    doc.moveSelected(50.0f, 40.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].tu, 0.25f + 50.0f / 200.0f, 1e-5f);
+    EXPECT_NEAR(doc.polys[0].v[0].tv, 0.5f + 40.0f / 400.0f, 1e-5f);
+    /* The vertex still moves by the full delta either way. */
+    EXPECT_NEAR(doc.polys[0].v[0].world.x, 100.0f, 1e-4f);
+
+    /* An unknown texture size must not divide by zero or corrupt the UVs. */
+    doc.textureW = 0;
+    doc.textureH = 0;
+    const float tu = doc.polys[0].v[0].tu;
+    doc.moveSelected(10.0f, 10.0f);
+    EXPECT_NEAR(doc.polys[0].v[0].tu, tu, 1e-5f);
 }
 
 TEST(map_document_screen_cache) {

@@ -250,6 +250,12 @@ public:
        (VB6 currentWaypoint).  -1 when nothing is anchored. */
     int currentWaypoint = -1;
 
+    /* Pixel size of the map texture (VB6 xTexture/yTexture), filled in by the
+       UI when the texture is resolved.  Only the Fixed Texture behaviour in
+       moveSelected() needs it; 0 means "unknown", which disables it. */
+    int textureW = 0;
+    int textureH = 0;
+
     /* Map data */
     MapOptions              options;
     std::vector<EditorPoly>    polys;

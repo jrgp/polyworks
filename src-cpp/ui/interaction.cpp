@@ -22,10 +22,16 @@ void Interaction::setActiveTool(int tool) {
     if (m_activeTool == tool) {
         return;
     }
-    if (m_state == InteractionState::CreatingPoly) {
+    if (m_state == InteractionState::CreatingPoly ||
+        m_state == InteractionState::PlacingScenery) {
         cancelCreation();
     }
     m_state = InteractionState::Idle;
+    /* frm:4229: leaving the waypoint tool drops the connection anchor, so a
+       chain cannot resume across an unrelated edit. */
+    if (tool != TOOL_WAYPOINT && tool != TOOL_CONNECT) {
+        m_editor.doc.currentWaypoint = -1;
+    }
     m_activeTool = tool;
     m_currentFunction = tool;
     refreshCurrentFunction();
@@ -153,6 +159,7 @@ bool Interaction::onEscape() {
     /* VB6 frm:10954: Escape cancels a pending creation, quad or waypoint
        anchor if one exists; only otherwise does it clear the selection. */
     if (m_state == InteractionState::CreatingPoly ||
+        m_state == InteractionState::PlacingScenery ||
         m_editor.doc.currentWaypoint >= 0) {
         cancelCreation();
     } else {
@@ -170,6 +177,7 @@ bool Interaction::onTab(bool backwards) {
 void Interaction::cancelCreation() {
     m_creationVertCount = 0;
     m_creatingQuad = false;
+    m_sceneryCorners = 0;
     m_editor.doc.currentWaypoint = -1;
     m_state = InteractionState::Idle;
 }
@@ -341,24 +349,39 @@ void Interaction::onLeftDown(Vec2 pos) {
         return;
 
     case TOOL_WAYPOINT: {
-        /* VB6 frm:11322-11345 stamps the mnuWayType flags onto the new
-           waypoint and, when a waypoint is already anchored, chains a
-           connection from it. */
+        /* VB6 frm:11315-11351.  Placing a waypoint you cannot see is not
+           useful, so the original turns the layer on and, if the Show filter
+           would hide the path being drawn on, resets it to All. */
+        if (!doc.viewSettings.showWaypoints) {
+            doc.viewSettings.showWaypoints = true;
+        }
+        if (doc.viewSettings.waypointPathFilter != 0 &&
+            doc.viewSettings.waypointPathFilter != ed.waypointState.pathNum) {
+            doc.viewSettings.waypointPathFilter = 0;
+        }
+
         ed.undo.push(doc);
         doc.addWaypoint(world.x, world.y);
         EditorWaypoint& wp = doc.waypoints.back();
+        wp.pathNum = ed.waypointState.pathNum;
         wp.left  = ed.waypointState.type[0];
         wp.right = ed.waypointState.type[1];
         wp.up    = ed.waypointState.type[2];
         wp.down  = ed.waypointState.type[3];
         wp.m2    = ed.waypointState.type[4];
+
+        /* The chain only continues one that the Connect tool started: VB6
+           assigns currentWaypoint *inside* the `If currentWaypoint > 0` branch
+           (frm:11343-11350), so placing waypoints with this tool alone leaves
+           them unconnected.  Advancing the anchor unconditionally would wire
+           together every waypoint the user ever placed. */
         const int newIdx = static_cast<int>(doc.waypoints.size()) - 1;
         const int prev   = doc.currentWaypoint;
         if (prev >= 0 && prev < newIdx &&
             doc.waypoints[static_cast<size_t>(prev)].connections.size() < 20) {
             doc.waypoints[static_cast<size_t>(prev)].connections.push_back(wp.id);
+            doc.currentWaypoint = newIdx;
         }
-        doc.currentWaypoint = newIdx;
         doc.markModified();
         return;
     }
@@ -451,30 +474,9 @@ void Interaction::onLeftDown(Vec2 pos) {
         }
         return;
 
-    case TOOL_SCENERY: {
-        const int idx = ed.orAddSelectedSceneryIndex();
-        if (idx == 0) {
-            return;
-        }
-        ed.undo.push(doc);
-        doc.addSceneryInstance(idx, world.x, world.y, ed.sceneryState.level);
-        /* frm:2737 writes the source texture's pixel size into the saved prop,
-           so a freshly placed sprite needs its metrics filled in for both
-           saving and hit-testing. */
-        if (!doc.scenery.empty()) {
-            EditorScenery& placed = doc.scenery.back();
-            if (placed.width == 0 || placed.height == 0) {
-                const unsigned int texId =
-                    ed.texMgr.loadTexture(doc.sceneryNames[static_cast<size_t>(idx)]);
-                int texW = 0, texH = 0;
-                ed.texMgr.getSize(texId, texW, texH);
-                placed.width  = texW;
-                placed.height = texH;
-            }
-        }
-        doc.markModified();
+    case TOOL_SCENERY:
+        advanceSceneryPlacement(world);
         return;
-    }
 
     default:
         break;
@@ -553,6 +555,11 @@ void Interaction::onMouseMove(Vec2 pos) {
     }
 
     refreshCurrentFunction();
+
+    if (m_state == InteractionState::PlacingScenery) {
+        updateSceneryPlacement(world);
+        return;
+    }
 
     const float dx = world.x - m_dragWorldStart.x;
     const float dy = world.y - m_dragWorldStart.y;
@@ -738,6 +745,124 @@ void Interaction::onRightDown(Vec2 /*pos*/) {
     /* The context menus themselves are ImGui popups raised by the viewport;
        nothing about the interaction state changes here.  Kept so that the
        state machine remains the single place that knows a button was pressed. */
+}
+
+/* ---- scenery placement -------------------------------------------------- */
+
+/*
+ * CreateScenery (frm:8182).  Placing a sprite is a sequence of clicks, not one
+ * click: the first fixes the position, the second the rotation and the third
+ * the scale.  frmScenery's Rotate and Scale toggles remove the steps they
+ * correspond to, which is why the original advances numCorners past them
+ * (frm:8211-8212) rather than branching -- with both off the whole sequence
+ * collapses into the single click most users ever see.
+ */
+void Interaction::advanceSceneryPlacement(Vec2 world) {
+    Editor& ed = m_editor;
+    const SceneryState& st = ed.sceneryState;
+
+    if (m_sceneryCorners == 0) {
+        const int idx = ed.orAddSelectedSceneryIndex();
+        if (idx == 0) {
+            return;
+        }
+        m_sceneryIndex    = idx;
+        m_sceneryAnchor   = world;
+        m_sceneryRotation = 0.0f;
+        m_sceneryScaleX   = 1.0f;
+        m_sceneryScaleY   = 1.0f;
+        m_sceneryTexW     = 0;
+        m_sceneryTexH     = 0;
+        const unsigned int texId = ed.texMgr.loadTexture(
+            ed.doc.sceneryNames[static_cast<size_t>(idx)]);
+        ed.texMgr.getSize(texId, m_sceneryTexW, m_sceneryTexH);
+    }
+
+    ++m_sceneryCorners;
+    if (m_sceneryCorners == 1 && !st.rotate) {
+        ++m_sceneryCorners;
+    }
+    if (m_sceneryCorners == 2 && !st.scale) {
+        ++m_sceneryCorners;
+    }
+
+    if (m_sceneryCorners >= 3) {
+        commitScenery();
+        return;
+    }
+    m_state = InteractionState::PlacingScenery;
+}
+
+/* MouseMove while the sequence is open (frm:6947-6981). */
+void Interaction::updateSceneryPlacement(Vec2 world) {
+    const float dx = world.x - m_sceneryAnchor.x;
+    const float dy = world.y - m_sceneryAnchor.y;
+    const float angle = std::atan2(dy, dx);
+
+    if (m_sceneryCorners == 1) {
+        float a = angle;
+        if (m_mods.shift) {
+            /* Shift quantises to 15 degrees. */
+            constexpr float kStep = 15.0f * 3.14159265358979f / 180.0f;
+            a = std::floor(a / kStep) * kStep;
+        }
+        m_sceneryRotation = a;
+    } else if (m_sceneryCorners == 2) {
+        const float w = m_sceneryTexW > 0 ? static_cast<float>(m_sceneryTexW) : 1.0f;
+        const float h = m_sceneryTexH > 0 ? static_cast<float>(m_sceneryTexH) : 1.0f;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        const float rel = angle - m_sceneryRotation;
+        m_sceneryScaleX =  std::cos(rel) * len / w;
+        m_sceneryScaleY = -std::sin(rel) * len / h;
+        if (m_mods.shift) {
+            /* Uniform: the diagonal of the sprite carries the whole length. */
+            const float uniform = len / std::sqrt(w * w + h * h);
+            m_sceneryScaleX = m_sceneryScaleX < 0.0f ? -uniform : uniform;
+            m_sceneryScaleY = (m_sceneryScaleY * m_sceneryScaleX < 0.0f)
+                                  ? -m_sceneryScaleX
+                                  : m_sceneryScaleX;
+        }
+    }
+    m_editor.needsRedraw = true;
+}
+
+void Interaction::commitScenery() {
+    Editor& ed = m_editor;
+    MapDocument& doc = ed.doc;
+
+    ed.undo.push(doc);
+    doc.addSceneryInstance(m_sceneryIndex, m_sceneryAnchor.x, m_sceneryAnchor.y,
+                           ed.sceneryState.level);
+    if (!doc.scenery.empty()) {
+        EditorScenery& placed = doc.scenery.back();
+        placed.rotation = m_sceneryRotation;
+        placed.scaleX   = m_sceneryScaleX;
+        placed.scaleY   = m_sceneryScaleY;
+        /* frm:2737 writes the source texture's pixel size into the saved prop,
+           so a freshly placed sprite needs its metrics for saving and for
+           hit-testing. */
+        if (placed.width == 0 || placed.height == 0) {
+            placed.width  = m_sceneryTexW;
+            placed.height = m_sceneryTexH;
+        }
+        doc.rebuildScreenCache();
+    }
+    doc.markModified();
+
+    m_sceneryCorners = 0;
+    m_state = InteractionState::Idle;
+}
+
+bool Interaction::sceneryPreview(Vec2& anchor, float& rotation, float& scaleX,
+                                 float& scaleY) const {
+    if (m_state != InteractionState::PlacingScenery || m_sceneryCorners == 0) {
+        return false;
+    }
+    anchor   = m_sceneryAnchor;
+    rotation = m_sceneryRotation;
+    scaleX   = m_sceneryScaleX;
+    scaleY   = m_sceneryScaleY;
+    return true;
 }
 
 /* ---- polygon creation -------------------------------------------------- */

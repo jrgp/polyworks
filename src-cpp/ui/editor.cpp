@@ -695,8 +695,17 @@ void Editor::setActiveTool(int tool) {
 }
 
 void Editor::toggleWaypointType(int idx) {
-    if (idx >= 0 && idx < 5) {
-        waypointState.type[idx] = !waypointState.type[idx];
+    if (idx < 0 || idx >= 5) {
+        return;
+    }
+    waypointState.type[idx] = !waypointState.type[idx];
+    /* mnuWayType_Click (frm:12396) clears the opposing direction: a waypoint
+       cannot tell the bot to go both left and right, or both up and down.
+       Fly (index 4) is independent of the other four. */
+    static const int kOpposite[5] = {1, 0, 3, 2, -1};
+    const int other = kOpposite[idx];
+    if (other >= 0 && waypointState.type[idx]) {
+        waypointState.type[other] = false;
     }
 }
 
@@ -712,6 +721,10 @@ void Editor::selectedTextureSize(int& w, int& h) {
     if (id != 0) {
         texMgr.getSize(id, w, h);
     }
+    /* The core needs the pixel size for Fixed Texture moves but must not know
+       how to load an image, so the UI hands it over whenever it is asked. */
+    doc.textureW = w;
+    doc.textureH = h;
 }
 
 int Editor::orAddSelectedSceneryIndex() {
@@ -786,10 +799,14 @@ void Editor::refreshTextureWindow() {
     textureWindow.texId = 0;
     textureWindow.path.clear();
     textureWindow.hasSelection = false;
+    doc.textureW = 0;
+    doc.textureH = 0;
     if (doc.options.textureName.empty()) {
         return;
     }
     textureWindow.path = texMgr.resolvePath(doc.options.textureName);
+    int w = 0, h = 0;
+    selectedTextureSize(w, h);
 }
 
 /* ---- preferences -------------------------------------------------------- */
@@ -801,6 +818,7 @@ void Editor::loadPrefs() {
     prefs.minZoom   = static_cast<float>(ini.readDouble("Zoom", "Min", prefs.minZoom));
     prefs.maxZoom   = static_cast<float>(ini.readDouble("Zoom", "Max", prefs.maxZoom));
     prefs.resetZoom = static_cast<float>(ini.readDouble("Zoom", "Reset", prefs.resetZoom));
+    prefs.sanitiseZoom();
     prefs.gridSpacing   = static_cast<int>(ini.readInt("Grid", "Spacing", prefs.gridSpacing));
     prefs.gridDivisions = static_cast<int>(ini.readInt("Grid", "Divisions", prefs.gridDivisions));
     prefs.gridColor1 = static_cast<unsigned>(ini.readInt("Grid", "Color1", static_cast<long>(prefs.gridColor1)));

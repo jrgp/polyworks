@@ -313,7 +313,12 @@ void drawWaypointsPanel(App& app) {
             if (i != 0) {
                 ImGui::SameLine();
             }
-            if (ImGui::Checkbox(kTypeLabels[i], &st.type[i])) {
+            bool value = st.type[i];
+            if (ImGui::Checkbox(kTypeLabels[i], &value)) {
+                /* Routed through the editor so the Left/Right and Up/Down
+                   exclusion is applied here exactly as it is in the
+                   right-click menu (frm:12396). */
+                ed.toggleWaypointType(i);
                 typeChanged = true;
             }
         }

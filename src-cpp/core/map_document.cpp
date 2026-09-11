@@ -668,11 +668,24 @@ void MapDocument::duplicateSelected(float offsetX, float offsetY) {
 }
 
 void MapDocument::moveSelected(float dx, float dy) {
+    /* mnuFixedTexture (frm:7106, frm:8325): the texture stays put in world
+       space while the polygon slides over it.  VB6 recomputes the UV from the
+       vertex's new world position plus the offset it had before the move,
+       which reduces exactly to advancing the UV by the world delta measured
+       in texture pixels. */
+    const bool fixTex = viewSettings.fixedTexture && textureW > 0 && textureH > 0;
+    const float du = fixTex ? dx / static_cast<float>(textureW) : 0.0f;
+    const float dv = fixTex ? dy / static_cast<float>(textureH) : 0.0f;
+
     for (auto& p : polys)
         for (int i = 0; i < 3; ++i)
             if (p.v[i].selected) {
                 p.v[i].world.x += dx;
                 p.v[i].world.y += dy;
+                if (fixTex) {
+                    p.v[i].tu += du;
+                    p.v[i].tv += dv;
+                }
             }
     for (auto& s : scenery)    if (s.selected)  { s.x += dx; s.y += dy; }
     for (auto& sp : spawns)    if (sp.selected) { sp.x += dx; sp.y += dy; }

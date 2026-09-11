@@ -40,7 +40,7 @@ if(TEST_SOURCES)
   # so it can be tested without a GL library or a display.
   add_executable(pw_tests ${TEST_SOURCES} src-cpp/renderer/texture_manager.cpp)
   target_link_libraries(pw_tests PRIVATE pw_core stb_image)
-  target_include_directories(pw_tests PRIVATE src-cpp/tests src-cpp/renderer)
+  target_include_directories(pw_tests PRIVATE src-cpp/tests src-cpp/renderer src-cpp/ui)
   target_compile_definitions(pw_tests PRIVATE PW_RENDERER_NO_OPENGL=1)
   enable_testing()
   add_test(NAME headless COMMAND pw_tests)

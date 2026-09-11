@@ -448,6 +448,22 @@ void drawMapSettings(App& app, bool justOpened) {
         ImGui::PopStyleColor();
     }
 
+    /* picTexture (frmMap.frm:64, assigned in cboTexture_Click at :790): the
+       chosen texture is shown straight away, so a wrong pick is obvious
+       before the dialog is accepted. */
+    {
+        int tw = 0, th = 0;
+        const unsigned int tex = app.previewTexture(textureName, tw, th);
+        if (tex != 0 && tw > 0 && th > 0) {
+            const float box = 96.0f * scale;
+            const float fit = std::min(box / tw, box / th);
+            ImGui::Image(static_cast<ImTextureID>(tex),
+                         ImVec2(tw * fit, th * fit));
+        } else if (textureName[0] != '\0') {
+            ImGui::TextUnformatted("(texture not found)");
+        }
+    }
+
     ImGui::ColorEdit3("Background top", backColor1,
                       ImGuiColorEditFlags_NoInputs);
     ImGui::ColorEdit3("Background bottom", backColor2,
@@ -475,8 +491,43 @@ void drawMapSettings(App& app, bool justOpened) {
         }
         ImGui::EndCombo();
     }
+    /* cboJet (frmMap.frm:725): named presets write a fixed amount into the
+       box, and only "Custom" leaves it editable. */
+    struct JetPreset { const char* name; int value; };
+    static const JetPreset kJets[] = {
+        {"None", 0},     {"Minimal", 12}, {"Very low", 45},
+        {"Low", 95},     {"Normal", 190}, {"High", 320},
+        {"Maximum", 800},{"Infinite", 32766},
+    };
+    constexpr int kJetPresetCount = 8;
+    int jetPreset = kJetPresetCount;   /* Custom */
+    for (int i = 0; i < kJetPresetCount; ++i) {
+        if (kJets[i].value == jetCount) {
+            jetPreset = i;
+            break;
+        }
+    }
+    ImGui::SetNextItemWidth(160.0f * scale);
+    if (ImGui::BeginCombo("Jets",
+                          jetPreset == kJetPresetCount ? "Custom"
+                                                       : kJets[jetPreset].name)) {
+        for (int i = 0; i < kJetPresetCount; ++i) {
+            if (ImGui::Selectable(kJets[i].name, jetPreset == i)) {
+                jetCount = kJets[i].value;
+                jetPreset = i;
+            }
+        }
+        if (ImGui::Selectable("Custom", jetPreset == kJetPresetCount)) {
+            jetPreset = kJetPresetCount;
+        }
+        ImGui::EndCombo();
+    }
     ImGui::SetNextItemWidth(120.0f * scale);
-    ImGui::InputInt("Jet Fuel", &jetCount);
+    ImGui::BeginDisabled(jetPreset != kJetPresetCount);
+    if (ImGui::InputInt("Jet Fuel", &jetCount)) {
+        jetCount = std::max(0, jetCount);
+    }
+    ImGui::EndDisabled();
     ImGui::SetNextItemWidth(120.0f * scale);
     ImGui::InputInt("Grenades", &grenades);
     ImGui::SetNextItemWidth(120.0f * scale);
@@ -557,6 +608,9 @@ void drawPreferences(App& app, bool justOpened) {
         working.soldatDir = soldatDir;
         working.prefabsDir = prefabsDir;
         working.uncompDir = uncompDir;
+        /* Same validation the ini loader applies, so the dialog cannot store
+           a range the loader would only have to repair (modConfig.bas:101). */
+        working.sanitiseZoom();
         ed.prefs = working;
         ed.applyPrefs();
         ed.savePrefs();

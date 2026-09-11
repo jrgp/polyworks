@@ -378,6 +378,44 @@ void App::drawViewport() {
         glEnd();
     }
 
+    /* The sprite the scenery tool is placing, drawn with the rotation and
+       scale the current click step is setting (VB6 renders Scenery(0) the
+       same way while numCorners is non-zero, frm:7045). */
+    Vec2 anchor{};
+    float rot = 0.0f, sx = 1.0f, sy = 1.0f;
+    if (m_editor.interaction.sceneryPreview(anchor, rot, sx, sy)) {
+        const int idx = m_editor.interaction.placingSceneryIndex();
+        const unsigned int tex =
+            (idx > 0 && idx < static_cast<int>(m_editor.doc.sceneryNames.size()))
+                ? m_editor.texMgr.loadTexture(
+                      m_editor.doc.sceneryNames[static_cast<size_t>(idx)])
+                : 0u;
+        int tw = 0, th = 0;
+        m_editor.texMgr.getSize(tex, tw, th);
+        if (tex != 0 && tw > 0 && th > 0) {
+            const float zoom = m_editor.doc.zoom;
+            const Vec2 o = m_editor.doc.worldToScreen(anchor);
+            const float w = tw * sx * zoom;
+            const float h = th * sy * zoom;
+            const float c = std::cos(rot), sn = std::sin(rot);
+            /* The sprite hangs from its top-left corner, which is the origin
+               the PMS format stores and the original rotates about. */
+            const float corners[4][2] = {{0, 0}, {w, 0}, {w, h}, {0, h}};
+            const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glColor4ub(255, 255, 255, 180);
+            glBegin(GL_QUADS);
+            for (int i = 0; i < 4; ++i) {
+                glTexCoord2f(uv[i][0], uv[i][1]);
+                glVertex2f(o.x + corners[i][0] * c - corners[i][1] * sn,
+                           o.y + corners[i][0] * sn + corners[i][1] * c);
+            }
+            glEnd();
+            glDisable(GL_TEXTURE_2D);
+        }
+    }
+
     glDisable(GL_SCISSOR_TEST);
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();

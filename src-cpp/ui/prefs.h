@@ -17,6 +17,25 @@ struct AppPrefs {
     float   maxZoom      = 16.0f;
     float   resetZoom    = 1.0f;
 
+    /* LoadConfig (modConfig.bas:101-123) does not trust the file: equal
+       limits fall back to the defaults, reversed limits are swapped, and the
+       reset zoom is clamped into whatever range survives.  A hand-edited ini
+       must not be able to produce an editor that cannot zoom. */
+    void sanitiseZoom() {
+        if (minZoom <= 0.0f) minZoom = 0.0625f;
+        if (maxZoom <= 0.0f) maxZoom = 16.0f;
+        if (minZoom == maxZoom) {
+            minZoom = 0.0625f;
+            maxZoom = 16.0f;
+        } else if (minZoom > maxZoom) {
+            const float t = maxZoom;
+            maxZoom = minZoom;
+            minZoom = t;
+        }
+        if (resetZoom > maxZoom) resetZoom = maxZoom;
+        if (resetZoom < minZoom) resetZoom = minZoom;
+    }
+
     /* Grid */
     int     gridSpacing  = 32;
     int     gridDivisions = 4;

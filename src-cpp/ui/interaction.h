@@ -41,6 +41,7 @@ enum class InteractionState {
     RubberBanding,   /* drag-select rectangle in progress */
     Dragging,        /* moving selected objects, or a continuous paint stroke */
     CreatingPoly,    /* placing polygon vertices one click at a time */
+    PlacingScenery,  /* the anchor/rotate/scale click sequence (frm:8182) */
     Sketching,
     Transforming,    /* Ctrl-drag scale / Alt-drag rotate about the pivot */
 };
@@ -88,6 +89,11 @@ public:
     bool rubberBand(Vec2& a, Vec2& b) const;
     int  pendingVertices(Vec2 out[3]) const;
     bool sketchPreview(Vec2& a, Vec2& b) const;
+    /* The sprite being placed, while the rotate/scale clicks are collected.
+       Returns false unless a placement is in progress. */
+    bool sceneryPreview(Vec2& anchor, float& rotation, float& scaleX,
+                        float& scaleY) const;
+    int  placingSceneryIndex() const { return m_sceneryIndex; }
 
     void cancelCreation();
 
@@ -98,6 +104,9 @@ private:
     void updatePan(Vec2 pos);
     void endPan();
     void addCreationVertex(Vec2 world);
+    void advanceSceneryPlacement(Vec2 world);
+    void updateSceneryPlacement(Vec2 world);
+    void commitScenery();
     void beginTransformDrag(Vec2 world);
     void updateTransformDrag(Vec2 world);
     float worldTolerance() const;
@@ -127,6 +136,18 @@ private:
     int  m_creationVertCount = 0;
     bool m_creatingQuad = false;
     Vec2 m_quadCarryUV[2]{};
+
+    /* frm:1491 numCorners: 0 = nothing placed, 1 = the anchor is down and the
+       mouse is setting the rotation, 2 = the rotation is fixed and the mouse
+       is setting the scale.  3 creates the sprite. */
+    int   m_sceneryCorners = 0;
+    Vec2  m_sceneryAnchor{};
+    float m_sceneryRotation = 0.0f;
+    float m_sceneryScaleX = 1.0f;
+    float m_sceneryScaleY = 1.0f;
+    int   m_sceneryIndex = 0;
+    int   m_sceneryTexW = 0;
+    int   m_sceneryTexH = 0;
 
     /* Vertices already painted in the current stroke, so that the normal
        colour mode paints each one once (frm:7595). */
