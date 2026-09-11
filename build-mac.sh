@@ -316,10 +316,45 @@ bundle_dylibs() {
 
     if [[ -d "$frameworks" ]]; then
         install_name_tool -add_rpath "@loader_path/../Frameworks" "$exe" 2>/dev/null || true
-        # Any install_name_tool edit invalidates the signature, and on Apple
-        # silicon even an ad-hoc signature is mandatory for the binary to run.
-        codesign --force --sign - "$app" 2>/dev/null || true
     fi
+}
+
+# On Apple silicon a binary without *any* signature cannot execute: the kernel
+# refuses it outright.  Finder reports that as "the application is damaged and
+# can't be opened", which is also what a user sees after downloading a release,
+# so an unsigned build looks like a corrupt download rather than a missing
+# signature.  An ad-hoc signature ("-") costs nothing and is enough; a Developer
+# ID is only needed to satisfy Gatekeeper's notarisation check, which is a
+# separate, non-fatal prompt.
+#
+# This has to happen after every modification to the bundle.  install_name_tool,
+# and anything else that rewrites a Mach-O header, invalidates a signature that
+# was applied earlier.
+sign_bundle() {
+    local app="$1"
+    local identity="${CODESIGN_IDENTITY:--}"
+
+    require codesign "codesign not found; it ships with the Xcode command line tools"
+
+    # An ad-hoc signature cannot carry a secure timestamp, and asking for one
+    # makes the build reach for Apple's timestamp server and hang when offline.
+    # A real Developer ID signature must have one, or notarisation rejects it,
+    # so the flag is chosen from the identity rather than fixed.
+    local timestamp=--timestamp
+    [[ "$identity" == "-" ]] && timestamp=--timestamp=none
+
+    say "Signing $(basename "$app") with identity ${identity}"
+    # --deep so the nested Mach-O files are signed too.
+    codesign --force --deep "$timestamp" --sign "$identity" "$app" \
+        || die "codesign failed"
+
+    # Verify rather than assume.  --deep --strict checks the nested code as
+    # well, which is what the kernel will do at launch.
+    codesign --verify --deep --strict --verbose=2 "$app" \
+        || die "the signature applied to $app does not verify"
+
+    say "Signature"
+    codesign --display --verbose=2 "$app" 2>&1 | sed 's/^/    /'
 }
 
 audit_bundle() {
@@ -365,7 +400,14 @@ smoke_test() {
     local tmp; tmp="$(mktemp -d /tmp/polyworks-test.XXXXXX)"
 
     say "Testing the bundle from $tmp"
-    cp -R "$app" "$tmp/"
+    # ditto, not cp -R: it is the copy that preserves the extended attributes
+    # and permissions a signed bundle depends on.  A cp -R copy can arrive with
+    # a signature that no longer verifies, which is the failure this test
+    # exists to catch.
+    ditto "$app" "$tmp/$name"
+
+    codesign --verify --deep --strict "$tmp/$name" \
+        || { rm -rf "$tmp"; die "the signature does not survive being copied out of the build tree"; }
 
     [[ -f "$tmp/$name/Contents/Resources/PW.icns" ]] \
         || { rm -rf "$tmp"; die "PW.icns is missing from the bundle"; }
@@ -435,6 +477,7 @@ APP="$BUILD_DIR/bin/polyworks.app"
 
 bundle_dylibs "$APP"
 audit_bundle "$APP"
+sign_bundle "$APP"
 
 say "Linked libraries"
 dependencies_of "$APP/Contents/MacOS/polyworks" | sed 's/^/    /'
@@ -456,6 +499,19 @@ package_app() {
     ( cd "$(dirname "$APP")" && ditto -c -k --keepParent --sequesterRsrc \
           "$(basename "$APP")" "$zip" )
     [[ -f "$zip" ]] || die "ditto produced no archive"
+
+    # Unpack what will actually be published and check it there.  A signature
+    # that does not survive the archive is indistinguishable, to the user, from
+    # a corrupt download: macOS reports both as "the application is damaged".
+    local tmp; tmp="$(mktemp -d /tmp/polyworks-dist.XXXXXX)"
+    ditto -x -k "$zip" "$tmp" || { rm -rf "$tmp"; die "the archive does not unpack"; }
+    local unpacked="$tmp/$(basename "$APP")"
+    [[ -d "$unpacked" ]] || { rm -rf "$tmp"; die "the archive does not contain $(basename "$APP")"; }
+    codesign --verify --deep --strict "$unpacked" \
+        || { rm -rf "$tmp"; die "the signature does not survive the archive"; }
+    say "The archived bundle unpacks and its signature verifies"
+    rm -rf "$tmp"
+
     say "Done"
     ls -lh "$zip"
 }

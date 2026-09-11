@@ -195,7 +195,7 @@ void GlViewport::addTexturePath(const std::string& path) {
 std::pair<int,int> GlViewport::getTextureSize(const MapDocument& doc) {
 #if PW_HAS_WX_GLCANVAS && PW_HAS_OPENGL_HEADERS
     if (!doc.options.textureName.empty()) {
-        const GLuint id = m_texMgr.loadTexture(doc.options.textureName);
+        const GLuint id = m_texMgr.loadTexture(doc.options.textureName, false);
         if (id != 0) {
             int w = 0, h = 0;
             m_texMgr.getSize(id, w, h);

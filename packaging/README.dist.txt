@@ -27,9 +27,10 @@ be redistributed here.  There are two ways to make them available:
 Maps stored inside a Soldat installation also resolve their artwork from that
 installation directly, with no configuration at all.
 
-Where a texture or scenery image cannot be found, PolyWorks substitutes a
-placeholder image and prints the paths it searched, so the map still opens and
-stays editable.
+Where a scenery image cannot be found, PolyWorks substitutes a placeholder and
+prints the paths it searched, so the map still opens and stays editable.  A
+missing polygon texture is not replaced: the polygons are drawn in their own
+vertex colours instead, which is what the original editor does.
 
 
 What is in this folder

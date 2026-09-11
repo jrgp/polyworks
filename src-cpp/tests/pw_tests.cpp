@@ -2023,6 +2023,37 @@ TEST(texman_search_paths_are_deduplicated) {
     EXPECT(tm.searchPathCount() <= 3);
 }
 
+/* SetMapTexture (frm:4279) has no notfound fallback: on failure it leaves
+   mapTexture unset and the polygons fall back to their vertex colours.  The
+   renderer therefore asks for the map texture with the fallback disabled --
+   substituting notfound.bmp there tiles a "missing image" cross over every
+   polygon in the map, which is what a fresh Windows install looked like
+   before the Textures directory was registered. */
+TEST(texman_map_texture_has_no_notfound_fallback) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    EXPECT(tm.loadTexture("no_such_texture.bmp", false) == 0u);
+    /* Repeating it must stay 0: the name is remembered as missing, and the
+       remembered entry must not leak the placeholder to this caller. */
+    EXPECT(tm.loadTexture("no_such_texture.bmp", false) == 0u);
+}
+
+/* A name that failed to resolve is remembered so the renderer does not rescan
+   every search directory once per frame.  Registering a new directory - which
+   is what configuring the game directory does - has to forget that, or the
+   texture would stay missing until restart. */
+TEST(texman_failed_lookup_is_retried_after_a_path_is_added) {
+    AssetTree t;
+    TextureManager tm;
+    tm.setBasePath((t.app / "skins" / "default").string());
+    EXPECT(tm.resolvePath("riverbed.bmp").empty());
+    EXPECT(tm.loadTexture("riverbed.bmp", false) == 0u);
+
+    tm.addSearchPath((t.app / "Textures").string());
+    EXPECT(!tm.resolvePath("riverbed.bmp").empty());
+}
+
 /* ---- Main -------------------------------------------------------------- */
 
 int main() {

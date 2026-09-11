@@ -139,6 +139,7 @@ bool resolveFromBaseCaseInsensitive(const std::string& basePath,
 }  // namespace
 
 void TextureManager::setBasePath(const std::string& path) {
+    m_missing.clear();
     m_searchPaths.clear();
     if (path.empty()) {
         return;
@@ -165,6 +166,7 @@ void TextureManager::addSearchPath(const std::string& path) {
         }
     }
 
+    m_missing.clear();
     m_searchPaths.insert(m_searchPaths.begin(), path);
 }
 
@@ -176,13 +178,15 @@ void TextureManager::removeSearchPath(const std::string& path) {
     const std::string key = normalizePathKey(path);
     for (auto it = m_searchPaths.begin(); it != m_searchPaths.end(); ++it) {
         if (normalizePathKey(*it) == key) {
+            m_missing.clear();
             m_searchPaths.erase(it);
             return;
         }
     }
 }
 
-GLuint TextureManager::loadTexture(const std::string& filename) {
+GLuint TextureManager::loadTexture(const std::string& filename,
+                                   bool fallbackToNotFound) {
     if (filename.empty()) {
         return 0;
     }
@@ -191,6 +195,10 @@ GLuint TextureManager::loadTexture(const std::string& filename) {
     const auto it = m_cache.find(cacheKey);
     if (it != m_cache.end()) {
         return it->second.id;
+    }
+
+    if (m_missing.count(cacheKey) != 0) {
+        return fallbackToNotFound ? getNotFoundTexture() : 0;
     }
 
     const std::string path = findFile(filename);
@@ -208,14 +216,10 @@ GLuint TextureManager::loadTexture(const std::string& filename) {
                      filename.c_str(),
                      searched.empty() ? "<no search paths configured>"
                                       : searched.c_str());
-        const GLuint notFoundId = getNotFoundTexture();
-        if (notFoundId != 0) {
-            int notFoundW = 1;
-            int notFoundH = 1;
-            getSize(notFoundId, notFoundW, notFoundH);
-            m_cache.emplace(cacheKey, TexEntry{notFoundId, notFoundW, notFoundH});
-        }
-        return notFoundId;
+        /* Remembered rather than cached: a cache entry would also be returned
+           to a caller that asked for no fallback. */
+        m_missing.insert(cacheKey);
+        return fallbackToNotFound ? getNotFoundTexture() : 0;
     }
 
     int w = 0;

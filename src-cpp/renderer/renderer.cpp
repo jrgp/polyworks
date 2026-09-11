@@ -125,7 +125,10 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
     GLuint mapTexId = 0;
     if (view.showTexture && m_texMgr != nullptr &&
         !doc.options.textureName.empty()) {
-        mapTexId = m_texMgr->loadTexture(doc.options.textureName);
+        /* No placeholder: SetMapTexture (frm:4279) has no notfound fallback,
+           and renderPolygons already draws vertex colours when there is no
+           texture, which is what the original shows. */
+        mapTexId = m_texMgr->loadTexture(doc.options.textureName, false);
     }
 
     /* Background polygons are drawn first so that back scenery sits on top of

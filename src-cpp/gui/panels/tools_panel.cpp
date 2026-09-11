@@ -21,11 +21,18 @@ ToolsPanel::ToolsPanel(MainFrame* mainFrame, const wxString& skinsPath)
               wxID_ANY,
               "Tools",
               wxDefaultPosition,
-              wxSize(64, 240),
-              wxFRAME_TOOL_WINDOW | wxFRAME_NO_TASKBAR | wxBORDER_SIMPLE | wxFRAME_FLOAT_ON_PARENT),
+              wxDefaultSize,
+              /* frmTools carries a picTitle strip whose MouseDown forwards
+                 WM_NCLBUTTONDOWN to the form (frmTools.frm:467), i.e. the strip
+                 exists purely so the window can be dragged, and picHide beside
+                 it closes it.  A caption and a close box are the portable
+                 equivalent.  Without them the window had no title bar at all,
+                 which on Windows means it cannot be moved: there is nothing to
+                 grab.  wxFRAME_TOOL_WINDOW keeps the slim caption. */
+              wxFRAME_TOOL_WINDOW | wxFRAME_NO_TASKBAR | wxCAPTION |
+              wxCLOSE_BOX | wxFRAME_FLOAT_ON_PARENT),
       m_mainFrame(mainFrame) {
     SetBackgroundColour(wxColour(0x4A, 0x3C, 0x31));
-    SetClientSize(wxSize(64, 240));
 
     LoadToolBitmaps(skinsPath);
 
@@ -48,12 +55,14 @@ ToolsPanel::ToolsPanel(MainFrame* mainFrame, const wxString& skinsPath)
     }
 
     root->Add(grid, 1, wxEXPAND);
-    SetSizer(root);
-    /* The frame was given its final size before the buttons existed, so no
-       resize follows SetSizer() to trigger a layout.  GTK lays out anyway;
-       Win32 does not, leaving all fourteen buttons stacked at (0,0) with only
-       one visible.  Lay out explicitly. */
-    Layout();
+    /* Fit to the buttons rather than forcing a 64x240 client area.  The frame
+       used to be sized before its children existed, using the original's pixel
+       dimensions; but a wxBitmapButton is not 32x32 on every platform - MSW
+       adds its own margins - so the grid could end up wider than the window
+       and be clipped, which is what made the panel look truncated on Windows.
+       Fitting keeps the original's proportions where the metrics agree and
+       stays correct where they do not. */
+    SetSizerAndFit(root);
     Bind(wxEVT_BUTTON, &ToolsPanel::OnToolClicked, this);
 }
 

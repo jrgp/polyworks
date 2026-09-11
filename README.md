@@ -51,9 +51,23 @@ script is allowed to avoid.
 
 After linking, the script walks every Mach-O in the bundle and fails if any of
 them loads a library from outside it (bundling and re-pointing it with
-`install_name_tool` if one somehow appears), then copies the `.app` to a
-temporary directory and launches it with Homebrew removed from `PATH` — so a
-bundle that only works on the machine that built it does not get shipped.
+`install_name_tool` if one somehow appears), signs the bundle, then copies it
+to a temporary directory with `ditto` and launches it with Homebrew removed
+from `PATH` — so a bundle that only works on the machine that built it does not
+get shipped.
+
+The signature is ad-hoc by default. It is not optional: on Apple silicon the
+kernel refuses to execute a binary carrying no signature at all, and Finder
+reports that as *"the application is damaged and can't be opened"* — which
+looks like a corrupt download rather than the missing signature it is. Set
+`CODESIGN_IDENTITY` to sign with a Developer ID instead. The signature is
+verified after every step that can invalidate it, including after the release
+ZIP has been unpacked again.
+
+An ad-hoc signature satisfies the kernel but not Gatekeeper's notarisation
+check, so the first launch of a downloaded build still needs **right-click ▸
+Open**, or `xattr -dr com.apple.quarantine PolyWorks.app`. That prompt is
+expected; "damaged" is not.
 
 The Dock and Finder icon is the application's own icon: `installer/PW.ico`, the
 Windows resource the original has always shipped, converted to `.icns` by
