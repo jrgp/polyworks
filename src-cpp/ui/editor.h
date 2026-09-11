@@ -22,6 +22,7 @@
 #include "texture_manager.h"
 #include "viewport_geometry.h"
 #include "prefs.h"
+#include "message_box.h"
 #include "interaction.h"
 
 #include <array>
@@ -113,17 +114,6 @@ struct PanelVisibility {
     bool texture    = false;
 };
 
-/* A transient message shown in a modal box, driven by the frame loop rather
-   than by a nested event loop -- ImGui has no blocking dialogs. */
-struct MessageBox {
-    enum class Kind { None, Info, Warning, Error, Confirm, ConfirmCancel };
-    Kind        kind = Kind::None;
-    std::string title;
-    std::string text;
-    /* Set when the user answers a Confirm box. */
-    int         answer = -1;   /* 0 no/cancel, 1 yes, 2 cancel */
-    bool        pending = false;
-};
 
 class Editor {
 public:

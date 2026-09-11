@@ -198,11 +198,7 @@ void Editor::shutdown() {
 
 void Editor::showMessage(MessageBox::Kind kind, const std::string& title,
                          const std::string& text) {
-    messageBox.kind = kind;
-    messageBox.title = title;
-    messageBox.text = text;
-    messageBox.answer = -1;
-    messageBox.pending = true;
+    messageBox.show(kind, title, text);
 }
 
 /* ---- file --------------------------------------------------------------- */

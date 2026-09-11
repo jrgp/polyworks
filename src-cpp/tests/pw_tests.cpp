@@ -17,6 +17,7 @@
 #include "pms_io.h"
 #include "map_document.h"
 #include "prefs.h"
+#include "message_box.h"
 #include "undo_stack.h"
 #include "geometry.h"
 #include "color_key.h"
@@ -304,6 +305,36 @@ TEST(map_document_move_selected) {
    UV by the world delta in texture pixels, so the texture stays put in world
    space.  With the option off, or with no texture size known, the UV is
    untouched. */
+/* The save prompt spans frames, so "on screen" and "answered" must stay
+   separate: a box that has just been raised must not look answered, or the
+   parked continuation is consumed before the user has seen the question and
+   File > Exit with unsaved changes never exits. */
+TEST(message_box_answer_is_not_consumed_before_it_is_given) {
+    pw::MessageBox mb;
+    int answer = -1;
+
+    mb.show(pw::MessageBox::Kind::ConfirmCancel, "PolyWorks", "Save changes?");
+    EXPECT(mb.visible());
+    /* Every frame the box is merely on screen yields no answer. */
+    EXPECT(!mb.takeAnswer(answer));
+    EXPECT(!mb.takeAnswer(answer));
+    EXPECT(mb.visible());
+
+    /* "No": the box comes down and the answer is delivered exactly once. */
+    mb.respond(0);
+    EXPECT(!mb.visible());
+    EXPECT(mb.takeAnswer(answer));
+    EXPECT_EQ(answer, 0);
+    EXPECT(!mb.takeAnswer(answer));
+
+    /* A second box starts clean rather than inheriting the last answer. */
+    mb.show(pw::MessageBox::Kind::Confirm, "PolyWorks", "Again?");
+    EXPECT(!mb.takeAnswer(answer));
+    mb.respond(2);
+    EXPECT(mb.takeAnswer(answer));
+    EXPECT_EQ(answer, 2);
+}
+
 /* LoadConfig (modConfig.bas:101-123) repairs a hand-edited zoom range rather
    than trusting it. */
 TEST(prefs_sanitise_zoom) {

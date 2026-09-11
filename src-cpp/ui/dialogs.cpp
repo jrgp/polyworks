@@ -270,7 +270,7 @@ fs::path startDirFor(Editor& ed, PendingPopup purpose) {
 void drawMessageBox(App& app) {
     Editor& ed = app.editor();
     MessageBox& mb = ed.messageBox;
-    if (mb.kind == MessageBox::Kind::None) {
+    if (!mb.visible()) {
         return;
     }
 
@@ -286,9 +286,7 @@ void drawMessageBox(App& app) {
         ImGui::Separator();
 
         auto answer = [&](int value) {
-            mb.answer = value;
-            mb.pending = true;
-            mb.kind = MessageBox::Kind::None;
+            mb.respond(value);
             ImGui::CloseCurrentPopup();
         };
 
@@ -334,15 +332,15 @@ void drawMessageBox(App& app) {
 void processMessageAnswer(App& app) {
     Editor& ed = app.editor();
     MessageBox& mb = ed.messageBox;
-    if (!mb.pending) {
-        return;
+    int answer = -1;
+    if (!mb.takeAnswer(answer)) {
+        return;   /* no button pressed since the last frame */
     }
-    mb.pending = false;
 
     auto continuation = ed.pendingAfterPrompt;
     ed.pendingAfterPrompt = nullptr;
 
-    switch (mb.answer) {
+    switch (answer) {
     case 1:
         /* Save, then continue.  With no filename yet the Save As browser has
            to come first, so the continuation is parked again behind it. */
