@@ -137,16 +137,19 @@ void Renderer::renderAll(const MapDocument& doc, int viewW, int viewH, const Vie
         renderPolygons(doc, mapTexId, true);
     }
 
+    /* Back *and* middle scenery are both drawn between the two polygon passes
+       (frm:2955 and frm:2992 sit inside one scenerySprite.Begin block that
+       ends at frm:3039, before the second "draw Polys" at frm:3041).  Only
+       level 2, Front, is drawn over the map. */
     if (view.showScenery && view.showSceneryBack) {
         renderScenery(doc, SCENERY_BACK);
+    }
+    if (view.showScenery && view.showSceneryMiddle) {
+        renderScenery(doc, SCENERY_MIDDLE);
     }
 
     if (view.showPolys) {
         renderPolygons(doc, mapTexId, false);
-    }
-
-    if (view.showScenery && view.showSceneryMiddle) {
-        renderScenery(doc, SCENERY_MIDDLE);
     }
 
     renderSelectionOverlays(doc);
@@ -315,6 +318,27 @@ void Renderer::renderPolygons(const MapDocument& doc, GLuint texId,
 #endif
 }
 
+/* The sprite's size in world units.  VB6 always uses the *texture's* own
+   dimensions (SceneryTextures(Style).Width, frm:2985 and frm:3421); the width
+   and height stored in the PMS are output-only -- written from the texture on
+   save (frm:2737) and only range-checked on load (frm:2022).  A map whose
+   stored values disagree with the installed scenery pack must therefore follow
+   the pack, not the file, or the sprite is drawn with the wrong aspect and
+   reads as though it were rotated wrongly.  The stored value is used only when
+   the texture is unavailable, so the outline still marks where it is. */
+bool Renderer::sceneryDrawSize(const MapDocument& doc, const EditorScenery& scenery,
+                               unsigned int texId, float& width, float& height) const {
+    (void)doc;
+    int texW = 0;
+    int texH = 0;
+    if (texId != 0 && m_texMgr != nullptr) {
+        m_texMgr->getSize(texId, texW, texH);
+    }
+    width = texW > 0 ? static_cast<float>(texW) : static_cast<float>(scenery.width);
+    height = texH > 0 ? static_cast<float>(texH) : static_cast<float>(scenery.height);
+    return width > 0.0f && height > 0.0f;
+}
+
 void Renderer::renderScenery(const MapDocument& doc, int level) {
 #if PW_RENDERER_HAS_OPENGL
     if (m_texMgr == nullptr) {
@@ -337,12 +361,9 @@ void Renderer::renderScenery(const MapDocument& doc, int level) {
             continue;
         }
 
-        int texW = 0;
-        int texH = 0;
-        m_texMgr->getSize(texId, texW, texH);
-        const float width = static_cast<float>(scenery.width > 0 ? scenery.width : texW);
-        const float height = static_cast<float>(scenery.height > 0 ? scenery.height : texH);
-        if (width <= 0.0f || height <= 0.0f) {
+        float width = 0.0f;
+        float height = 0.0f;
+        if (!sceneryDrawSize(doc, scenery, texId, width, height)) {
             continue;
         }
 
@@ -466,22 +487,14 @@ void Renderer::renderSelectionOverlays(const MapDocument& doc) {
        preference is enabled (frm:3436). */
     if (doc.viewSettings.showScenery) {
         for (const auto& scenery : doc.scenery) {
-            float width = static_cast<float>(scenery.width);
-            float height = static_cast<float>(scenery.height);
-            if ((width <= 0.0f || height <= 0.0f) && m_texMgr != nullptr && scenery.style > 0 &&
+            GLuint texId = 0;
+            if (m_texMgr != nullptr && scenery.style > 0 &&
                 scenery.style < static_cast<int>(doc.sceneryNames.size())) {
-                const GLuint texId = m_texMgr->loadTexture(doc.sceneryNames[scenery.style]);
-                int texW = 0;
-                int texH = 0;
-                m_texMgr->getSize(texId, texW, texH);
-                if (width <= 0.0f) {
-                    width = static_cast<float>(texW);
-                }
-                if (height <= 0.0f) {
-                    height = static_cast<float>(texH);
-                }
+                texId = m_texMgr->loadTexture(doc.sceneryNames[scenery.style]);
             }
-            if (width <= 0.0f || height <= 0.0f) {
+            float width = 0.0f;
+            float height = 0.0f;
+            if (!sceneryDrawSize(doc, scenery, texId, width, height)) {
                 continue;
             }
 

@@ -29,6 +29,8 @@ private:
        scenery; false draws every other type afterwards
        (frmOpenSoldatMapEditor.frm:2916-3062). */
     void renderPolygons(const MapDocument& doc, GLuint texId, bool backgroundPass);
+    bool sceneryDrawSize(const MapDocument& doc, const EditorScenery& scenery,
+                         unsigned int texId, float& width, float& height) const;
     void renderScenery(const MapDocument& doc, int level);
     void renderSelectionOverlays(const MapDocument& doc);
     void renderGrid(const MapDocument& doc, int viewW, int viewH);
