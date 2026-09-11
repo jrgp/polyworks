@@ -1,7 +1,7 @@
 # PolyWorks Interaction Port — Audit Document
 
 This document records the original VB6 interaction model and the status of each
-behavior in the modern C++/wxWidgets port.
+behavior in the modern C++/Dear ImGui port.
 
 **VB6 source reference:** `src/frmOpenSoldatMapEditor.frm`
 **C++ implementation:** `src-cpp/gui/gl_viewport.cpp`, `src-cpp/core/map_document.cpp`
@@ -298,7 +298,7 @@ m_undoStack.push(m_document);   // snapshot current state
 | F9 | Save and Compile | ✅ |
 | F8 / Shift+F8 | Run Soldat/OpenSoldat | ✅ (executable discovered under the configured game directory) |
 | Alt+F4 | Exit | ✅ |
-| F5 | Refresh | ✅ (`wxID_REFRESH`; the background quad is recomputed every frame so no explicit refresh is required) |
+| F5 | Refresh | ✅ (the background quad is recomputed every frame, so the item forces a redraw and nothing more) |
 | F1 | Help | ⬜ N/A — the original has no Help menu or F1 handler (verified: the `.frm` menu tree has no `mnuHelp*` entry) |
 
 ### 6.2 Edit
@@ -389,7 +389,7 @@ ignores the cursor entirely. This asymmetry is reproduced verbatim in
 mice report many sub-notch rotations per gesture. `GlViewport::OnMouseWheel`
 accumulates `GetWheelRotation()` and only applies a 1.25/0.8 step once a full
 `GetWheelDelta()` has been travelled, resetting the accumulator when the
-direction reverses. Horizontal wheel events (`wxMOUSE_WHEEL_HORIZONTAL`) never
+direction reverses. Horizontal wheel events (`ImGuiIO::MouseWheelH`) never
 zoom. Without this accumulation a single two-finger flick applied dozens of
 zoom steps.
 
@@ -404,7 +404,7 @@ world  = screen / zoom + scroll
 
 All screen coordinates in the editor — mouse event positions, the cached
 `EditorVertex::screen` values, the renderer's vertex output and the ortho
-projection — are in **wxWidgets logical units (points)**, never physical device
+projection — are in **logical units (points)**, never physical device
 pixels. Hit-test tolerances that are specified in pixels are converted with
 `pixels / zoom` (`GlViewport::WorldTolerance()`, the paint radii, the waypoint
 connect radius).
@@ -617,7 +617,7 @@ call the same `prompt` helper, which shows a three-way message box:
 | Cancel | Abort — no new map, no open dialog, and the application stays running |
 
 The port reproduces this in `MainFrame::ConfirmDiscardChanges()`. Closing the
-window routes through `wxEVT_CLOSE_WINDOW` so that Cancel can veto the close;
+window routes through the GLFW close callback so that Cancel can veto the close;
 `File > Exit` therefore calls `Close(false)` rather than destroying the frame
 directly. On the non-cancelled path the close handler performs the original's
 `SaveSettings` shutdown work: preferences are written and the colour palette is

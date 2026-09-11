@@ -14,8 +14,7 @@
 #   packaging/make-windows-zip.sh [path/to/PolyWorks.exe]
 #
 # When no executable is given, build-win/bin/PolyWorks.exe is used.  Run
-# ./build_windows.sh first: it fetches the official wxWidgets Windows binaries
-# that this script bundles alongside the executable.
+# ./build_windows.sh first.
 
 set -euo pipefail
 
@@ -37,13 +36,13 @@ mkdir -p "$STAGE"
 # ---------------------------------------------------------------------------
 # Executable and its runtime DLLs.
 #
-# PolyWorks links the official wxWidgets Windows binaries, which are DLL
-# builds, so the wx DLLs and the GCC runtime they import have to travel with
-# the executable.  Rather than listing them by hand -- a list that silently
-# rots the moment a dependency changes -- walk the import table transitively
-# and copy everything that is not a Windows system DLL.  Anything that cannot
-# be found is a hard error, which is what stops a ZIP that only runs on this
-# machine from being published.
+# Dear ImGui and GLFW are compiled into the executable and the GCC runtime is
+# linked statically, so in a correct build there is nothing left to copy: the
+# import table should name Windows' own DLLs and nothing else.  The walk below
+# stays anyway, because "should" is not "does".  It follows the import table
+# transitively and copies anything that is not a system DLL, failing loudly if
+# such a dependency cannot be found -- which is what stops a ZIP that only
+# runs on this machine from being published.
 # ---------------------------------------------------------------------------
 say "Copying executable"
 install -m 0755 "$EXE" "$STAGE/PolyWorks.exe"
@@ -54,11 +53,9 @@ command -v "$OBJDUMP" >/dev/null || die "$OBJDUMP not found; cannot verify depen
 # DLLs that are part of Windows itself and must never be redistributed.
 SYSTEM_DLLS='^(ADVAPI32|COMCTL32|COMDLG32|CRYPT32|DWMAPI|GDI32|GDIPLUS|GLU32|IMM32|KERNEL32|MSIMG32|MSVCRT|OLE32|OLEACC|OLEAUT32|OPENGL32|RPCRT4|SETUPAPI|SHELL32|SHLWAPI|USER32|USERENV|UXTHEME|VERSION|WINHTTP|WINMM|WINSPOOL|WS2_32|WSOCK32|UUID|BCRYPT|NETAPI32|IPHLPAPI)\.(DLL|DRV)$'
 
-# Where redistributable DLLs may come from: the wxWidgets package fetched by
-# build_windows.sh, and the mingw-w64 GCC runtime directory.
+# Where a redistributable DLL could come from if one ever appears: the
+# mingw-w64 GCC runtime directory.
 DLL_SEARCH_DIRS=()
-while IFS= read -r d; do DLL_SEARCH_DIRS+=("$d"); done < <(
-    find "$REPO/.deps" -maxdepth 3 -type d -name 'gcc*_x64_dll' 2>/dev/null)
 if command -v x86_64-w64-mingw32-g++ >/dev/null; then
     DLL_SEARCH_DIRS+=("$(dirname "$(x86_64-w64-mingw32-g++ -print-libgcc-file-name)")")
 fi
@@ -92,24 +89,23 @@ while (( ${#QUEUE[@]} )); do
             continue
         fi
         src=$(find_dll "$dep") || die "Required DLL not found anywhere: $dep
-Searched: ${DLL_SEARCH_DIRS[*]}
-Run ./build_windows.sh first so the wxWidgets package is present."
+Searched: ${DLL_SEARCH_DIRS[*]}"
         install -m 0644 "$src" "$STAGE/$dep"
         BUNDLED+=("$dep")
         QUEUE+=("$STAGE/$dep")
     done < <(imports_of "$current")
 done
 
-for d in "${BUNDLED[@]}"; do echo "    $d"; done
+for d in "${BUNDLED[@]:-}"; do [[ -n "$d" ]] && echo "    $d"; done
 say "Bundled ${#BUNDLED[@]} redistributable DLL(s)"
 
 # ---------------------------------------------------------------------------
 # Static assets.
 #
-# skins/     — bitmaps, cursors and colors.ini.  getSkinsPath() in
-#              src-cpp/app/main.cpp looks for <exeDir>/skins/default first, so
-#              the directory name and nesting must be preserved exactly.
-# palettes/  — colour palettes.  PalettePanel reads <exeDir>/palettes/
+# skins/     — bitmaps, cursors and colors.ini.  skinsPath() in
+#              src-cpp/ui/platform.cpp looks for <exeDir>/skins/default first,
+#              so the directory name and nesting must be preserved exactly.
+# palettes/  — colour palettes.  PaletteState reads <exeDir>/palettes/
 #              current.txt on open and writes it back on exit (VB6
 #              frmPalette.frm:867, modConfig.bas:389).
 # lists/     — named scenery lists (VB6 frmScenery.frm:436).
@@ -135,7 +131,7 @@ find "$STAGE" -iname 'Thumbs.db' -delete
 # Directories the asset resolver searches relative to the executable.  They
 # ship empty because Soldat's artwork is not redistributable, but their
 # presence is what lets a user drop the game's files in and have everything
-# resolve with no configuration (MainFrame::RegisterAppAssetPaths).
+# resolve with no configuration (Editor::registerAppAssetPaths).
 # ---------------------------------------------------------------------------
 say "Creating game-asset directories"
 mkdir -p "$STAGE/Textures" "$STAGE/Scenery-gfx" "$STAGE/Maps" "$STAGE/Prefabs"

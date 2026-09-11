@@ -3,8 +3,10 @@
 ## Overview
 
 PolyWorks is a map editor for the game Soldat. This document describes the
-C++/wxWidgets/OpenGL reimplementation started in 2025 after a Pascal/Lazarus
-prototype established the file format and data model.
+C++/Dear ImGui/OpenGL reimplementation started in 2025 after a Pascal/Lazarus
+prototype established the file format and data model.  An intermediate
+wxWidgets GUI was replaced by Dear ImGui + GLFW; the core and renderer are
+unchanged by that move, which is the point of keeping them toolkit-free.
 
 ## Project structure
 
@@ -12,32 +14,31 @@ prototype established the file format and data model.
 polyworks/
 ├── src/                      # Original VB6 source (read-only reference)
 ├── src-cpp/
-│   ├── core/                 # Platform-independent core (no wx, no GL)
+│   ├── core/                 # Platform-independent core (no UI, no GL)
 │   │   ├── pms_types.h       # Binary-compatible PMS structs
 │   │   ├── pms_io.h/.cpp     # PMS file I/O (load/save/compile)
 │   │   ├── map_document.h/.cpp  # Editor document model
 │   │   ├── geometry.h/.cpp   # Pure geometric operations
+│   │   ├── viewport_geometry.h  # Screen -> viewport -> world pipeline
 │   │   └── undo_stack.h/.cpp # Undo/redo via in-memory snapshots
-│   ├── renderer/             # OpenGL renderer (depends on core, not wx)
+│   ├── renderer/             # OpenGL renderer (depends on core only)
 │   │   ├── renderer.h/.cpp   # Render pass (polygons, scenery, overlays)
 │   │   └── texture_manager.h/.cpp
-│   ├── gui/                  # wxWidgets GUI
-│   │   ├── mainframe.h/.cpp  # Main editor window
-│   │   ├── gl_viewport.h/.cpp  # wxGLCanvas + mouse/keyboard state machine
-│   │   ├── panels/
-│   │   │   ├── tools_panel.h/.cpp    # 14-button tool palette
-│   │   │   ├── info_panel.h/.cpp     # Selection properties
-│   │   │   ├── display_panel.h/.cpp  # Layer visibility toggles
-│   │   │   ├── scenery_panel.h/.cpp  # Scenery texture list
-│   │   │   └── waypoints_panel.h/.cpp
-│   │   └── dialogs/
-│   │       ├── map_settings_dlg.h/.cpp
-│   │       ├── preferences_dlg.h/.cpp
-│   │       └── color_picker_dlg.h/.cpp
-│   ├── app/
-│   │   └── main.cpp          # wxApp entry point
+│   ├── ui/                   # Dear ImGui + GLFW interface
+│   │   ├── app.h/.cpp        # GLFW window, ImGui frame loop, input, DPI
+│   │   ├── editor.h/.cpp     # All editor state and every command
+│   │   ├── interaction.h/.cpp  # Explicit mouse/tool state machine
+│   │   ├── menus.cpp         # Menu bar, shortcuts, status bar
+│   │   ├── panels.cpp        # The seven floating tool windows
+│   │   ├── dialogs.cpp       # File browser, Map Settings, Preferences
+│   │   ├── context_menu.cpp  # Viewport right-click menus
+│   │   ├── theme.h/.cpp      # ImGui style built from the skin's colors.ini
+│   │   ├── gfx.h/.cpp        # Image and .cur loading, GL upload
+│   │   ├── platform.h/.cpp   # Paths, process launching
+│   │   ├── ini_file.h/.cpp   # polyworks.ini
+│   │   └── main.cpp          # Entry point
 │   └── tests/
-│       └── pw_tests.cpp      # Headless tests (no wx, no GL)
+│       └── pw_tests.cpp      # Headless tests (no UI, no GL)
 ├── maps/                     # 97 .pms map files (regression fixtures)
 ├── installer/
 │   ├── skins/default/        # UI bitmaps, cursors, icons
@@ -60,8 +61,12 @@ pw_core (static lib) = all of the above
 
 stb_image ← renderer (texture loading)
 pw_core + stb_image ← renderer
-pw_core + renderer ← gui (wxWidgets)
-pw_core (no wx, no GL) ← pw_tests
+pw_core + renderer ← ui (Dear ImGui + GLFW)
+pw_core (no UI, no GL) ← pw_tests
+
+Nothing under core/ or renderer/ includes imgui.h or GLFW/glfw3.h.  The
+dependency runs one way only, which is what lets the whole document model and
+the coordinate pipeline be tested without a display.
 ```
 
 ## PMS file format
@@ -144,19 +149,44 @@ Render order (matching VB6):
 
 ## GUI architecture
 
-The GUI uses wxWidgets for all controls except the map viewport, which uses
-`wxGLCanvas`. The floating panels are `wxFrame` (not `wxDialog`) so they can
-float independently.
+Dear ImGui draws every control.  There is one GLFW window; the menu bar is at
+the top, the status bar at the bottom, the map viewport fills the region
+between them, and the tool windows float over it as ImGui windows.  The style
+is built at startup from the skin's `colors.ini`, so the application does not
+look like default ImGui.
 
-`MainFrame` owns:
-- The MapDocument
-- The UndoStack
-- The active tool index
-- References to all floating panels
+`Editor` owns everything that is not pixels:
+- The MapDocument and UndoStack
+- The preferences
+- The renderer, texture manager and viewport geometry
+- The interaction state machine
+- The state of every panel
+- Every command the UI can invoke
 
-All panels read map state through `MainFrame::getDocument()`. They never own
-map data. Panel changes immediately call `doc.markModified()` and trigger a
-viewport repaint.
+The UI translation units (`menus.cpp`, `panels.cpp`, `dialogs.cpp`,
+`context_menu.cpp`) are pure functions of that state: they read it, draw it and
+call its commands.  This is not architectural taste.  The wxWidgets version
+kept a second copy of the scenery level/rotate/scale settings and of the paint
+colour inside the panel widgets, and they drifted, so those controls silently
+did nothing.  With one owner that bug cannot be written.
+
+### Coordinate pipeline
+
+`core/viewport_geometry.h` holds the whole screen -> viewport -> world
+conversion, headlessly testable, because getting it wrong is not cosmetic: the
+wxWidgets build shipped a viewport sized from the window while the projection
+was sized from the canvas (the map filled a corner of the window on Retina),
+and a cursor mapping that applied the framebuffer scale (clicks missed as soon
+as the display was scaled).  One `ViewportGeometry` now drives both the GL
+rectangle and the mouse mapping:
+
+- `glViewport`/`glScissor` are sized in **framebuffer pixels** (`glRect`)
+- `glOrtho` is sized in **logical units**
+- cursor positions are **logical units** and are only translated, never scaled
+
+`consumeWheelNotches()` in the same header normalises high-resolution trackpad
+scroll into whole wheel notches, which is what stops a single two-finger flick
+on macOS from applying the zoom step dozens of times.
 
 ## Tool system
 
@@ -173,7 +203,7 @@ viewport repaint.
 8  WAYPOINT                    G
 9  OBJECTS                     T
 10 COLORPICKER                 H
-11 SKETCH                      Z
+11 SKETCH                      Y
 12 LIGHTS                      J
 13 DEPTHMAP                    U
 ```
@@ -187,10 +217,10 @@ Each tool has a cursor from `installer/skins/default/cursors/`.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j4
 
-# Tests only (no wxWidgets needed)
+# Tests only (no display needed)
 ./build/bin/pw_tests
 
-# Full app (requires wxWidgets + OpenGL)
+# Full app (requires OpenGL)
 ./build/bin/polyworks
 ```
 

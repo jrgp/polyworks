@@ -363,6 +363,11 @@ bool MapDocument::selectNearestObject(Vec2 worldPos, SelectMode mode) {
         float best = tolVertex * tolVertex + 1.0f;
         int   pick = -1;
         for (size_t i = 0; i < waypoints.size(); ++i) {
+            /* A path hidden by frmWaypoints' "Show:" group cannot be picked
+               (frm:8717), so clicking where an invisible waypoint happens to
+               be does not silently select it. */
+            if (!viewSettings.waypointPathVisible(waypoints[i].pathNum))
+                continue;
             if (!nearCoord(worldPos.x, waypoints[i].x, tolVertex) ||
                 !nearCoord(worldPos.y, waypoints[i].y, tolVertex))
                 continue;
@@ -430,9 +435,12 @@ void MapDocument::selectVerticesInRect(Vec2 worldA, Vec2 worldB, SelectMode mode
         for (auto& c : colliders) if (inRect(c.x, c.y)) c.selected = value;
     }
 
-    /* VertexSelWaypoints (frm:9118) */
+    /* VertexSelWaypoints (frm:9118), which honours the path filter too
+       (frm:9126). */
     if (viewSettings.showWaypoints)
-        for (auto& w : waypoints) if (inRect(w.x, w.y)) w.selected = value;
+        for (auto& w : waypoints)
+            if (viewSettings.waypointPathVisible(w.pathNum) && inRect(w.x, w.y))
+                w.selected = value;
 
     /* VertexSelLights (frm:9091) */
     if (viewSettings.showLights)
@@ -1663,6 +1671,10 @@ bool MapDocument::connectWaypointAt(Vec2 worldPos, float radius) {
     float best = radius * radius + 1.0f;
     int   hit  = -1;
     for (size_t i = 0; i < waypoints.size(); ++i) {
+        /* CreateConnection skips waypoints the filter is hiding (frm:7903),
+           using the drawing test rather than the picking one. */
+        if (!viewSettings.waypointPathDrawn(waypoints[i].pathNum))
+            continue;
         const float dx = waypoints[i].x - worldPos.x;
         const float dy = waypoints[i].y - worldPos.y;
         const float d2 = dx * dx + dy * dy;

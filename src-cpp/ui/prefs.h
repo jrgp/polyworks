@@ -1,21 +1,15 @@
 #pragma once
 /*
- * preferences_dlg.h — Port of frmPreferences.frm
+ * prefs.h — the settings polyworks.ini holds.
  *
- * Modal preferences dialog.
- * Original VB6: ClientWidth=585px, ClientHeight=545px, BackColor=0x4A3C31
+ * Lifted unchanged from the wxWidgets dialog header it used to live in; the
+ * values, their defaults and the modConfig.bas references behind them are the
+ * original's, and none of that changes with the GUI toolkit.
  */
 
-#include <wx/dialog.h>
-#include <wx/spinctrl.h>
-#include <wx/textctrl.h>
-#include <wx/checkbox.h>
-#include <wx/choice.h>
-#include <wx/button.h>
-#include <wx/stattext.h>
-#include <wx/clrpicker.h>
-
 #include <string>
+
+namespace pw {
 
 struct AppPrefs {
     /* Zoom */
@@ -68,40 +62,4 @@ struct AppPrefs {
     int     colorMode       = 1;          /* ColorMode, default Normal */
 };
 
-class PreferencesDlg final : public wxDialog {
-public:
-    PreferencesDlg(wxWindow* parent, AppPrefs& prefs);
-
-private:
-    void buildUI();
-    void populateFromPrefs();
-    void applyToPrefs();
-    bool ValidatePaths();
-    void OnOK(wxCommandEvent& e);
-    void OnCancel(wxCommandEvent& e);
-
-    AppPrefs& m_prefs;
-
-    wxTextCtrl*  m_txtMinZoom    = nullptr;
-    wxTextCtrl*  m_txtMaxZoom    = nullptr;
-    wxTextCtrl*  m_txtResetZoom  = nullptr;
-    wxSpinCtrl*  m_spinSpacing   = nullptr;
-    wxSpinCtrl*  m_spinDivisions = nullptr;
-    wxSpinCtrl*  m_spinUndo      = nullptr;
-    wxCheckBox*  m_chkSceneryVerts = nullptr;
-    wxCheckBox*  m_chkSnap       = nullptr;
-    wxTextCtrl*  m_txtSnapRadius = nullptr;
-    wxTextCtrl*  m_txtSoldatDir  = nullptr;
-    wxTextCtrl*  m_txtPrefabsDir = nullptr;
-    wxTextCtrl*  m_txtUncompDir  = nullptr;
-    wxTextCtrl*  m_txtGridAlpha1 = nullptr;
-    wxTextCtrl*  m_txtGridAlpha2 = nullptr;
-    wxChoice*    m_choPolySrc    = nullptr;
-    wxChoice*    m_choPolyDest   = nullptr;
-    wxChoice*    m_choWireSrc    = nullptr;
-    wxChoice*    m_choWireDest   = nullptr;
-    wxColourPickerCtrl* m_cpkGrid1     = nullptr;
-    wxColourPickerCtrl* m_cpkGrid2     = nullptr;
-    wxColourPickerCtrl* m_cpkPoint     = nullptr;
-    wxColourPickerCtrl* m_cpkSelection = nullptr;
-};
+}  // namespace pw

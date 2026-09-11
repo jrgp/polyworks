@@ -20,6 +20,7 @@
 #include "geometry.h"
 #include "color_key.h"
 #include "texture_manager.h"
+#include "viewport_geometry.h"
 
 #include <cstdio>
 #include <cstring>
@@ -2052,6 +2053,149 @@ TEST(texman_failed_lookup_is_retried_after_a_path_is_added) {
 
     tm.addSearchPath((t.app / "Textures").string());
     EXPECT(!tm.resolvePath("riverbed.bmp").empty());
+}
+
+/* ---- Viewport geometry ------------------------------------------------- */
+
+/* The wxWidgets port drew the scene into a rectangle computed from the window
+   size while sizing the projection from the canvas size, so on a Retina
+   display the map filled only the lower-left quarter.  glRect is the single
+   place the two are reconciled, and these pin its arithmetic down. */
+TEST(viewport_glrect_covers_the_whole_area_at_scale_1) {
+    ViewportGeometry vp;
+    vp.originX = 0.0f;
+    vp.originY = 24.0f;
+    vp.width   = 800.0f;
+    vp.height  = 552.0f;   /* 600 - 24 menu - 24 status */
+    vp.framebufferScale = 1.0f;
+
+    int x = 0, y = 0, w = 0, h = 0;
+    vp.glRect(600, x, y, w, h);
+    EXPECT(x == 0);
+    EXPECT(w == 800);
+    EXPECT(h == 552);
+    /* OpenGL counts from the bottom: 600 - 24 - 552 = 24, the status bar. */
+    EXPECT(y == 24);
+}
+
+TEST(viewport_glrect_scales_to_framebuffer_pixels) {
+    ViewportGeometry vp;
+    vp.originX = 0.0f;
+    vp.originY = 24.0f;
+    vp.width   = 800.0f;
+    vp.height  = 552.0f;
+    vp.framebufferScale = 2.0f;   /* Retina */
+
+    int x = 0, y = 0, w = 0, h = 0;
+    vp.glRect(1200, x, y, w, h);
+    EXPECT(w == 1600);
+    EXPECT(h == 1104);
+    EXPECT(y == 1200 - 48 - 1104);
+    EXPECT(y == 48);
+}
+
+/* Windows at 150% reports a fractional scale; the rectangle must still meet
+   the window edges rather than leaving a seam. */
+TEST(viewport_glrect_handles_fractional_scaling) {
+    ViewportGeometry vp;
+    vp.originX = 0.0f;
+    vp.originY = 20.0f;
+    vp.width   = 1000.0f;
+    vp.height  = 700.0f;
+    vp.framebufferScale = 1.5f;
+
+    int x = 0, y = 0, w = 0, h = 0;
+    vp.glRect(1080, x, y, w, h);
+    EXPECT(w == 1500);
+    EXPECT(h == 1050);
+    EXPECT(y == 1080 - 30 - 1050);
+    EXPECT(y == 0);
+}
+
+TEST(viewport_window_to_viewport_is_an_offset_not_a_scale) {
+    ViewportGeometry vp;
+    vp.originX = 12.0f;
+    vp.originY = 24.0f;
+    vp.width   = 400.0f;
+    vp.height  = 300.0f;
+    vp.framebufferScale = 2.0f;
+
+    /* Cursor positions arrive in logical units, so the framebuffer scale must
+       not enter here -- applying it was the second wx bug, which made clicks
+       land at the wrong place as soon as the display was scaled. */
+    const Vec2 local = vp.windowToViewport({112.0f, 124.0f});
+    EXPECT_NEAR(local.x, 100.0f, 1e-4f);
+    EXPECT_NEAR(local.y, 100.0f, 1e-4f);
+
+    const Vec2 back = vp.viewportToWindow(local);
+    EXPECT_NEAR(back.x, 112.0f, 1e-4f);
+    EXPECT_NEAR(back.y, 124.0f, 1e-4f);
+}
+
+TEST(viewport_contains_excludes_the_menu_and_status_bars) {
+    ViewportGeometry vp;
+    vp.originX = 0.0f;
+    vp.originY = 24.0f;
+    vp.width   = 800.0f;
+    vp.height  = 552.0f;
+
+    EXPECT(vp.contains(0.0f, 24.0f));
+    EXPECT(vp.contains(799.0f, 575.0f));
+    EXPECT(!vp.contains(0.0f, 23.0f));    /* menu bar */
+    EXPECT(!vp.contains(0.0f, 576.0f));   /* status bar */
+    EXPECT(!vp.contains(800.0f, 100.0f)); /* right of the viewport */
+    EXPECT(!vp.contains(-1.0f, 100.0f));
+}
+
+TEST(viewport_invalid_until_it_has_a_size) {
+    ViewportGeometry vp;
+    EXPECT(!vp.valid());
+    vp.width = 10.0f;
+    EXPECT(!vp.valid());
+    vp.height = 10.0f;
+    EXPECT(vp.valid());
+}
+
+/* A click of a physical wheel is exactly one notch. */
+TEST(wheel_one_click_is_one_notch) {
+    float acc = 0.0f;
+    EXPECT(consumeWheelNotches(acc, 1.0f) == 1);
+    EXPECT(consumeWheelNotches(acc, -1.0f) == -1);
+    EXPECT(consumeWheelNotches(acc, -2.0f) == -2);
+}
+
+/* The macOS trackpad bug: a gesture arriving as fifty fractional events must
+   zoom by the same amount as the same gesture arriving as one event, not
+   fifty times as much. */
+TEST(wheel_fractional_trackpad_deltas_accumulate) {
+    float acc = 0.0f;
+    int total = 0;
+    for (int i = 0; i < 50; ++i) {
+        total += consumeWheelNotches(acc, 0.06f);
+    }
+    EXPECT(total == 3);   /* 50 * 0.06 = 3.0 */
+
+    float coarse = 0.0f;
+    EXPECT(consumeWheelNotches(coarse, 3.0f) == 3);
+}
+
+TEST(wheel_small_deltas_alone_do_nothing) {
+    float acc = 0.0f;
+    EXPECT(consumeWheelNotches(acc, 0.2f) == 0);
+    EXPECT(consumeWheelNotches(acc, 0.2f) == 0);
+    EXPECT(consumeWheelNotches(acc, 0.2f) == 0);
+    EXPECT(consumeWheelNotches(acc, 0.2f) == 0);
+    EXPECT(consumeWheelNotches(acc, 0.2f) == 1);
+}
+
+/* Reversing direction must not first have to pay off the travel already
+   banked in the other direction. */
+TEST(wheel_direction_reversal_clears_the_accumulator) {
+    float acc = 0.0f;
+    EXPECT(consumeWheelNotches(acc, 0.9f) == 0);
+    EXPECT(consumeWheelNotches(acc, -0.9f) == 0);
+    EXPECT_NEAR(acc, -0.9f, 1e-4f);
+    EXPECT(consumeWheelNotches(acc, -0.2f) == -1);
 }
 
 /* ---- Main -------------------------------------------------------------- */

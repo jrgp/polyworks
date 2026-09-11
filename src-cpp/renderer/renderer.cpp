@@ -765,16 +765,32 @@ void Renderer::renderSpawns(const MapDocument& doc) {
 
 void Renderer::renderWaypoints(const MapDocument& doc) {
 #if PW_RENDERER_HAS_OPENGL
+    /* frm:3615-3660.  Two things here are easy to miss and both are visible:
+       a waypoint is drawn only when its pathNum is 1 or 2 -- a waypoint on no
+       path is simply not shown -- and each path has its own sprite in the
+       objects atlas, row 2: columns 3 and 4 unselected, 5 and 6 selected.  The
+       "Show:" radio group in frmWaypoints narrows this further to one path. */
+    const ViewSettings& view = doc.viewSettings;
+    auto visible = [&view](int pathNum) {
+        return view.waypointPathDrawn(pathNum);
+    };
+
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_BLEND);
 
     std::unordered_map<int, Vec2> waypointPositions;
+    std::unordered_map<int, int>  waypointPaths;
     for (const auto& waypoint : doc.waypoints) {
         if (waypoint.active) {
-            waypointPositions.emplace(waypoint.id, toScreen(doc, waypoint.x, waypoint.y));
+            waypointPositions.emplace(waypoint.id,
+                                      toScreen(doc, waypoint.x, waypoint.y));
+            waypointPaths.emplace(waypoint.id, waypoint.pathNum);
         }
     }
 
+    /* A connection is drawn when *either* endpoint is visible (frm:3646-3649),
+       so a link crossing between the two paths does not vanish when one path
+       is filtered out. */
     glColor4ub(128, 128, 128, 255);
     glBegin(GL_LINES);
     for (const auto& waypoint : doc.waypoints) {
@@ -790,19 +806,34 @@ void Renderer::renderWaypoints(const MapDocument& doc) {
             if (toIt == waypointPositions.end()) {
                 continue;
             }
+            const auto toPath = waypointPaths.find(connection);
+            const int otherPath = (toPath != waypointPaths.end())
+                                      ? toPath->second : 0;
+            if (!visible(waypoint.pathNum) && !visible(otherPath)) {
+                continue;
+            }
             glVertex2f(fromIt->second.x, fromIt->second.y);
             glVertex2f(toIt->second.x, toIt->second.y);
         }
     }
     glEnd();
 
-    glColor4ub(160, 160, 160, 255);
     for (const auto& waypoint : doc.waypoints) {
-        if (!waypoint.active) {
+        if (!waypoint.active || !visible(waypoint.pathNum)) {
             continue;
         }
         const Vec2 screen = toScreen(doc, waypoint.x, waypoint.y);
-        drawScreenSquare(screen.x, screen.y, 4.0f);
+        int col = (waypoint.pathNum == 1) ? 3 : 4;
+        if (waypoint.selected) {
+            col += 2;
+        }
+        if (!drawObjectSprite(col, 2, screen.x, screen.y, 32.0f, 255, 255, 255,
+                              255)) {
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_BLEND);
+            glColor4ub(waypoint.selected ? 255 : 160, 160, 160, 255);
+            drawScreenSquare(screen.x, screen.y, 4.0f);
+        }
     }
 #else
     (void)doc;

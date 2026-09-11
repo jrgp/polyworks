@@ -173,6 +173,28 @@ struct ViewSettings {
     bool showSceneryFront  = true;
     float gridSize = 32.0f;  /* modConfig.bas:68 GridSpacing default */
 
+    /* frmWaypoints' "Show:" radio group (VB6 frmWaypoints.showPaths, frm:533).
+       0 shows every waypoint, 1 restricts the view -- and picking -- to path 1,
+       2 to path 2.  The original consults it when drawing waypoints and their
+       connections (frm:3618, 3646), when picking (frm:8717, 9126) and when
+       region-selecting (frm:9436), so a hidden path cannot be selected or
+       dragged by accident. */
+    int waypointPathFilter = 0;
+
+    /* The original uses two slightly different tests, and the difference is
+       real rather than a transcription slip, so both are kept.
+       Drawing (frm:3618) and connection-making (frm:7903) require the waypoint
+       to be on path 1 or 2 -- a waypoint on no path is not drawn at all --
+       while picking and region selection (frm:8717, 9126, 9436) only ask that
+       the filter is off or matches. */
+    bool waypointPathDrawn(int pathNum) const {
+        return (pathNum == 1 && waypointPathFilter != 2) ||
+               (pathNum == 2 && waypointPathFilter != 1);
+    }
+    bool waypointPathVisible(int pathNum) const {
+        return waypointPathFilter == 0 || waypointPathFilter == pathNum;
+    }
+
     /* Editing aids (match VB6 globals) */
     bool snapToGrid     = false;  /* snap dragged vertices to grid */
     bool snapToVertices = false;  /* snap to nearby vertices (ohSnap) */

@@ -593,6 +593,12 @@ The following are deeply entangled with the VB6 runtime and cannot be cleanly se
 
 # Proposed Architecture: Free Pascal / Lazarus Reimplementation
 
+> **Historical.**  This section is the original 2025 design proposal and is not
+> what was built.  The shipping implementation is C++17 with Dear ImGui, GLFW
+> and OpenGL; see `docs/cpp-architecture.md`.  It is kept because the layering
+> argument and the VB6 behavioural notes in it still apply, and because the
+> reverse-engineering above it is what both designs were derived from.
+
 ## Design Principles
 
 1. **Strict layer separation**: the core map model compiles and tests with zero Lazarus/LCL units

@@ -25,19 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     # Debian bookworm rather than the bare Ubuntu runner, so the cross
     # toolchain is the one this project is developed and verified against:
-    # mingw-w64 GCC 12.2.0, which resolves to the wxWidgets gcc1220 package
-    # whose checksums are pinned in build_windows.sh.
-    #
-    # It also settles the thread model by itself.  Debian gives the win32
-    # mingw alternative priority 60 against posix's 30, so the default is
-    # already the win32-threads compiler the official wxWidgets binaries are
-    # built with; Ubuntu ranks them the other way round and would need the
-    # alternative selected by hand.
+    # mingw-w64 GCC 12.2.0.
     container: debian:bookworm
     steps:
-      # Everything the build needs, and nothing else.  Only the win32 variant
-      # of the compiler is installed, so there is no second thread model for
-      # the alternatives system to choose between.
+      # Everything the build needs, and nothing else.
       - name: Install the toolchain
         run: |
           apt-get update
@@ -47,23 +38,19 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Cache wxWidgets download
+      # Dear ImGui and GLFW are downloaded by CMake into .deps/cache and are
+      # pinned by SHA-256, so the cache key follows the file that pins them.
+      - name: Cache the dependency downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps/cache
-          key: wx-msw-${{ runner.os }}-${{ hashFiles('build_windows.sh') }}
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/DearImGui.cmake') }}
 
-      # build_windows.sh owns everything: fetching and verifying wxWidgets,
-      # cross-compiling, checking the executable imports nothing from GTK/X11,
-      # and staging the portable ZIP.  Nothing here duplicates that.
+      # build_windows.sh owns everything: cross-compiling, checking the
+      # executable imports nothing from GTK/X11, and staging the portable ZIP.
+      # Nothing here duplicates that.
       - name: Build and package
         run: ./build_windows.sh --package
-        env:
-          # api.github.com rate-limits unauthenticated callers by address, and
-          # a shared runner's address has plenty of other callers.  The script
-          # reads the release index to pick the wxWidgets ABI; the token only
-          # needs the read access this job already has.
-          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Check the expected archive exists
         run: test -f dist/PolyWorks-win64.zip
@@ -82,23 +69,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # wxWidgets has no macOS binary release, so build-mac.sh compiles it from
-      # source.  That is slow enough to be worth caching the built prefix, not
-      # just the download; the script's stamp file makes a stale prefix safe,
-      # as it rebuilds when the version, architecture or deployment target
-      # changes.
-      - name: Cache wxWidgets build
+      - name: Cache the dependency downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            .deps/cache
-            .deps/wx-*-macos-*
-          key: wx-macos-${{ runner.arch }}-${{ hashFiles('build-mac.sh') }}
+          path: .deps/cache
+          key: deps-macos-${{ runner.arch }}-${{ hashFiles('cmake/DearImGui.cmake') }}
 
-      # build-mac.sh owns everything: fetching and verifying the wxWidgets
-      # source, building it statically so no Homebrew library can leak in,
-      # producing the bundle, auditing every Mach-O in it for references
-      # outside the bundle, and archiving it with ditto.
+      # build-mac.sh owns everything: producing the bundle, auditing every
+      # Mach-O in it for references outside the bundle, signing it, and
+      # archiving it with ditto.
       - name: Build and package
         run: ./build-mac.sh --package
 

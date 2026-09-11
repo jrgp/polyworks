@@ -87,8 +87,8 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | `gridInc` | Grid increment | `ViewSettings::gridSize` | PORTED | |
 | `fixedTexture` | Freeze UV on snap | `ViewSettings::fixedTexture` | PORTED | |
 | `blendWireframe/blendPolys` | Alpha blend modes | `ViewSettings::blendWireframe/blendPolys` | PORTED | |
-| `appPath` | Application data path | `wxStandardPaths` in main.cpp | PORTED | |
-| `SoldatPath` | Soldat installation path | `PreferencesDlg` + `wxConfig` | PORTED | |
+| `appPath` | Application data path | `appDir()` in ui/platform.cpp | PORTED | |
+| `SoldatPath` | Soldat installation path | Preferences dialog + `IniFile` | PORTED | |
 
 ---
 
@@ -96,11 +96,11 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 
 | Original Symbol | Functionality | C++ Equivalent | Status | Notes |
 |---|---|---|---|---|
-| `LoadSettings` | Load INI / registry config | `PreferencesDlg` + `wxConfig` | PORTED | |
-| `SaveSettings` | Save INI / registry config | `PreferencesDlg` + `wxConfig` | PORTED | |
+| `LoadSettings` | Load INI / registry config | Preferences dialog + `IniFile` | PORTED | |
+| `SaveSettings` | Save INI / registry config | Preferences dialog + `IniFile` | PORTED | |
 | `DetectSoldatPath` | Auto-detect Soldat install | Windows registry path in prefs | PARTIALLY PORTED | On non-Windows, path is manual only |
 | Palette load/save | `appPath\palettes\current.txt` | `PalettePanel` reads/writes .pal | PORTED | |
-| Recent files list | MRU file list | `wxFileHistory` in MainFrame | PARTIALLY PORTED | History not yet persisted between sessions |
+| Recent files list | MRU file list | `Editor::recentFiles` | PARTIALLY PORTED | History not yet persisted between sessions |
 
 ---
 
@@ -126,7 +126,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 
 | Original Symbol | Functionality | C++ Equivalent | Status | Notes |
 |---|---|---|---|---|
-| DirectInput keyboard | DI8 key buffer | `wxEVT_CHAR_HOOK` in MainFrame | PORTED | Standard wx events replace DI8 |
+| DirectInput keyboard | DI8 key buffer | ImGui key state in `App::handleShortcuts` | PORTED | ImGui key state replaces DI8 |
 | Middle-button pan | Pan with middle drag | `GlViewport::OnMiddleDrag` | PORTED | |
 | Mouse wheel zoom | `ZoomScroll 1.25 / 0.8` anchored per direction | `GlViewport::OnMouseWheel` -> `MapDocument::zoomScroll()` | PORTED | Sub-notch rotations are accumulated for HiDPI trackpads |
 | Screen→world coords | `gScrollX/Y`, `gZoom` math | `MapDocument::screenToWorld()` | PORTED | |
@@ -141,7 +141,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | `RunSoldat` | Launch Soldat.exe | `MainFrame::OnFileRunSoldat` | PORTED | |
 | `RunOpenSoldat` | Launch OpenSoldat | `MainFrame::OnFileRunSoldat` | PORTED | |
 | Asset path detection | Relative to PMS dir | `addTexturePath()` in OnFileOpen | PORTED | |
-| `appPath` detection | Win32 `GetModuleFileName` | `wxStandardPaths::GetExecutablePath()` | PORTED | |
+| `appPath` detection | Win32 `GetModuleFileName` | `appDir()` (GetModuleFileName / _NSGetExecutablePath / /proc/self/exe) | PORTED | |
 
 ---
 
@@ -162,7 +162,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | `mnuImport_Click` | Import prefab (.pwf) | `OnFileImport` | PORTED |
 | `mnuRunOpenSoldat_Click` | Launch OpenSoldat | `OnFileRunSoldat` | PORTED |
 | `mnuRunSoldat_Click` | Launch Soldat | `OnFileRunSoldat` | PORTED |
-| Recent file list | MRU list | `wxFileHistory` | PARTIALLY PORTED |
+| Recent file list | MRU list | `Editor::recentFiles` | PARTIALLY PORTED |
 | `mnuExit_Click` | Exit | `OnExit` | PORTED |
 
 #### Edit menu handlers
@@ -202,7 +202,7 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | Center and Reset [Ctrl+0] | Reset scroll+zoom | `OnViewZoom (ID_VIEW_CENTER_RESET)` | PORTED |
 | Fit on Screen | Fit map in viewport | `OnViewFitOnScreen` | PORTED |
 | Color Palette toggle | Show/hide palette panel | `ID_VIEW_PALETTE` | PORTED |
-| Refresh [F5] | Force repaint | `wxID_REFRESH` | PORTED |
+| Refresh [F5] | Force repaint | `View > Refresh` | PORTED |
 
 #### Map menu
 
@@ -263,17 +263,17 @@ was evaluated against the C++ implementation. Only `PARTIALLY PORTED` and
 | Z | Light | `SetActiveTool(11)` | PORTED |
 | J | Depth | `SetActiveTool(12)` | PORTED |
 | U | Depth Map | `SetActiveTool(13)` | PORTED |
-| Del | Delete selected | `OnKeyDown WXK_DELETE` | PORTED |
-| Backspace | Sever connections | `OnKeyDown WXK_BACK` | PORTED |
-| Arrow keys | Nudge selected ±1 | `OnKeyDown WXK_LEFT etc.` | PORTED |
+| Del | Delete selected | `ImGuiKey_Delete` | PORTED |
+| Backspace | Sever connections | `ImGuiKey_Backspace` | PORTED |
+| Arrow keys | Nudge selected ±1 | `ImGuiKey_LeftArrow` etc. | PORTED |
 | Shift+Arrow | Nudge selected ±10 | `OnKeyDown` | PORTED |
 | Escape | Deselect all | `ID_EDIT_DESELECT` | PORTED |
-| Ctrl+Z / Ctrl+Y | Undo / Redo | Standard wx | PORTED |
-| Ctrl+A | Select All | Standard wx | PORTED |
-| Ctrl+S / Ctrl+Shift+S | Save / Save As | Standard wx | PORTED |
-| Ctrl+N / Ctrl+O | New / Open | Standard wx | PORTED |
+| Ctrl+Z / Ctrl+Y | Undo / Redo | `App::handleShortcuts` | PORTED |
+| Ctrl+A | Select All | `App::handleShortcuts` | PORTED |
+| Ctrl+S / Ctrl+Shift+S | Save / Save As | `App::handleShortcuts` | PORTED |
+| Ctrl+N / Ctrl+O | New / Open | `App::handleShortcuts` | PORTED |
 | F9 | Compile | `ID_FILE_COMPILE` | PORTED |
-| F5 | Refresh | `wxID_REFRESH` | PORTED |
+| F5 | Refresh | `View > Refresh` | PORTED |
 | Ctrl+M | Map Settings | `ID_MAP_SETTINGS` | PORTED |
 | Ctrl+P | Preferences | `ID_MAP_PREFERENCES` | PORTED |
 | Ctrl+' | Grid toggle | `ID_VIEW_GRID` | PORTED |
@@ -449,7 +449,7 @@ Replaced by `ToolsPanel` (PORTED). See frmTaskBar notes.
 
 ### PARTIALLY PORTED
 
-4. **Recent files list** — list is shown but not persisted between sessions (`wxFileHistory` is not saved to config)
+4. **Recent files list** — list is shown but not persisted between sessions (`Editor::recentFiles` is not saved to config)
 
 5. **Detect Soldat path on Windows** — on Windows, VB6 reads the registry; C++ only does manual path entry
 
@@ -467,8 +467,8 @@ Replaced by `ToolsPanel` (PORTED). See frmTaskBar notes.
 |---|---|
 | DirectX 8 initialization (`InitDX8`) | Replaced by OpenGL |
 | `D3DXSprite` for scenery | Replaced by OpenGL quads |
-| `MBMouse.ocx` borderless chrome | Standard wxFrame used instead |
-| `COMDLG32.OCX` file dialogs | wxFileDialog used |
+| `MBMouse.ocx` borderless chrome | ImGui windows used instead |
+| `COMDLG32.OCX` file dialogs | ImGui file browser in ui/dialogs.cpp used |
 | VB6 `GetPrivateProfileString` registry | wxConfig cross-platform INI |
 | VB6 `Boolean` = 2 bytes in UDT | Handled in `PmsProp.active` int16_t |
 | Win32 `GetModuleFileName` | wxStandardPaths |
@@ -607,6 +607,11 @@ row was checked against the original VB6 source before being changed.
 | 75 | `SetMapTexture` (`frm:4279`) | On failure the routine falls into its `ErrorHandler` and returns with `mapTexture` left unset, so the polygons draw in their vertex colours.  `notfound.bmp` is substituted **only** for scenery (`frm:2083`, `frm:2409`, `frm:2468`) | `TextureManager::loadTexture` returned the placeholder for every caller, including the map texture, so a PolyWorks without Soldat's artwork tiled a "missing image" cross over all 209 polygons of a map and hid it completely.  The renderer already handled `texId == 0` correctly; it was simply never given one | **INCORRECT** | `loadTexture` takes `fallbackToNotFound`, passed `false` at the two map-texture call sites and left `true` for scenery.  Unresolvable names are also remembered, so the renderer neither rescans every search directory nor reprints the diagnostic once per frame - verified under Wine, where a map missing 26 assets logs 26 lines rather than 26 per frame |
 | 76 | `frmTools` window (`frmTools.frm:5`, `:271`, `:467`) | A `Fixed Single` form with `ControlBox = 0`, carrying a 17px `picTitle` strip whose `MouseDown` does `ReleaseCapture` + `SendMessage WM_NCLBUTTONDOWN` -- the strip exists so the window can be dragged -- and a `picHide` button beside it that closes it | The port used `wxBORDER_SIMPLE` with no `wxCAPTION`, so on Windows the window had no title bar and **could not be moved at all**: there was nothing to grab.  Its size was also fixed at the original's 64x240 before the buttons existed, and a `wxBitmapButton` is not 32x32 on MSW, so the 2x7 grid overflowed the client area and was clipped | **INCORRECT** | `wxCAPTION | wxCLOSE_BOX` (keeping `wxFRAME_TOOL_WINDOW` for the slim caption) is the portable equivalent of a strip whose whole purpose is to forward `WM_NCLBUTTONDOWN`, and `SetSizerAndFit` sizes the frame to its buttons on every platform.  Verified under Wine from the extracted portable ZIP: the caption and all fourteen buttons are present |
 | 77 | macOS code signature | — (build infrastructure) | The `.app` was signed only inside `if [[ -d "$frameworks" ]]`, and wxWidgets is linked statically so `Contents/Frameworks` is never created: **the bundle was never signed at all**.  On Apple silicon the kernel refuses to execute an unsigned binary, and Finder reports that as "the application is damaged and can't be opened", so every published Mac release looked like a corrupt download.  The call was also `2>/dev/null || true`, so a signing failure could not have been noticed either | **BROKEN** | `sign_bundle` runs unconditionally after the bundle is final, fails loudly, and verifies the result with `--deep --strict`.  The signature is re-verified after the bundle is copied out of the build tree and again after the release ZIP has been unpacked, since an archive that does not preserve it produces exactly the same "damaged" symptom.  `ditto` replaces `cp -R` in the smoke test for the same reason.  `--timestamp` is chosen from the identity: ad-hoc signatures cannot carry one, Developer ID signatures must |
+| 78 | GUI toolkit | — (architecture) | The interface was built on wxWidgets.  Four defects came out of that and none of them were visible to the test suite: on Windows the UI rendered proportionally tiny; the map filled only part of the viewport on a scaled display; clicks did not follow the zoom; and macOS trackpad zoom was violently oversensitive.  The first three all trace to the same root — the GL rectangle, the projection and the cursor mapping were each computed independently from a different notion of "the window size" | **REPLACED** | The GUI is now Dear ImGui + GLFW + OpenGL, drawing every menu, panel, dialog, context menu and control itself.  `core/viewport_geometry.h` is the single description of the viewport: `glRect()` produces the GL rectangle in framebuffer pixels while `glOrtho` is set up in logical units, and `windowToViewport()` translates cursor positions without ever scaling them.  `consumeWheelNotches()` normalises high-resolution trackpad scroll into whole notches.  All four are pinned by tests that need no display.  `uiScale = contentScale / framebufferScale` handles the Windows-measures-pixels / macOS-measures-points difference in one place.  The ImGui style is built from the skin's `colors.ini`, so the result does not look like default ImGui.  wxWidgets is gone from the sources, the CMake files and all three build scripts; with it went the wx and GCC runtime DLLs, so the Windows ZIP now contains the executable and no redistributable DLL at all |
+| 79 | `mnuQuad` / `TOOL_QUAD` (`frm:11113`, `frm:11146`) | Right-clicking with Create or Textured Quad active raises `mnuPolyTypes`; `TOOL_QUAD` then places a four-vertex textured quad on left-click, the same code path as `TOOL_CREATE` | The wxWidgets `HandleLeftDownEdit` had a `case TOOL_CREATE` and no `case TOOL_QUAD`, so selecting Textured Quad from the right-click menu left the tool active but **every left-click did nothing** | **BROKEN** | `Interaction::onLeftDown` handles both, and `drawViewportContextMenu` reproduces the original's own test — `currentFunction == TOOL_CREATE || currentFunction == TOOL_QUAD` — rather than inventing one |
+| 80 | `frmWaypoints.showPaths` (`frm:3618`, `frm:8717`, `frm:9126`) | A filter restricting the editor to one waypoint path.  The original uses **two different tests**: drawing and connection-making require `pathNum` to be exactly 1 or 2 and to match the filter, so a waypoint on no path is never drawn, while picking and region-select accept `filter == 0 \|\| filter == pathNum` | The filter was absent: every waypoint was always drawn, picked and connectable regardless of path | **NOT PORTED** | `ViewSettings::waypointPathFilter` with the two predicates kept deliberately distinct (`waypointPathDrawn` / `waypointPathVisible`), honoured by the renderer, `SelNearest`, `VertexSelWaypoints` and `connectWaypointAt`, and exposed by the Waypoints panel's Show radio group.  `renderWaypoints` also now draws the real `objects.bmp` atlas sprites (row 2, columns 3/4 unselected and 5/6 selected) instead of plain grey squares |
+| 81 | `LoadPalette` / `SavePalette` (`frmPalette.frm:669`, `frmPalette.frm:711`) | `Print #1, red & ", " & green & ", " & blue` writes one cell per line and `Input #1` reads it back, treating the comma as a separator.  `installer/palettes/current.txt` is in that format, and `mnuOpen`-time startup loads it (`frm:867`).  The grid is filled with Y (row) as the outer loop | The port parsed the file with `in >> r >> g >> b`, which stops at the first comma: exactly one number was read and the load reported failure, so **every swatch in the palette was black** on every run.  The directory was wrong as well — `appDir()/palettes` is right for a packaged build but not for a development checkout, where the palettes live beside the skins — and saving wrote whitespace-separated triplets the original could not read back | **BROKEN** | `load()` splits on commas and skips blank lines, `save()` emits the original's `"r, g, b"` spelling, and `palettesDir()` hangs off the new `appDataDir()` (the directory containing `skins/`, which is what VB6's `appPath` is).  Writes go to `userPalettePath()`, the same directory in a portable install and the per-user one when the application directory is read-only, so a macOS bundle's signature is not invalidated.  Verified by screenshot: the shipped greyscale ramp now appears, from the development tree and from the extracted Windows ZIP under Wine |
+| 82 | `Workspace\current.ini` default panel layout | The shipped workspace puts Tools, Properties and Waypoints in the left column (`Left=-1`) and Palette, Display and Scenery in the right (`Left=1071`), in that vertical order | The port had Tools, Display and Palette on the left and Scenery, Waypoints and Properties on the right, and the bottom panels ran off the window into the status bar, which hid the cursor position, the file name and the zoom | **INCORRECT** | The defaults follow the shipped workspace's own column assignment, and `beginPanel` gained bottom-edge anchoring (a negative y, pivoted on the window's own bottom edge so it works for the auto-resizing panels) so the lowest panel in each column sits just above the status bar whatever the window size |
 
 ## Remaining known gaps (not fixed)
 
@@ -614,10 +619,9 @@ row was checked against the original VB6 source before being changed.
 |---|---|
 | Preferences | Tool hotkeys and waypoint keys are not user-remappable (the original's HotKeys / Waypoint Keys pages).  The defaults are reproduced exactly, so no default behaviour is missing |
 | Preferences | `cboSkin` (skin selection) is absent; the port always loads `installer/skins/default` |
-| Preferences | Window width/height persistence is absent; wxWidgets restores the frame geometry instead |
+| Preferences | Window width/height persistence is absent; ImGui restores the tool-window geometry from `imgui.ini` instead |
 | Scenery panel | The original splits the list into `lstScenery` ("In Use") and a `tvwScenery` tree.  The port uses a single list and marks in-use entries with a bullet |
 | Assets | Soldat's artwork is not redistributable and is not present in this repository.  Resolution is verified with stand-in files placed in the shipped `Textures/` and `Scenery-gfx/` folders (see below), not with the real game assets |
-| Skins | `skins/default/colors.ini` supplies the original's GUI colours and fonts (`frm:4648-4655`).  The port hard-codes the same values instead of reading the file, so a user-edited `colors.ini` has no effect.  The file is still shipped |
 | Scenery lists | `lists/*.txt` are the original's named scenery lists (`frmScenery.frm:436`, `frm:12613`).  The port does not read or write them; `lists/defaults.txt` is shipped so the data is not lost |
 | Map Settings | The original `frmMap` is modeless and applies each change as it is made, with Cancel restoring the previous values.  The port's dialog is modal and applies on OK.  No setting is missing, and the texture preview now behaves as the original's does |
-| Wine | Wine 8 with llvmpipe under Xvfb does not present child-window OpenGL at all: a minimal wxGLCanvas that merely clears to red renders nothing.  The GL canvas therefore appears blank there.  This is an environment limitation, not a port defect — the same binary's non-GL UI is fully functional under Wine, and the identical rendering code draws correctly on GTK |
+| Wine | Resolved by the move to GLFW.  Wine 8 with llvmpipe would not present *child-window* OpenGL, which is what a `wxGLCanvas` is; GLFW draws into the top-level window, and the Windows build now renders a real map correctly under Wine on Xvfb |

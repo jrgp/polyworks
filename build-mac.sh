@@ -2,10 +2,10 @@
 # build-mac.sh — build PolyWorks.app on macOS, dependencies included.
 #
 # This script owns the whole dependency chain, exactly as build_windows.sh does
-# for Windows: it obtains wxWidgets itself, caches it under .deps/, builds
-# against it and produces an application bundle that runs on a Mac that has
-# never seen Homebrew.  Nothing needs to be installed first except Xcode's
-# command line tools and CMake.
+# for Windows: CMake fetches Dear ImGui and GLFW into .deps/cache/, they are
+# compiled into the application, and the result is a bundle that runs on a Mac
+# that has never seen Homebrew.  Nothing needs to be installed first except
+# Xcode's command line tools and CMake.
 #
 # Usage:
 #   ./build-mac.sh [--package] [--clean] [--skip-test]
@@ -35,38 +35,21 @@ for arg in "$@"; do
 done
 
 # ---------------------------------------------------------------------------
-# wxWidgets dependency.
+# Dependencies.
 #
-# Built from the official wxWidgets source release rather than downloaded as a
-# binary, because the wxWidgets project does not publish one for macOS: its
-# release assets are Windows binaries (wxMSW-*_vc*/gcc*), the documentation and
-# the source archives, and nothing else.  The alternative -- Homebrew's
-# wxwidgets formula -- is not a wxWidgets release artifact, is not pinned, and
-# produces dylibs under /opt/homebrew that would then have to be copied into
-# the bundle and rewritten to make the result distributable at all.
+# There are none to obtain here.  The GUI stack is Dear ImGui + GLFW + OpenGL:
+# both libraries are source-only, pinned by version and SHA-256, fetched into
+# .deps/cache/ by cmake/DearImGui.cmake and compiled into the application, and
+# OpenGL is a system framework.  That is the whole dependency chain, which is
+# why the bundle produced here needs nothing from Homebrew -- the previous
+# wxWidgets source build, and the hour it took, are gone with it.
 #
-# The build is static (--disable-shared) and uses wxWidgets' bundled copies of
-# libpng/libjpeg/zlib/expat, so the finished binary links nothing from outside
-# the SDK.  That is also what keeps configure from quietly picking up whatever
-# Homebrew happens to have installed on the build machine.  TIFF is left out
-# entirely: PolyWorks reads BMP, PNG, JPEG and GIF, no part of the editor or
-# of Soldat's assets uses TIFF, and building a library nothing loads only adds
-# code to the binary.
-#
-# The version is pinned and the archive is checksummed; the installed prefix is
-# kept under .deps/ so this cost is paid once.  3.2.11 is the current 3.2
-# release and the earliest that builds against a current macOS SDK: the
-# upstream changelog records "Fix build under macOS 26 Tahoe" and "Fix building
-# third party libraries with Xcode 16.3" after 3.2.6.  build_windows.sh pins
-# the same version, so both platforms ship one wxWidgets.
+# The audit below still walks the bundle for stray /opt/homebrew references,
+# because a dependency arriving by accident is exactly what it exists to catch.
 # ---------------------------------------------------------------------------
-WX_VERSION="3.2.11"
-WX_ARCHIVE="wxWidgets-${WX_VERSION}.tar.bz2"
-WX_URL="https://github.com/wxWidgets/wxWidgets/releases/download/v${WX_VERSION}/${WX_ARCHIVE}"
-WX_SHA256="6a129015bce2e914e4bf61ec4411854ad962801d47e92f2eb8340adb6a90af08"
 
-# Oldest macOS the result is expected to run on.  Overridable for anyone who
-# needs to target something else; wxWidgets 3.2's own floor is 10.10.
+# Oldest macOS the result is expected to run on.  GLFW 3.4 supports 10.11
+# upwards; 10.15 is the floor for a modern libc++.
 MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
 
 # ---------------------------------------------------------------------------
@@ -94,7 +77,6 @@ For Linux use ./build-linux.sh, for Windows ./build_windows.sh."
     esac
 
     JOBS="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
-    WX_PREFIX="$DEPS_DIR/wx-${WX_VERSION}-macos-${ARCH}"
 
     say "Toolchain"
     printf '    macOS           %s\n' "$(sw_vers -productVersion 2>/dev/null || echo unknown)"
@@ -103,163 +85,6 @@ For Linux use ./build-linux.sh, for Windows ./build_windows.sh."
     printf '    Compiler        %s\n' "$(cc --version 2>/dev/null | head -1)"
     printf '    CMake           %s\n' "$(cmake --version | head -1)"
     printf '    Jobs            %s\n' "$JOBS"
-}
-
-fetch_wx() {
-    local path="$CACHE_DIR/$WX_ARCHIVE"
-    if [[ -f "$path" ]] && [[ "$(shasum -a 256 "$path" | cut -d' ' -f1)" == "$WX_SHA256" ]]; then
-        say "Cached: $WX_ARCHIVE"
-        return 0
-    fi
-    [[ -f "$path" ]] && warn "Cached $WX_ARCHIVE has the wrong checksum; re-downloading."
-
-    say "Downloading $WX_ARCHIVE"
-    mkdir -p "$CACHE_DIR"
-    curl --fail --location --progress-bar -o "$path.part" "$WX_URL" \
-        || die "Download failed: $WX_URL"
-
-    local have
-    have="$(shasum -a 256 "$path.part" | cut -d' ' -f1)"
-    if [[ "$have" != "$WX_SHA256" ]]; then
-        rm -f "$path.part"
-        die "Checksum mismatch for $WX_ARCHIVE
-  expected $WX_SHA256
-  got      $have
-Refusing to build against an archive that is not the pinned release."
-    fi
-    mv "$path.part" "$path"
-}
-
-# ---------------------------------------------------------------------------
-# Fixes to the bundled third-party sources.
-#
-# wxWidgets 3.2 ships copies of zlib 1.2.13 and libpng 1.6.37 that each decide
-# they are being compiled for Classic Mac OS when TARGET_OS_MAC is defined:
-#
-#   zlib   src/zlib/zutil.h    #define fdopen(fd,mode) NULL
-#   libpng src/png/pngpriv.h   #include <fp.h>
-#
-# That test was written when TARGET_OS_MAC meant MPW/CodeWarrior on Mac OS 9.
-# Today TargetConditionals.h defines it as 1 on every Apple platform, and the
-# macOS 26 SDK reaches it from <stdio.h>, so both libraries take the Classic
-# branch: zlib redefines fdopen out from under the real declaration in stdio.h
-# (three errors in zutil.c) and libpng includes a header that has not existed
-# since Carbon (a fatal error in every png source file).
-#
-# Neither library is at fault for a system that changed underneath it, and
-# neither branch can be turned off from the command line -- the macro is
-# defined by a system header, so -U cannot reach it.  Correct the two
-# conditions in place instead.  Both are exact-match and verified, so a
-# wxWidgets upgrade that fixes or moves them fails here rather than silently
-# building unpatched.
-# ---------------------------------------------------------------------------
-patch_wx_source() {
-    local src="$1"
-    python3 - "$src" <<'PY' || die "failed to patch the bundled third-party sources"
-import sys, pathlib
-
-root = pathlib.Path(sys.argv[1])
-# file, text to find, replacement, and what the change is for.
-edits = [
-    ("src/zlib/zutil.h",
-     "#if defined(MACOS) || defined(TARGET_OS_MAC)",
-     "#if defined(MACOS)",
-     "zlib: keep the Classic Mac OS fdopen() stub out of a real macOS build"),
-    ("src/png/pngpriv.h",
-     "defined(THINK_C) || defined(__SC__) || defined(TARGET_OS_MAC)",
-     "defined(THINK_C) || defined(__SC__)",
-     "libpng: use <math.h> rather than Classic Mac OS <fp.h>"),
-]
-
-for name, old, new, why in edits:
-    path = root / name
-    text = path.read_text(encoding="utf-8", errors="surrogateescape")
-    if new in text and old not in text:
-        continue                      # already patched
-    if text.count(old) != 1:
-        sys.exit("%s: expected exactly one occurrence of\n  %s\nfound %d.  "
-                 "The bundled sources have changed; review this patch."
-                 % (name, old, text.count(old)))
-    path.write_text(text.replace(old, new), encoding="utf-8",
-                    errors="surrogateescape")
-    print("    %s" % why)
-PY
-}
-
-# A parallel make interleaves its output, so the last few lines of the log are
-# usually the tail of some unrelated warning rather than the failure.  Show the
-# lines that actually report an error, with the tail only as a fallback for a
-# failure that produced none.
-report_build_failure() {
-    local log="$1"
-    if grep -qE '(error|Error)[: ]' "$log"; then
-        printf '%s\n' "--- errors from $(basename "$log") ---"
-        grep -E '(error|Error)[: ]' "$log" | head -25
-    else
-        tail -40 "$log"
-    fi
-}
-
-build_wx() {
-    # The stamp records which package and settings the prefix holds, so
-    # changing any of them rebuilds instead of leaving a stale mixture.
-    local stamp="$WX_PREFIX/.stamp"
-    local want="${WX_VERSION} ${ARCH} ${MACOS_MIN} static notiff"
-    if [[ -f "$stamp" ]] && [[ "$(cat "$stamp")" == "$want" ]]; then
-        say "wxWidgets ${WX_VERSION} (${ARCH}, static) ready"
-        return 0
-    fi
-
-    fetch_wx
-
-    local src="$DEPS_DIR/src/wxWidgets-${WX_VERSION}"
-    if [[ ! -f "$src/configure" ]]; then
-        say "Extracting wxWidgets source"
-        rm -rf "$src"
-        mkdir -p "$DEPS_DIR/src"
-        tar -xjf "$CACHE_DIR/$WX_ARCHIVE" -C "$DEPS_DIR/src"
-    fi
-    patch_wx_source "$src"
-
-    local objdir="$DEPS_DIR/build/wx-${WX_VERSION}-${ARCH}"
-    rm -rf "$objdir" "$WX_PREFIX"
-    mkdir -p "$objdir"
-
-    say "Building wxWidgets ${WX_VERSION} (this happens once, and takes a while)"
-    (
-        cd "$objdir"
-        # --with-*=builtin keeps configure away from anything Homebrew has
-        # installed: the image libraries come from the wxWidgets tree.
-        "$src/configure" \
-            --prefix="$WX_PREFIX" \
-            --disable-shared \
-            --disable-debug \
-            --disable-tests \
-            --without-subdirs \
-            --enable-unicode \
-            --with-osx_cocoa \
-            --with-opengl \
-            --with-macosx-version-min="$MACOS_MIN" \
-            --with-libpng=builtin \
-            --with-libjpeg=builtin \
-            --without-libtiff \
-            --with-zlib=builtin \
-            --with-expat=builtin \
-            --with-regex=builtin \
-            --enable-optimise \
-            CFLAGS="-arch $ARCH" CXXFLAGS="-arch $ARCH" \
-            LDFLAGS="-arch $ARCH" OBJCXXFLAGS="-arch $ARCH" \
-            > configure.log 2>&1 \
-            || { tail -40 configure.log; die "wxWidgets configure failed (see $objdir/configure.log)"; }
-
-        make -j"$JOBS" > build.log 2>&1 \
-            || { report_build_failure build.log; die "wxWidgets build failed (see $objdir/build.log)"; }
-        make install  >> build.log 2>&1 \
-            || { report_build_failure build.log; die "wxWidgets install failed (see $objdir/build.log)"; }
-    )
-
-    [[ -x "$WX_PREFIX/bin/wx-config" ]] || die "wx-config missing after install"
-    echo "$want" > "$stamp"
 }
 
 # ---------------------------------------------------------------------------
@@ -271,8 +96,8 @@ build_wx() {
 # bundle, and where a stray dylib does turn up, copy it into Frameworks and
 # repoint the loader at it rather than shipping something broken.
 #
-# With a static wxWidgets there is normally nothing to move; this runs anyway,
-# because "normally" is not a guarantee and the check costs a second.
+# With ImGui and GLFW compiled in there is normally nothing to move; this runs
+# anyway, because "normally" is not a guarantee and the check costs a second.
 # ---------------------------------------------------------------------------
 BAD_PREFIXES='^(/opt/homebrew|/usr/local/opt|/usr/local/Cellar|/usr/local/lib|/opt/local)'
 
@@ -369,7 +194,7 @@ audit_bundle() {
             # An @rpath dependency names no directory at all: it is resolved at
             # load time against the LC_RPATH list, so checking only the string
             # above would miss a library that lives on the build machine.  The
-            # bundle carries nothing that needs @rpath -- wxWidgets is static
+            # bundle carries nothing that needs @rpath -- every library is compiled in
             # and anything copied in is repointed at @executable_path -- so
             # treat any remaining one as unresolved.
             if [[ "$dep" == @rpath/* ]]; then
@@ -389,7 +214,7 @@ audit_bundle() {
 
     [[ -z "$bad" ]] || die "The bundle depends on libraries outside itself:
 $bad
-Those paths do not exist on another Mac.  Check that wxWidgets was built
+Those paths do not exist on another Mac.  Check that the dependencies were built
 statically and that no Homebrew library leaked into the link."
 }
 
@@ -449,7 +274,6 @@ window server (over ssh, for example).  It reported:"
 
 # ---------------------------------------------------------------------------
 detect_toolchain
-build_wx
 
 if (( DO_CLEAN )); then
     say "Removing $BUILD_DIR"
@@ -457,17 +281,17 @@ if (( DO_CLEAN )); then
 fi
 
 say "Configuring"
-# Nothing is loaded through a runpath: wxWidgets is linked statically, and any
+# Nothing is loaded through a runpath: every library is compiled in, and any
 # dylib bundle_dylibs copies in is repointed at @executable_path.  Left to
-# itself CMake would still record the wxWidgets library directory as a build
-# rpath, baking this machine's .deps path into the shipped binary.
+# itself CMake would bake a build-tree library directory into the shipped
+# binary as an rpath.
 cmake -S "$REPO" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
     -DCMAKE_SKIP_BUILD_RPATH=ON \
     -DCMAKE_SKIP_INSTALL_RPATH=ON \
-    -DwxWidgets_CONFIG_EXECUTABLE="$WX_PREFIX/bin/wx-config"
+    -DPW_DEPS_CACHE="$CACHE_DIR"
 
 say "Building"
 cmake --build "$BUILD_DIR" -j"$JOBS"

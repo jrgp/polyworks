@@ -3,11 +3,24 @@ OpenSoldat PolyWorks
 
 Map editor for the game [OpenSoldat](https://github.com/opensoldat/opensoldat)
 
-## Modern rewrite (C++ / wxWidgets)
+## Modern rewrite (C++ / Dear ImGui)
 
-This branch contains a complete rewrite of PolyWorks in C++17 with wxWidgets
-and OpenGL, replacing the original VB6 implementation with a cross-platform
-application that runs on Windows, Linux and macOS.
+This branch contains a complete rewrite of PolyWorks in C++17 with Dear ImGui,
+GLFW and OpenGL, replacing the original VB6 implementation with a
+cross-platform application that runs on Windows, Linux and macOS.
+
+The stack is deliberately short:
+
+```
+C++ core  ->  Dear ImGui  ->  GLFW  ->  OpenGL
+```
+
+The core (`src-cpp/core`, `src-cpp/renderer`) knows nothing about ImGui or
+GLFW and is exercised entirely headlessly by the test suite.  Dear ImGui draws
+the whole interface -- menus, the tool palette, the floating tool windows,
+dialogs, context menus and the status bar -- so there is no native widget
+toolkit, and therefore no GTK, no Cocoa widgets and no third-party DLLs to
+ship.
 
 The original VB6 sources in `src/` remain the behavioural source of truth; see
 `docs/source-port-inventory.md` for the element-by-element audit of the port
@@ -17,20 +30,24 @@ against them.
 
 - A C++17 compiler (GCC 9+, Clang 10+, or MSVC 2019+)
 - CMake 3.16+
-- wxWidgets 3.0+ (core, base, gl)
 - OpenGL (provided by your OS/graphics driver)
 
-On Debian/Ubuntu:
+Dear ImGui and GLFW are **not** system dependencies: CMake fetches both,
+pinned by version and SHA-256, into `.deps/cache/` and compiles them into the
+application.
+
+On Debian/Ubuntu the build needs only the compiler, CMake and the X11/OpenGL
+development headers GLFW links against:
 ```sh
-sudo apt install build-essential cmake libwxgtk3.0-gtk3-dev libwxgtk-media3.0-gtk3-dev libgl-dev
+sudo apt install build-essential cmake libgl-dev xorg-dev
 ```
 
 ### Building
 
 ```sh
 ./build-linux.sh          # Linux
-./build-mac.sh            # macOS (fetches and builds wxWidgets itself)
-build-windows.bat         # Windows, native MSVC
+./build-mac.sh            # macOS (self-contained .app)
+./build_windows.sh        # Windows, cross-compiled with mingw-w64
 
 # or directly
 cmake -S . -B build && cmake --build build -j
@@ -41,13 +58,9 @@ Output: `build/bin/polyworks`, or `build/bin/polyworks.app` on macOS.
 ### macOS
 
 `./build-mac.sh` needs nothing installed but Xcode's command line tools and
-CMake — in particular **not** Homebrew's wxWidgets. It downloads the pinned
-wxWidgets source release, verifies its SHA-256, caches it under `.deps/` and
-builds it statically with wxWidgets' own copies of libpng/libjpeg/libtiff/zlib,
-so nothing from `/opt/homebrew` or `/usr/local/opt` can leak into the link.
-wxWidgets does not publish macOS binaries — its release assets are Windows
-builds, documentation and source — so this is the source-build case the Windows
-script is allowed to avoid.
+CMake — in particular nothing from Homebrew. The only libraries are Dear ImGui
+and GLFW, which are compiled into the executable, so nothing from
+`/opt/homebrew` or `/usr/local/opt` can leak into the link.
 
 After linking, the script walks every Mach-O in the bundle and fails if any of
 them loads a library from outside it (bundling and re-pointing it with
@@ -97,8 +110,8 @@ through the loader and saver on each run.
 src-cpp/
   core/          Headless core: types, PMS format, geometry, map model, undo
   renderer/      OpenGL renderer and the asset resolver
-  gui/           wxWidgets GUI: viewport, tools, main frame, panels, dialogs
-  app/           Entry point and Windows resources
+  ui/            Dear ImGui interface: shell, editor state, interaction state
+                 machine, menus, panels, dialogs, context menus, theme
   tests/         Headless test suite
 vendor/          stb_image
 maps/            Real Soldat map fixtures (compatibility testing)
@@ -113,42 +126,31 @@ arch.md          Reverse-engineered VB6 architecture documentation
 
 `build_windows.sh` produces `dist/PolyWorks-win64.zip`: a self-contained
 folder that runs from anywhere with no installation, no registry entries and
-no environment variables. It bundles the executable, the wxWidgets and GCC
-runtime DLLs it needs, and the skins, cursors, palettes, lists and help
-resources, and creates the `Textures` and `Scenery-gfx` folders that PolyWorks
-searches beside its own executable.
+no environment variables. In practice the executable is the only binary in it:
+ImGui and GLFW are compiled in and the GCC runtime is linked statically, so
+there are no redistributable DLLs left to bundle. Alongside it go the skins,
+cursors, palettes, lists and help resources, plus the `Textures` and
+`Scenery-gfx` folders that PolyWorks searches beside its own executable.
 
 ```sh
 ./build_windows.sh --package
 ```
 
-The script downloads the **official wxWidgets Windows/MinGW-w64 binaries** and
-caches them under `.deps/`. wxWidgets is not built from source: upstream
-publishes binaries for several GCC releases, and the build picks the one that
-matches the compiler actually installed.
+There is no Windows binary dependency to obtain: the same pinned ImGui and
+GLFW sources the Linux and macOS builds use are compiled by the cross
+compiler. The script verifies that `x86_64-w64-mingw32-gcc` really targets
+64-bit MinGW-w64 before starting, and prints the detected version and target.
 
-Only the wxWidgets *version* is pinned. The ABI is detected: the script reads
-the GCC series out of `x86_64-w64-mingw32-gcc`, asks the wxWidgets release
-index which MinGW binaries exist for that release, and selects the artifact
-built by that series — failing with the list of published ABIs if there is no
-match, rather than guessing. It also refuses to mix thread models, since a
-win32-threads and a posix-threads libstdc++ disagree about `std::thread`.
-Downloads are checked against the size upstream publishes and, where one has
-been recorded, a pinned SHA-256. The detected version, target, thread model
-and selected artifact are all printed during the build.
+After linking it inspects the executable's import table and fails if any GTK,
+X11, MSYS or Cygwin dependency appears, so the dependency chain is guaranteed
+to remain `PolyWorks.exe → GLFW/Win32 → system OpenGL`. It also warns about any
+import that is not a Windows system DLL, since such a thing would have to be
+packaged.
 
-The Windows target never consults the Linux `wx-config`, `pkg-config` or
-`libwxgtk*`; `cmake/wxMSWPrebuilt.cmake` resolves the downloaded package
-directly. This is deliberate — CMake's own `FindwxWidgets` falls back to
-`wx-config` whenever `CMAKE_CROSSCOMPILING` is set, which would silently link
-the host's GTK build. After linking, `build_windows.sh` inspects the
-executable's import table and fails if any GTK, X11, MSYS or Cygwin dependency
-appears, so the dependency chain is guaranteed to remain
-`PolyWorks.exe → wxWidgets MSW → Win32 → system OpenGL`.
-
-The DLLs shipped in the ZIP are not chosen by hand: `make-windows-zip.sh`
-walks the import table of the executable and of every DLL it pulls in, copies
-each non-system dependency it finds, and fails if one cannot be located.
+The ZIP's contents are not chosen by hand either: `make-windows-zip.sh` walks
+the import table of the executable and of every DLL it pulls in, copies each
+non-system dependency it finds, and fails if one cannot be located. On a
+correct build it copies nothing.
 
 ### Releases
 
@@ -161,7 +163,7 @@ git push origin v1.0.0
 
 `.github/workflows/release.yml` cross-compiles Windows in a Debian bookworm
 container — the toolchain this project is developed against, so CI uses the
-same mingw-w64 GCC and the same pinned wxWidgets package a developer does — and
+same mingw-w64 GCC a developer does — and
 builds macOS natively on an Apple silicon runner — macOS cannot be
 cross-compiled, and the two jobs run in parallel. Each job runs the same build
 script a developer would (`./build_windows.sh --package`, `./build-mac.sh

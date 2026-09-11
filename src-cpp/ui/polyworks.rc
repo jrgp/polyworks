@@ -5,12 +5,15 @@
  * requesting per-monitor DPI awareness plus visual styles.
  *
  * DPI awareness matters: without it Windows bitmap-stretches the window, which
- * would defeat the HiDPI-correct glViewport sizing in GlViewport::OnPaint.
+ * would defeat the HiDPI-correct glViewport sizing driven by
+ * ViewportGeometry::glRect.
  */
 
-#include "wx/msw/wx.rc"
-
-IDI_PW_ICON ICON "../../installer/PW.ico"
+/* Numeric id 1 is what Explorer and the taskbar pick up for the executable;
+   GLFW_ICON is the name GLFW's Win32 backend looks for when giving the window
+   its icon, so the original PW.ico serves both. */
+1 ICON "../../installer/PW.ico"
+GLFW_ICON ICON "../../installer/PW.ico"
 
 1 24 "polyworks.manifest"
 

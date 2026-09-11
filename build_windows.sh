@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # build_windows.sh — build the Windows PolyWorks executable on a Unix host.
 #
-# Fetches the official wxWidgets Windows/MinGW-w64 binary package (cached),
-# verifies it, and cross-compiles against it with mingw-w64.  Run
-# packaging/make-windows-zip.sh afterwards to produce the portable ZIP, or
-# pass --package to do both.
+# Cross-compiles PolyWorks for Windows with mingw-w64.  The GUI stack is Dear
+# ImGui + GLFW + OpenGL; both dependencies are source-only, pinned by version
+# and SHA-256 and fetched by CMake (cmake/DearImGui.cmake) into a shared cache,
+# so there is no Windows binary package to obtain here and nothing outside the
+# Win32 and system OpenGL DLLs to ship.  Run packaging/make-windows-zip.sh
+# afterwards to produce the portable ZIP, or pass --package to do both.
 #
 # Usage:
 #   ./build_windows.sh [--package] [--clean]
@@ -31,69 +33,15 @@ for arg in "$@"; do
     esac
 done
 
-# ---------------------------------------------------------------------------
-# wxWidgets dependency.
-#
-# These are the official binaries published by the wxWidgets project itself on
-# its GitHub releases page -- not a third-party redistribution.  Three archives
-# make up a usable development package:
-#
-#   headers     the wx headers, shared by every build
-#   Dev         import libraries plus the wx/setup.h describing this exact
-#               build's configuration
-#   ReleaseDLL  the runtime DLLs that ship next to PolyWorks.exe
-#
-# The wxWidgets *version* is pinned here.  The *ABI* is not: it is derived from
-# whichever mingw-w64 compiler is actually installed, because linking against
-# import libraries produced by a different GCC is how you get mismatched
-# std::string layouts and exception tables.  The invariant is
-#
-#     installed compiler -> detected ABI -> matching wxWidgets binary
-#
-# and never a hardcoded ABI that the host may not actually have.
-# ---------------------------------------------------------------------------
-WX_VERSION="3.2.11"
-WX_TAG="v${WX_VERSION}"
-WX_BASE_URL="https://github.com/wxWidgets/wxWidgets/releases/download/${WX_TAG}"
-WX_API_URL="https://api.github.com/repos/wxWidgets/wxWidgets/releases/tags/${WX_TAG}"
-
-CROSS_CXX="x86_64-w64-mingw32-g++"
 CROSS_CC="x86_64-w64-mingw32-gcc"
-
-# Checksums for archives that have been downloaded and verified by hand.  This
-# is a pin, not a requirement: an ABI nobody has pinned yet still builds, but
-# the script says so out loud and prints the hash to add here.
-pinned_sha256() {
-    case "$1" in
-        wxWidgets-3.2.11-headers.7z)
-            echo 886de90e6f428f268541e395b18261126476288fedfb87c147ea8ab426059d77 ;;
-        wxMSW-3.2.11_gcc1220_x64_Dev.7z)
-            echo c675ddbd94d275489be579598c8b28ab89bc26f6230c703c1cc726db8736179d ;;
-        wxMSW-3.2.11_gcc1220_x64_ReleaseDLL.7z)
-            echo 01bf23323babfcea4165c6e1c022d40d36d28c21a8d08193c2e182ad5a412a67 ;;
-        wxMSW-3.2.11_gcc1320_x64_Dev.7z)
-            echo 178efcd52c1a5e6fb4f091e93cc666e578786f459bcf68420fa7bd194e719705 ;;
-        wxMSW-3.2.11_gcc1320_x64_ReleaseDLL.7z)
-            echo 8315137256bb8918c757739305d1df9c706de4ac61a370030f253fcd12bb9ee1 ;;
-        *) echo "" ;;
-    esac
-}
 
 # ---------------------------------------------------------------------------
 # Toolchain detection.
 #
-# Upstream names its MinGW packages wxMSW-<ver>_gcc<MAJOR><MINOR><PATCH>[_x64],
-# e.g. gcc1220 is GCC 12.2.0 and gcc730 is GCC 7.3.0.  The ABI to use is
-# therefore a property of the installed compiler, not something to hardcode.
-#
-# Match on the *major* version.  GCC keeps its C++ ABI stable across a release
-# series -- 12.1 and 12.2 interoperate -- and upstream publishes one binary per
-# series, so "the gcc12xx package" is the correct answer for any GCC 12.  It is
-# also the only workable rule in practice: Debian patches its cross compiler to
-# report its version as "12-win32", with __GNUC_MINOR__ reading 0, so the
-# minor and patch components simply are not trustworthy here.  The major
-# version, taken from the preprocessor rather than from a version string, is.
-# ---------------------------------------------------------------------------
+# There is no longer an ABI-matched binary dependency to select -- ImGui and
+# GLFW are compiled from source by this same compiler -- but the target still
+# has to be verified, because a 32-bit or non-MinGW compiler would produce an
+# executable that silently does not belong in the x64 distribution.
 detect_toolchain() {
     local macros
     macros="$($CROSS_CC -E -dM -x c /dev/null 2>/dev/null)" \
@@ -128,302 +76,13 @@ This build is x86_64 Windows only."
     printf '    Thread model    %s\n' "${GCC_THREADS:-unknown}"
 }
 
-# Set WX_ABI / WX_PREFIX / WX_*_FILE from an ABI tag.
-set_wx_abi() {
-    WX_ABI="$1"
-    WX_HEADERS_FILE="wxWidgets-${WX_VERSION}-headers.7z"
-    WX_DEV_FILE="wxMSW-${WX_VERSION}_${WX_ABI}_x64_Dev.7z"
-    WX_DLL_FILE="wxMSW-${WX_VERSION}_${WX_ABI}_x64_ReleaseDLL.7z"
-    WX_PREFIX="$DEPS_DIR/wxMSW-${WX_VERSION}-${WX_ABI}-x64"
-}
-
-# An already-extracted package for this compiler's GCC series, if there is one,
-# so that repeat builds need no network access.
-find_extracted_wx() {
-    local dir tag
-    for dir in "$DEPS_DIR"/wxMSW-"${WX_VERSION}"-gcc*-x64; do
-        [[ -f "$dir/.stamp" ]] || continue
-        tag="${dir##*/wxMSW-${WX_VERSION}-}"; tag="${tag%-x64}"
-        [[ "$tag" =~ ^gcc([0-9]+)$ ]] || continue
-        local digits="${BASH_REMATCH[1]}"
-        [[ "${digits:0:${#digits}-2}" == "$GCC_MAJOR" ]] || continue
-        set_wx_abi "$tag"
-        return 0
-    done
-    return 1
-}
-
-# Ask the wxWidgets project which MinGW binaries it actually publishes for the
-# pinned release and pick the one built by this compiler's GCC series.  Also
-# records the sizes upstream reports, so the downloads can be checked against a
-# source other than the files themselves.  Populates WX_ASSET_SIZES.
-declare -A WX_ASSET_SIZES=()
-
-# The release index is a plain API request, and api.github.com rate-limits
-# unauthenticated callers by source address -- which on a shared CI runner is
-# an address thousands of other jobs are also using, so the first request can
-# be refused outright.  Send a token when the environment offers one (GitHub
-# Actions does), and retry, because the other failure here is a transient one.
-#
-# Writes the body to the file named by $1 rather than to stdout, so that the
-# status it records is visible to the caller instead of dying with the
-# subshell a command substitution would create.
-WX_INDEX_STATUS="not attempted"
-fetch_release_index() {
-    local out="$1"
-    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    local -a auth=()
-    [[ -n "$token" ]] && auth=(--header "Authorization: Bearer $token")
-
-    local attempt status
-    for attempt in 1 2 3; do
-        status="$(curl --location --silent --show-error --output "$out" \
-                       --write-out '%{http_code}' \
-                       "${auth[@]}" "$WX_API_URL" 2>/dev/null)" || status=""
-        WX_INDEX_STATUS="HTTP ${status:-no response}"
-        [[ "$status" == "200" ]] && return 0
-        (( attempt < 3 )) && sleep $(( attempt * 3 ))
-    done
-    return 1
-}
-
-# Without the index, the pinned checksums are the record of which ABIs have
-# been downloaded and verified by hand -- a stronger check than the size the
-# index reports, not a weaker one.  Selection still follows from the compiler:
-# only a pinned ABI whose tag decodes to this GCC series is accepted.
-select_wx_abi_from_pins() {
-    local body abi digits
-    body="$(declare -f pinned_sha256)"
-
-    for abi in $(grep -o "wxMSW-${WX_VERSION}_gcc[0-9]*_x64_Dev\.7z" <<< "$body" \
-                 | sed "s/^wxMSW-${WX_VERSION}_//; s/_x64_Dev\.7z$//"); do
-        digits="${abi#gcc}"
-        [[ "${digits:0:${#digits}-2}" == "$GCC_MAJOR" ]] || continue
-
-        set_wx_abi "$abi"
-        local f
-        for f in "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"; do
-            [[ -n "$(pinned_sha256 "$f")" ]] || continue 2
-        done
-        return 0
-    done
-    return 1
-}
-
-select_wx_abi() {
-    local json="" index; index="$(mktemp)"
-    if fetch_release_index "$index"; then
-        json="$(cat "$index")"
-    fi
-    rm -f "$index"
-
-    if [[ -z "$json" ]]; then
-        if select_wx_abi_from_pins; then
-            warn "Could not reach the wxWidgets release index ($WX_INDEX_STATUS).
-Continuing with ABI ${WX_ABI}, which matches this compiler and whose archives
-all have pinned checksums."
-            printf '    %s\n' "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"
-            return 0
-        fi
-        die "Could not reach the wxWidgets release index at
-  $WX_API_URL
-  ($WX_INDEX_STATUS)
-Network access is needed the first time a given compiler ABI is built, unless
-the archives for that ABI have pinned checksums in $(basename "$0")."
-    fi
-
-    local report
-    report="$(WX_VERSION="$WX_VERSION" GCC_MAJOR="$GCC_MAJOR" python3 -c '
-import json, os, re, sys
-
-rel = json.load(sys.stdin)
-assets = {a["name"]: a.get("size", 0) for a in rel.get("assets", [])}
-ver, major = os.environ["WX_VERSION"], int(os.environ["GCC_MAJOR"])
-
-# wxMSW-<ver>_gcc<digits>_x64_Dev.7z.  Tags carrying a suffix (gcc1030TDM) are
-# a different toolchain distribution, not plain mingw-w64, and are skipped.
-pat = re.compile(r"^wxMSW-%s_gcc(\d+)_x64_Dev\.7z$" % re.escape(ver))
-found = {}
-for name in assets:
-    m = pat.match(name)
-    if not m:
-        continue
-    d = m.group(1)
-    if len(d) < 3:
-        continue
-    found[(int(d[:-2]), int(d[-2]), int(d[-1]))] = "gcc" + d
-
-matches = sorted(k for k in found if k[0] == major)
-if not matches:
-    print("MISSING")
-    print("AVAILABLE " + " ".join(
-        "%s (GCC %d.%d.%d)" % (found[k], *k) for k in sorted(found)))
-    sys.exit(0)
-
-abi = found[matches[-1]]
-names = ["wxWidgets-%s-headers.7z" % ver,
-         "wxMSW-%s_%s_x64_Dev.7z" % (ver, abi),
-         "wxMSW-%s_%s_x64_ReleaseDLL.7z" % (ver, abi)]
-missing = [n for n in names if n not in assets]
-if missing:
-    print("INCOMPLETE " + " ".join(missing))
-    sys.exit(0)
-print("ABI %s %d.%d.%d" % (abi, *matches[-1]))
-for n in names:
-    print("SIZE %s %d" % (n, assets[n]))
-' <<< "$json")" || die "Could not parse the wxWidgets release index."
-
-    if grep -q '^MISSING' <<< "$report"; then
-        die "wxWidgets ${WX_VERSION} publishes no x86_64 MinGW-w64 binary built
-by GCC ${GCC_MAJOR}.
-
-  Installed compiler : $CROSS_CC ${GCC_VERSION} ($GCC_TARGET)
-  Published x64 ABIs : $(sed -n 's/^AVAILABLE //p' <<< "$report")
-
-The wxWidgets project builds binaries for only a few GCC releases, and linking
-against a different major version mixes incompatible C++ ABIs.  Install a
-mingw-w64 GCC from one of the series listed above, or pin a wxWidgets release
-that ships binaries for GCC ${GCC_MAJOR}."
-    fi
-    if grep -q '^INCOMPLETE ' <<< "$report"; then
-        die "wxWidgets ${WX_VERSION} is missing artifacts needed for GCC ${GCC_MAJOR}:
-  $(sed -n 's/^INCOMPLETE //p' <<< "$report")"
-    fi
-
-    local abi wxgcc
-    read -r _ abi wxgcc < <(grep '^ABI ' <<< "$report")
-    set_wx_abi "$abi"
-
-    while read -r _ name size; do
-        WX_ASSET_SIZES["$name"]="$size"
-    done < <(grep '^SIZE ' <<< "$report")
-
-    say "Selected wxWidgets ${WX_VERSION} binary for ABI ${WX_ABI} (built by GCC ${wxgcc})"
-    printf '    %s\n' "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"
-}
-
-# ---------------------------------------------------------------------------
-fetch_verified() {
-    # fetch_verified <filename>
-    #
-    # Verified two ways: the size the wxWidgets release index reports (an
-    # endpoint distinct from the download CDN), and, where one has been
-    # recorded, a pinned SHA-256.
-    local name="$1" path="$CACHE_DIR/$1"
-    local want_sha want_size
-    want_sha="$(pinned_sha256 "$name")"
-    want_size="${WX_ASSET_SIZES[$name]:-}"
-    [[ -n "$want_sha$want_size" ]] \
-        || die "No pinned checksum and no published size for $name; there would
-be nothing to verify the download against."
-
-    check_file() {
-        local f="$1" have
-        if [[ -n "$want_size" ]] && [[ "$(stat -c%s "$f")" != "$want_size" ]]; then
-            echo "size is $(stat -c%s "$f") bytes, upstream says $want_size"
-            return 1
-        fi
-        if [[ -n "$want_sha" ]]; then
-            have="$(sha256sum "$f" | cut -d' ' -f1)"
-            [[ "$have" == "$want_sha" ]] || { echo "SHA-256 $have, expected $want_sha"; return 1; }
-        fi
-        return 0
-    }
-
-    if [[ -f "$path" ]]; then
-        if problem="$(check_file "$path")"; then
-            say "Cached: $name"
-            return 0
-        fi
-        warn "Cached $name does not verify ($problem); re-downloading."
-        rm -f "$path"
-    fi
-
-    say "Downloading $name"
-    mkdir -p "$CACHE_DIR"
-    curl --fail --location --progress-bar -o "$path.part" "$WX_BASE_URL/$name" \
-        || die "Download failed: $WX_BASE_URL/$name"
-
-    if ! problem="$(check_file "$path.part")"; then
-        rm -f "$path.part"
-        die "$name does not match the official release: $problem
-Refusing to build against an archive that is not the published artifact."
-    fi
-    mv "$path.part" "$path"
-
-    if [[ -z "$want_sha" ]]; then
-        warn "No pinned SHA-256 for $name. It matched upstream's published size;
-to pin it, add this to pinned_sha256() in $(basename "$0"):
-        $name)
-            echo $(sha256sum "$path" | cut -d' ' -f1) ;;"
-    fi
-}
-
-prepare_wx() {
-    # A stamp file records which package the prefix holds, so bumping
-    # WX_VERSION or changing compiler re-extracts instead of merging two ABIs.
-    if find_extracted_wx; then
-        say "wxWidgets ${WX_VERSION} (${WX_ABI}) ready"
-        return 0
-    fi
-
-    select_wx_abi
-
-    fetch_verified "$WX_HEADERS_FILE"
-    fetch_verified "$WX_DEV_FILE"
-    fetch_verified "$WX_DLL_FILE"
-
-    say "Extracting wxWidgets into $WX_PREFIX"
-    rm -rf "$WX_PREFIX"
-    mkdir -p "$WX_PREFIX"
-    # cmake -E tar reads 7z through libarchive, so no separate 7-Zip tool is
-    # needed; CMake is already required to build the project.
-    ( cd "$WX_PREFIX" && for a in "$WX_HEADERS_FILE" "$WX_DEV_FILE" "$WX_DLL_FILE"; do
-          cmake -E tar xf "$CACHE_DIR/$a"
-      done )
-
-    [[ -f "$WX_PREFIX/include/wx/wx.h" ]] \
-        || die "wx headers missing after extraction"
-    [[ -d "$WX_PREFIX/lib/${WX_ABI}_x64_dll" ]] \
-        || die "wx libraries missing after extraction"
-
-    # Upstream's package name records the GCC version but not its thread model,
-    # and win32-threads and posix-threads libstdc++ disagree about
-    # std::thread/std::mutex.  The DLLs say which they are: a posix-threads
-    # build imports libwinpthread-1.dll.
-    local wx_threads="win32"
-    if x86_64-w64-mingw32-objdump -p "$WX_PREFIX/lib/${WX_ABI}_x64_dll"/wxbase*.dll \
-         2>/dev/null | grep -qi 'libwinpthread'; then
-        wx_threads="posix"
-    fi
-    if [[ -n "${GCC_THREADS:-}" && "$GCC_THREADS" != "$wx_threads" ]]; then
-        die "Thread-model mismatch: $CROSS_CC is a ${GCC_THREADS}-threads build,
-but the official wxWidgets ${WX_ABI} binaries are ${wx_threads}-threads.
-Mixing them puts two incompatible libstdc++ configurations on either side of
-the wx ABI boundary.  Use the ${wx_threads}-threads mingw-w64 compiler
-(on Debian: update-alternatives --config ${CROSS_CC})."
-    fi
-
-    echo "${WX_VERSION} ${WX_ABI} x64" > "$WX_PREFIX/.stamp"
-}
-
 # ---------------------------------------------------------------------------
 command -v x86_64-w64-mingw32-g++ >/dev/null \
     || die "x86_64-w64-mingw32-g++ not found (Debian: apt install g++-mingw-w64-x86-64)"
-command -v python3 >/dev/null || die "python3 not found"
 command -v cmake >/dev/null || die "cmake not found"
 command -v curl  >/dev/null || die "curl not found"
 
-# The Windows build must not see the host's wxGTK.  wxWidgets is resolved from
-# PW_WX_MSW_PREFIX, but a stray wxWidgets_CONFIG_EXECUTABLE in the environment
-# would be a foot-gun, so refuse it explicitly rather than silently ignoring it.
-if [[ -n "${wxWidgets_CONFIG_EXECUTABLE:-}" ]]; then
-    die "wxWidgets_CONFIG_EXECUTABLE is set. The Windows build uses the wxMSW
-binary package, never a wx-config script; unset it and re-run."
-fi
-
 detect_toolchain
-prepare_wx
 
 if (( DO_CLEAN )); then
     say "Removing $BUILD_DIR"
@@ -433,7 +92,7 @@ fi
 say "Configuring"
 cmake -S "$REPO" -B "$BUILD_DIR" \
     -DCMAKE_TOOLCHAIN_FILE="$REPO/cmake/mingw-w64-x86_64.cmake" \
-    -DPW_WX_MSW_PREFIX="$WX_PREFIX" \
+    -DPW_DEPS_CACHE="$CACHE_DIR" \
     -DCMAKE_BUILD_TYPE=Release
 
 say "Building"
@@ -442,11 +101,19 @@ cmake --build "$BUILD_DIR" -j"$(nproc)"
 EXE="$BUILD_DIR/bin/PolyWorks.exe"
 [[ -f "$EXE" ]] || die "Build produced no $EXE"
 
-# A Windows binary that imports GTK, X11 or MSYS libraries would mean the wx
-# dependency was resolved from the host by mistake.  Check rather than assume.
+# A Windows binary importing GTK, X11 or MSYS libraries would mean a dependency
+# leaked in from the Linux host.  Check rather than assume.
 BAD=$(x86_64-w64-mingw32-objdump -p "$EXE" | sed -n 's/^\s*DLL Name: //p' \
-      | grep -iE 'gtk|gdk|glib|x11|cygwin|msys|pango|cairo' || true)
+      | grep -iE 'gtk|gdk|glib|x11|cygwin|msys|pango|cairo|wxmsw|wxbase' || true)
 [[ -z "$BAD" ]] || die "Windows build imports non-Win32 libraries: $BAD"
+
+# With ImGui and GLFW static and the GCC runtime linked statically, the only
+# imports left should be Windows' own DLLs.  Anything else would have to be
+# shipped, so surface it here instead of discovering it under Wine.
+NONSYS=$(x86_64-w64-mingw32-objdump -p "$EXE" | sed -n 's/^\s*DLL Name: //p' \
+      | grep -ivE '^(kernel32|user32|gdi32|shell32|shlwapi|advapi32|ole32|oleaut32|comctl32|comdlg32|winmm|ws2_32|imm32|version|msvcrt|opengl32|glu32|dwmapi|uxtheme|rpcrt4|setupapi|cfgmgr32|hid|dinput8|xinput1_[0-9]|bcrypt|crypt32|secur32|api-ms-.*|ucrtbase)\.dll$' || true)
+[[ -z "$NONSYS" ]] || warn "Executable imports non-system DLLs that must be packaged:
+$NONSYS"
 
 say "Built $EXE"
 x86_64-w64-mingw32-objdump -p "$EXE" | sed -n 's/^\s*DLL Name: /    /p' | sort -u

@@ -36,9 +36,8 @@ vertex colours instead, which is what the original editor does.
 What is in this folder
 ----------------------
 
-  PolyWorks.exe            The editor.
-  *.dll                    Runtime libraries (wxWidgets and the C++ runtime).
-                           They must stay next to PolyWorks.exe.
+  PolyWorks.exe            The editor.  Everything it needs is compiled in;
+                           it uses only Windows' own DLLs.
   polyworks.ini            Your settings (created on first exit).
   PolyWorks Help.html      The original manual.  Start here.
   Help\                    Images used by the manual.
