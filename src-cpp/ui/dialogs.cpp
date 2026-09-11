@@ -697,6 +697,8 @@ void drawPreferences(App& app, bool justOpened) {
     colorEdit("Point", &working.pointColor);
     ImGui::SameLine();
     colorEdit("Selection", &working.selectionColor);
+    ImGui::SameLine();
+    colorEdit("Background", &working.backgroundColor);
 
     ImGui::SeparatorText("Blending");
     /* cboPolySrc / cboPolyDest / cboWireSrc / cboWireDest.  The list is the

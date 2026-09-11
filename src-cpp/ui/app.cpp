@@ -23,12 +23,6 @@
 namespace pw {
 namespace {
 
-/* The original's viewport background: picMap's BackColor, 0x0E1A2B in BGR
-   notation, i.e. the dark brown 43,26,14. */
-constexpr float kBackR = 43.0f / 255.0f;
-constexpr float kBackG = 26.0f / 255.0f;
-constexpr float kBackB = 14.0f / 255.0f;
-
 App* g_app = nullptr;
 
 void glfwErrorCallback(int code, const char* description) {
@@ -271,7 +265,11 @@ void App::buildFrame() {
     glfwGetFramebufferSize(m_window, &fbW, &fbH);
     glViewport(0, 0, fbW, fbH);
     glDisable(GL_SCISSOR_TEST);
-    glClearColor(kBackR, kBackG, kBackB, 1.0f);
+    /* D3DDevice.Clear uses the BackColor preference (frm:2904), not a fixed
+       colour; frmPreferences exposes it as picBackColor. */
+    const unsigned int back = m_editor.prefs.backgroundColor;
+    glClearColor(((back >> 16) & 0xFF) / 255.0f, ((back >> 8) & 0xFF) / 255.0f,
+                 (back & 0xFF) / 255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     drawViewport();

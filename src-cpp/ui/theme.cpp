@@ -12,12 +12,17 @@
 namespace pw {
 namespace {
 
+/* colors.ini stores a VB6 OLE_COLOR, which is &HBBGGRR: the value goes through
+   HexToLong (modOSME.bas:833) straight into a control's BackColor.  Swap the
+   outer bytes to get the RGB the rest of this file works in. */
 uint32_t parseHex(const std::string& s, uint32_t fallback) {
     if (s.empty()) {
         return fallback;
     }
     try {
-        return static_cast<uint32_t>(std::stoul(s, nullptr, 16)) & 0xFFFFFFu;
+        const uint32_t bgr =
+            static_cast<uint32_t>(std::stoul(s, nullptr, 16)) & 0xFFFFFFu;
+        return ((bgr & 0xFFu) << 16) | (bgr & 0xFF00u) | ((bgr >> 16) & 0xFFu);
     } catch (const std::exception&) {
         return fallback;
     }

@@ -835,6 +835,7 @@ void Editor::loadPrefs() {
     prefs.wireBlendDest = static_cast<int>(ini.readInt("Blend", "WireDest", prefs.wireBlendDest));
     prefs.pointColor     = static_cast<unsigned>(ini.readInt("Colors", "Point", static_cast<long>(prefs.pointColor)));
     prefs.selectionColor = static_cast<unsigned>(ini.readInt("Colors", "Selection", static_cast<long>(prefs.selectionColor)));
+    prefs.backgroundColor = static_cast<unsigned>(ini.readInt("Colors", "Background", static_cast<long>(prefs.backgroundColor)));
     prefs.paintColor = static_cast<unsigned>(ini.readInt("ToolSettings", "CurrentColor", static_cast<long>(prefs.paintColor))) & 0xFFFFFFu;
     prefs.colorRadius = static_cast<int>(ini.readInt("ToolSettings", "ColorRadius", prefs.colorRadius));
     prefs.colorOpacity = static_cast<float>(ini.readDouble("ToolSettings", "Opacity", prefs.colorOpacity * 100.0)) / 100.0f;
@@ -902,6 +903,7 @@ void Editor::savePrefs() {
     ini.write("Blend", "WireDest", static_cast<long>(prefs.wireBlendDest));
     ini.write("Colors", "Point",     static_cast<long>(prefs.pointColor));
     ini.write("Colors", "Selection", static_cast<long>(prefs.selectionColor));
+    ini.write("Colors", "Background", static_cast<long>(prefs.backgroundColor));
 
     prefs.paintColor = (static_cast<unsigned>(palette.r) << 16) |
                        (static_cast<unsigned>(palette.g) << 8) | palette.b;

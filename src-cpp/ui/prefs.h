@@ -63,6 +63,10 @@ struct AppPrefs {
     /* Colors */
     unsigned int pointColor     = 0xFFFFFFFF;
     unsigned int selectionColor = 0xFFFFFF00;
+    /* picBackColor (frmPreferences.frm:2373): what the viewport is cleared to
+       where no background gradient covers it.  LoadConfig's default is the
+       hex string "555555" (modConfig.bas:80). */
+    unsigned int backgroundColor = 0xFF555555;
 
     /* Blending (frmPreferences cboPolySrc / cboPolyDest / cboWireSrc /
        cboWireDest).  Indices into the original's blend-factor list. */
