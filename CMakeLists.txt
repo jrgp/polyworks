@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
-project(PolyWorks VERSION 1.0.0 LANGUAGES CXX C)
+# The macOS file chooser is Objective-C (nativefiledialog-extended's
+# nfd_cocoa.m).  Objective-C has to be declared here, in the project() call
+# itself: enable_language() from an included file or after a target exists
+# leaves the generator without CMAKE_OBJC_COMPILE_OBJECT and generation fails.
+# APPLE is not set until project() runs, so the host variable decides -- the
+# macOS build is native (see build-mac.sh), so the two agree.
+set(PW_LANGUAGES CXX C)
+if(CMAKE_HOST_APPLE)
+  list(APPEND PW_LANGUAGES OBJC)
+endif()
+project(PolyWorks VERSION 1.0.0 LANGUAGES ${PW_LANGUAGES})
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

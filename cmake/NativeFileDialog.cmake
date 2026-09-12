@@ -26,12 +26,9 @@ if(WIN32 OR APPLE)
     "${PW_NFD_SHA256}" PW_NFD_DIR)
   message(STATUS "Native File Dialog Extended ${PW_NFD_VERSION}: ${PW_NFD_DIR}")
 
-  # nfd_cocoa.m is Objective-C; CMake will not compile a .m file unless the
-  # language is enabled, and NFD's own CMakeLists does not enable it because
-  # it expects to be the top-level project.
-  if(APPLE)
-    enable_language(OBJC)
-  endif()
+  # NFD's own CMakeLists does not enable OBJC for nfd_cocoa.m -- it expects to
+  # be the top-level project.  The top-level CMakeLists does it instead, which
+  # has to happen before any target exists.
 
   set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(NFD_INSTALL     OFF CACHE BOOL "" FORCE)
