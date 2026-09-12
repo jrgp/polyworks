@@ -237,15 +237,23 @@ std::string Editor::statusToolLabel() const {
 /* VB6 guards mnuNew_Click (frm:12752), mnuOpen_Click (frm:12772) and Terminate
    (frm:4387) with the same three-way prompt driven by the global `prompt`
    flag.  ImGui has no nested modal loop, so instead of blocking, the caller's
-   work is parked in `pendingAfterPrompt` and run when the box is answered. */
-bool Editor::confirmDiscardChanges(std::function<void()> continuation) {
+   work is parked in `pendingAfterPrompt` and run when the box is answered.
+
+   When there is nothing to save the original simply falls through to the
+   action, so the continuation runs here and now.  This used to report that
+   through a return value instead, which every caller discarded -- so File >
+   Exit, the window close button, File > New and Open Recent all did nothing
+   at all on an unmodified map, which is the usual case. */
+void Editor::confirmDiscardChanges(std::function<void()> continuation) {
     if (!doc.modified) {
-        return true;
+        if (continuation) {
+            continuation();
+        }
+        return;
     }
     showMessage(MessageBox::Kind::ConfirmCancel, "PolyWorks",
                 "Save changes to " + documentName() + "?");
     pendingAfterPrompt = std::move(continuation);
-    return false;
 }
 
 void Editor::newMap() {

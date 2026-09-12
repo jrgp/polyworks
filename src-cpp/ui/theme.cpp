@@ -47,6 +47,10 @@ ImVec4 shade(uint32_t c, float t, float alpha = 1.0f) {
     return v;
 }
 
+/* The skin last applied.  ScopedListColors and listItem need the same colours
+   applyTheme used, and they are called from other translation units. */
+SkinColors g_active;
+
 }  // namespace
 
 SkinColors loadSkinColors(const std::string& skinsPath) {
@@ -69,6 +73,7 @@ SkinColors loadSkinColors(const std::string& skinsPath) {
 }
 
 void applyTheme(const SkinColors& c, float uiScale) {
+    g_active = c;
     ImGuiStyle style;   /* start from the defaults, then overwrite */
 
     /* The original's forms are flat rectangles with square corners and a thin
@@ -147,10 +152,32 @@ void applyTheme(const SkinColors& c, float uiScale) {
 
     /* Text boxes are white with black text in the original, which means the
        text colour has to change inside them; ImGui has one global text colour,
-       so input fields push ImGuiCol_Text themselves (see panels.cpp). */
+       so input fields push ImGuiCol_Text themselves (see panels.cpp), and
+       lists use ScopedListColors below. */
 
     style.ScaleAllSizes(uiScale);
     ImGui::GetStyle() = style;
+}
+
+ScopedListColors::ScopedListColors() {
+    const SkinColors& c = g_active;
+    ImGui::PushStyleColor(ImGuiCol_Text, rgb(c.textBoxText));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, rgb(c.textBoxBack));
+    /* The row under the cursor is only hot-tracked, not selected, so its text
+       is still black and the tint has to stay light enough to read through. */
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, shade(c.labelBack, 0.72f));
+    ImGui::PushStyleColor(ImGuiCol_Header, rgb(c.labelBack));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, rgb(c.labelBack));
+}
+
+ScopedListColors::~ScopedListColors() { ImGui::PopStyleColor(5); }
+
+bool listItem(const char* label, bool selected) {
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? rgb(g_active.labelText)
+                                                  : rgb(g_active.textBoxText));
+    const bool clicked = ImGui::Selectable(label, selected);
+    ImGui::PopStyleColor();
+    return clicked;
 }
 
 }  // namespace pw

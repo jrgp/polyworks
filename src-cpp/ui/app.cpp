@@ -100,6 +100,15 @@ bool App::initialise(int argc, char** argv) {
     io.IniFilename = nullptr;   /* window layout is part of the workspace file */
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
+    /* Keyboard nav is wanted inside dialogs, but by default it also raises
+       io.WantCaptureKeyboard for as long as any ImGui window holds nav focus
+       (imgui.cpp:5018).  A tool palette always holds it here, so every
+       PolyWorks accelerator -- Ctrl+O, Ctrl+A, Delete, the tool letters --
+       was being swallowed by the guard in handleShortcuts().  Turning this
+       off leaves WantCaptureKeyboard meaning only "a widget or modal is
+       actually consuming keys", which is the question we want to ask. */
+    io.ConfigNavCaptureKeyboard = false;
+
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL2_Init();
 

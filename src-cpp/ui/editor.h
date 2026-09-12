@@ -173,9 +173,13 @@ public:
     void pasteSelection();
     bool openCommandLineMap(const std::string& arg);
     void runGame(bool openSoldat);
-    /* True when it is safe to discard the document.  When it is not, a save
-       prompt is raised and `pendingAfterPrompt` is run once answered. */
-    bool confirmDiscardChanges(std::function<void()> continuation);
+    /* Run `continuation`, but not before the user has had the chance the
+       original gives them to save.  An unmodified document is discardable, so
+       the work runs immediately; otherwise the save prompt is raised and the
+       work is parked in `pendingAfterPrompt` until it is answered.  Either
+       way the caller's work happens exactly once, so no caller has to know
+       which of the two occurred. */
+    void confirmDiscardChanges(std::function<void()> continuation);
 
     /* ---- edit ---------------------------------------------------------- */
     void undoAction();

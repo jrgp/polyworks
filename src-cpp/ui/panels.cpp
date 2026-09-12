@@ -22,6 +22,7 @@
 #include "editor.h"
 #include "geometry.h"
 #include "platform.h"
+#include "theme.h"
 
 #include "imgui.h"
 
@@ -254,19 +255,23 @@ void drawSceneryPanel(App& app) {
         }
 
         const float listH = ImGui::GetContentRegionAvail().y - 90.0f * scale;
-        if (ImGui::BeginListBox("##scenerylist",
-                                ImVec2(-FLT_MIN, std::max(60.0f * scale, listH)))) {
-            for (int i = 0; i < static_cast<int>(st.available.size()); ++i) {
-                const bool selected = (st.selected == i);
-                if (ImGui::Selectable(st.available[static_cast<size_t>(i)].c_str(),
-                                      selected)) {
-                    st.selected = i;
+        {
+            ScopedListColors listColors;
+            if (ImGui::BeginListBox(
+                    "##scenerylist",
+                    ImVec2(-FLT_MIN, std::max(60.0f * scale, listH)))) {
+                for (int i = 0; i < static_cast<int>(st.available.size()); ++i) {
+                    const bool selected = (st.selected == i);
+                    if (listItem(st.available[static_cast<size_t>(i)].c_str(),
+                                 selected)) {
+                        st.selected = i;
+                    }
+                    if (selected && ImGui::IsWindowAppearing()) {
+                        ImGui::SetScrollHereY();
+                    }
                 }
-                if (selected && ImGui::IsWindowAppearing()) {
-                    ImGui::SetScrollHereY();
-                }
+                ImGui::EndListBox();
             }
-            ImGui::EndListBox();
         }
 
         ImGui::TextUnformatted("Level:");
@@ -444,10 +449,10 @@ void drawPolygonProperties(Editor& ed, float scale) {
     int type = sel->polyType;
     ImGui::SetNextItemWidth(180.0f * scale);
     {
-        TextFieldColors colors;
+        ScopedListColors colors;
         if (ImGui::BeginCombo("Type", polyTypeName(type))) {
             for (int i = 0; i < POLY_TYPE_COUNT; ++i) {
-                if (ImGui::Selectable(polyTypeName(i), i == type)) {
+                if (listItem(polyTypeName(i), i == type)) {
                     ed.undo.push(ed.doc);
                     for (auto& p : ed.doc.polys) {
                         if (p.anySelected()) {
@@ -566,10 +571,10 @@ void drawSceneryProperties(Editor& ed, float scale) {
     ImGui::SetNextItemWidth(120.0f * scale);
     {
         static const char* kLevels[] = {"Back", "Middle", "Front"};
-        TextFieldColors colors;
+        ScopedListColors colors;
         if (ImGui::BeginCombo("Level", kLevels[std::clamp(level, 0, 2)])) {
             for (int i = 0; i < 3; ++i) {
-                if (ImGui::Selectable(kLevels[i], i == level)) {
+                if (listItem(kLevels[i], i == level)) {
                     level = i;
                     levelChanged = true;
                 }
@@ -907,11 +912,11 @@ void drawPalettePanel(App& app) {
                                             "Darken",  "Lighten",  "Difference"};
         ImGui::SetNextItemWidth(110.0f * scale);
         {
-            TextFieldColors colors;
+            ScopedListColors colors;
             if (ImGui::BeginCombo("Blend",
                                   kBlendModes[std::clamp(pal.blendMode, 0, 5)])) {
                 for (int i = 0; i < 6; ++i) {
-                    if (ImGui::Selectable(kBlendModes[i], pal.blendMode == i)) {
+                    if (listItem(kBlendModes[i], pal.blendMode == i)) {
                         pal.blendMode = i;
                     }
                 }

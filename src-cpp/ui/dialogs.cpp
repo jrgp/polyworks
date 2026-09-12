@@ -25,6 +25,7 @@
 #include "file_dialog.h"
 #include "ini_file.h"
 #include "platform.h"
+#include "theme.h"
 #include "prefs.h"
 
 #include "imgui.h"
@@ -476,17 +477,16 @@ void drawMapSettings(App& app, bool justOpened) {
 
     if (!textures.empty()) {
         ImGui::SetNextItemWidth(260.0f * scale);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ScopedListColors listColors;
         if (ImGui::BeginCombo("##texturelist", "Choose...")) {
             for (const std::string& name : textures) {
-                if (ImGui::Selectable(name.c_str())) {
+                if (listItem(name.c_str(), false)) {
                     std::snprintf(textureName, sizeof(textureName), "%s",
                                   name.c_str());
                 }
             }
             ImGui::EndCombo();
         }
-        ImGui::PopStyleColor();
     }
 
     /* picTexture (frmMap.frm:64, assigned in cboTexture_Click at :790): the
@@ -515,22 +515,28 @@ void drawMapSettings(App& app, bool justOpened) {
     static const char* kSteps[] = {"Hard Ground", "Soft Ground", "None"};
     ImGui::SetNextItemWidth(160.0f * scale);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+    {
+    ScopedListColors listColors;
     if (ImGui::BeginCombo("Weather", kWeather[std::clamp(weather, 0, 3)])) {
         for (int i = 0; i < 4; ++i) {
-            if (ImGui::Selectable(kWeather[i], weather == i)) {
+            if (listItem(kWeather[i], weather == i)) {
                 weather = i;
             }
         }
         ImGui::EndCombo();
     }
+    }
     ImGui::SetNextItemWidth(160.0f * scale);
+    {
+    ScopedListColors listColors;
     if (ImGui::BeginCombo("Steps", kSteps[std::clamp(steps, 0, 2)])) {
         for (int i = 0; i < 3; ++i) {
-            if (ImGui::Selectable(kSteps[i], steps == i)) {
+            if (listItem(kSteps[i], steps == i)) {
                 steps = i;
             }
         }
         ImGui::EndCombo();
+    }
     }
     /* cboJet (frmMap.frm:725): named presets write a fixed amount into the
        box, and only "Custom" leaves it editable. */
@@ -549,19 +555,22 @@ void drawMapSettings(App& app, bool justOpened) {
         }
     }
     ImGui::SetNextItemWidth(160.0f * scale);
+    {
+    ScopedListColors listColors;
     if (ImGui::BeginCombo("Jets",
                           jetPreset == kJetPresetCount ? "Custom"
                                                        : kJets[jetPreset].name)) {
         for (int i = 0; i < kJetPresetCount; ++i) {
-            if (ImGui::Selectable(kJets[i].name, jetPreset == i)) {
+            if (listItem(kJets[i].name, jetPreset == i)) {
                 jetCount = kJets[i].value;
                 jetPreset = i;
             }
         }
-        if (ImGui::Selectable("Custom", jetPreset == kJetPresetCount)) {
+        if (listItem("Custom", jetPreset == kJetPresetCount)) {
             jetPreset = kJetPresetCount;
         }
         ImGui::EndCombo();
+    }
     }
     ImGui::SetNextItemWidth(120.0f * scale);
     ImGui::BeginDisabled(jetPreset != kJetPresetCount);
@@ -778,17 +787,16 @@ void drawPreferences(App& app, bool justOpened) {
                                                   sizeof(kFactors[0]));
     auto factorCombo = [&](const char* label, int* value) {
         ImGui::SetNextItemWidth(130.0f * scale);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ScopedListColors listColors;
         if (ImGui::BeginCombo(label,
                               kFactors[std::clamp(*value, 0, kFactorCount - 1)])) {
             for (int i = 0; i < kFactorCount; ++i) {
-                if (ImGui::Selectable(kFactors[i], *value == i)) {
+                if (listItem(kFactors[i], *value == i)) {
                     *value = i;
                 }
             }
             ImGui::EndCombo();
         }
-        ImGui::PopStyleColor();
     };
     factorCombo("Polygon SRC", &working.polyBlendSrc);
     ImGui::SameLine();

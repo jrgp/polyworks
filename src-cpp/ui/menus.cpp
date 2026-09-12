@@ -43,11 +43,15 @@ void drawFileMenu(App& app) {
     if (item("New", "Ctrl+N")) {
         ed.confirmDiscardChanges([&ed]() { ed.newMap(); });
     }
+    /* mnuOpen_Click (frm:12772) raises the same save prompt mnuNew_Click does
+       before it ever shows the file dialog. */
     if (item("Open...", "Ctrl+O")) {
-        app.openPopup(PendingPopup::OpenMap);
+        ed.confirmDiscardChanges(
+            [&app]() { app.openPopup(PendingPopup::OpenMap); });
     }
     if (item("Open Compiled...")) {
-        app.openPopup(PendingPopup::OpenCompiled);
+        ed.confirmDiscardChanges(
+            [&app]() { app.openPopup(PendingPopup::OpenCompiled); });
     }
     if (ImGui::BeginMenu("Open Recent", !ed.recentFiles.empty())) {
         int index = 0;
@@ -425,7 +429,8 @@ void App::handleShortcuts() {
         if (pressed(ImGuiKey_N)) {
             ed.confirmDiscardChanges([&ed]() { ed.newMap(); });
         } else if (pressed(ImGuiKey_O)) {
-            openPopup(PendingPopup::OpenMap);
+            ed.confirmDiscardChanges(
+                [this]() { openPopup(PendingPopup::OpenMap); });
         } else if (pressed(ImGuiKey_S)) {
             if (ed.currentFilePath.empty()) {
                 openPopup(PendingPopup::SaveMapAs);

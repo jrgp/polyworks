@@ -46,4 +46,29 @@ SkinColors loadSkinColors(const std::string& skinsPath);
    so the UI is the same physical size at every Windows scaling factor. */
 void applyTheme(const SkinColors& colors, float uiScale);
 
+/*
+ * The colours of a VB6 list control -- a ListBox, or the drop-down half of a
+ * ComboBox -- for as long as the object lives.
+ *
+ * These are white with black text, like a text box and unlike the window they
+ * sit on, so they cannot come from the global style: ImGui has exactly one
+ * text colour and one popup background at a time.  Without this the scenery
+ * list was white text on its own white background, i.e. invisible until a row
+ * was selected and the highlight bar gave it something to contrast with.
+ *
+ * Wrap the whole widget, including a combo's Begin/End, since the drop-down is
+ * drawn during the enclosing call.
+ */
+struct ScopedListColors {
+    ScopedListColors();
+    ~ScopedListColors();
+    ScopedListColors(const ScopedListColors&) = delete;
+    ScopedListColors& operator=(const ScopedListColors&) = delete;
+};
+
+/* One row of such a list.  The selected row's text inverts to sit on the
+   highlight bar, which is what a real list control does.  Only valid inside a
+   ScopedListColors scope. */
+bool listItem(const char* label, bool selected);
+
 }  // namespace pw
