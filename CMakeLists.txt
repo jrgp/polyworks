@@ -48,6 +48,7 @@ endif()
 
 # ── GUI application: Dear ImGui + GLFW + OpenGL ─────────────────────────────
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/DearImGui.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/NativeFileDialog.cmake)
 
 file(GLOB UI_SOURCES src-cpp/ui/*.cpp)
 file(GLOB RENDERER_SOURCES src-cpp/renderer/*.cpp)
@@ -56,6 +57,12 @@ add_executable(polyworks WIN32 MACOSX_BUNDLE ${UI_SOURCES} ${RENDERER_SOURCES})
 target_include_directories(polyworks PRIVATE
   src-cpp src-cpp/core src-cpp/ui src-cpp/renderer)
 target_link_libraries(polyworks PRIVATE pw_core stb_image imgui glfw OpenGL::GL)
+
+# The native file chooser, where the platform has one worth using.
+if(PW_HAVE_NFD)
+  target_link_libraries(polyworks PRIVATE nfd)
+  target_compile_definitions(polyworks PRIVATE PW_HAVE_NFD=1)
+endif()
 
 # macOS bundle setup
 if(APPLE)

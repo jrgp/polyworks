@@ -9,11 +9,12 @@
  *    provides one.  Anything that needed to happen "after the dialog" is a
  *    continuation stored in the Editor (see confirmDiscardChanges).
  *
- *  - There is no native file dialog.  GLFW deliberately does not provide one,
- *    and pulling in GTK or the Windows common dialog would reintroduce exactly
- *    the platform toolkit this port removed.  The browser below is therefore
- *    part of the application, which also means it behaves identically on all
- *    three platforms and can be driven in a test.
+ *  - Choosing a file goes through the platform's own chooser where there is
+ *    one worth using (see file_dialog.h: Win32 and Cocoa, which is also what
+ *    the original's CommonDialog control did).  Linux has no such option that
+ *    does not drag GTK or a D-Bus portal back in, so the browser below stays
+ *    as the fallback.  It is part of the application, which also means it can
+ *    be driven in a test.
  *
  * The Map Settings and Preferences dialogs reproduce frmMap and
  * frmPreferences control for control.
@@ -21,6 +22,7 @@
 
 #include "app.h"
 #include "editor.h"
+#include "file_dialog.h"
 #include "ini_file.h"
 #include "platform.h"
 #include "prefs.h"
@@ -107,6 +109,47 @@ void openBrowser(FileBrowser& b, PendingPopup purpose, const char* title,
     b.filename = startName;
     b.purpose = purpose;
     b.needsRescan = true;
+}
+
+/* Ask the user for a path, using the platform's own file chooser where there
+   is one and the browser above where there is not.
+
+   The native dialog is modal and returns within the call, so its answer is
+   delivered through the same `chosen`/`purpose` pair that drawBrowser fills in
+   later in the frame.  Every caller therefore has one result path regardless
+   of which chooser ran, which matters most for Save As: it can be raised as
+   the answer to a discard prompt, and the continuation parked in
+   pendingAfterPrompt has to run either way. */
+void requestFile(App& app, FileBrowser& b, PendingPopup purpose,
+                 const char* title, const char* extension, bool saving,
+                 const fs::path& startDir, const std::string& startName,
+                 std::string& chosen, PendingPopup& chosenPurpose) {
+    if (haveNativeFileDialog()) {
+        std::string path;
+        const FileDialogResult r =
+            saving ? nativeSaveFile(app.window(), extension,
+                                    startDir.string(), startName, path)
+                   : nativeOpenFile(app.window(), extension,
+                                    startDir.string(), path);
+        if (r == FileDialogResult::Chosen) {
+            /* A save dialog that does not enforce the suffix leaves the map
+               without one, and the editor keys behaviour off the extension. */
+            if (saving && extension != nullptr && *extension != '\0' &&
+                fs::path(path).extension().string().empty()) {
+                path += extension;
+            }
+            chosen = path;
+            chosenPurpose = purpose;
+        }
+        /* Cancelled: nothing to do.  Unsupported cannot happen here because
+           haveNativeFileDialog() said otherwise, but if the platform chooser
+           failed to start we fall through to the built-in browser rather than
+           leaving the menu item dead. */
+        if (r != FileDialogResult::Unsupported) {
+            return;
+        }
+    }
+    openBrowser(b, purpose, title, extension, saving, startDir, startName);
 }
 
 /* Returns the chosen path once, then resets. */
@@ -622,12 +665,37 @@ void drawPreferences(App& app, bool justOpened) {
        editor cannot usefully guess: without it the scenery list is empty and
        map textures resolve only when the map sits inside a game install. */
     ImGui::SeparatorText("Directories");
-    ImGui::SetNextItemWidth(-10.0f * scale);
-    ImGui::InputText("Soldat / OpenSoldat", soldatDir, sizeof(soldatDir));
-    ImGui::SetNextItemWidth(-10.0f * scale);
-    ImGui::InputText("Uncompiled maps", uncompDir, sizeof(uncompDir));
-    ImGui::SetNextItemWidth(-10.0f * scale);
-    ImGui::InputText("Prefabs", prefabsDir, sizeof(prefabsDir));
+
+    /* Each directory is typed or picked.  The Browse button only appears where
+       there is a native folder chooser to open (Windows and macOS); elsewhere
+       the field is typed, as it always has been, because the in-application
+       browser selects files rather than directories. */
+    const bool canBrowse = haveNativeFileDialog();
+    const float browseW = canBrowse ? 80.0f * scale : 0.0f;
+    auto dirField = [&](const char* label, char* buffer, size_t bufferSize) {
+        /* InputText draws its label to the right of the field, so the field
+           has to give up room for both the label and the button. */
+        const float labelW =
+            ImGui::CalcTextSize(label).x + ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::SetNextItemWidth(-(10.0f * scale + browseW + labelW));
+        ImGui::InputText(label, buffer, bufferSize);
+        if (!canBrowse) {
+            return;
+        }
+        ImGui::SameLine();
+        ImGui::PushID(label);
+        if (ImGui::Button("Browse...", ImVec2(browseW - 8.0f * scale, 0))) {
+            std::string picked;
+            if (nativePickFolder(app.window(), buffer, picked) ==
+                FileDialogResult::Chosen) {
+                std::snprintf(buffer, bufferSize, "%s", picked.c_str());
+            }
+        }
+        ImGui::PopID();
+    };
+    dirField("Soldat / OpenSoldat", soldatDir, sizeof(soldatDir));
+    dirField("Uncompiled maps", uncompDir, sizeof(uncompDir));
+    dirField("Prefabs", prefabsDir, sizeof(prefabsDir));
     ImGui::PopStyleColor();
     {
         std::error_code ec;
@@ -764,42 +832,49 @@ void drawDialogs(App& app) {
     static PendingPopup active = PendingPopup::None;
     bool justOpened = false;
 
+    /* Filled in either by the native chooser, which answers within the
+       request below, or by the in-application browser later in the frame. */
+    std::string chosen;
+    PendingPopup purpose = PendingPopup::None;
+
     const PendingPopup requested = app.takePendingPopup();
     if (requested != PendingPopup::None) {
         switch (requested) {
         case PendingPopup::OpenMap:
-            openBrowser(g_browser, requested, "Open Map", ".pms", false,
-                        startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Open Map", ".pms", false,
+                        startDirFor(ed, requested), {}, chosen, purpose);
             break;
         case PendingPopup::OpenCompiled:
-            openBrowser(g_browser, requested, "Open Compiled Map", ".pms",
-                        false, startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Open Compiled Map", ".pms",
+                        false, startDirFor(ed, requested), {}, chosen, purpose);
             break;
         case PendingPopup::SaveMapAs:
-            openBrowser(g_browser, requested, "Save Map As", ".pms", true,
+            requestFile(app, g_browser, requested, "Save Map As", ".pms", true,
                         startDirFor(ed, requested),
-                        fs::path(ed.currentFilePath).filename().string());
+                        fs::path(ed.currentFilePath).filename().string(),
+                        chosen, purpose);
             break;
         case PendingPopup::CompileAs:
-            openBrowser(g_browser, requested, "Compile To", ".pms", true,
+            requestFile(app, g_browser, requested, "Compile To", ".pms", true,
                         startDirFor(ed, requested),
-                        fs::path(ed.currentFilePath).filename().string());
+                        fs::path(ed.currentFilePath).filename().string(),
+                        chosen, purpose);
             break;
         case PendingPopup::ExportPrefab:
-            openBrowser(g_browser, requested, "Export Prefab", ".pwp", true,
-                        startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Export Prefab", ".pwp", true,
+                        startDirFor(ed, requested), {}, chosen, purpose);
             break;
         case PendingPopup::ImportPrefab:
-            openBrowser(g_browser, requested, "Import Prefab", ".pwp", false,
-                        startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Import Prefab", ".pwp",
+                        false, startDirFor(ed, requested), {}, chosen, purpose);
             break;
         case PendingPopup::LoadWorkspace:
-            openBrowser(g_browser, requested, "Load Workspace", ".ini", false,
-                        startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Load Workspace", ".ini",
+                        false, startDirFor(ed, requested), {}, chosen, purpose);
             break;
         case PendingPopup::SaveWorkspace:
-            openBrowser(g_browser, requested, "Save Workspace", ".ini", true,
-                        startDirFor(ed, requested), {});
+            requestFile(app, g_browser, requested, "Save Workspace", ".ini",
+                        true, startDirFor(ed, requested), {}, chosen, purpose);
             break;
         default:
             active = requested;
@@ -808,9 +883,8 @@ void drawDialogs(App& app) {
         }
     }
 
-    std::string chosen;
-    PendingPopup purpose = PendingPopup::None;
-    if (drawBrowser(app, g_browser, chosen, purpose)) {
+    const bool browserAnswered = drawBrowser(app, g_browser, chosen, purpose);
+    if (browserAnswered || purpose != PendingPopup::None) {
         switch (purpose) {
         case PendingPopup::OpenMap:
         case PendingPopup::OpenCompiled:

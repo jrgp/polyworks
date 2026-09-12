@@ -31,6 +31,7 @@ polyworks/
 │   │   ├── menus.cpp         # Menu bar, shortcuts, status bar
 │   │   ├── panels.cpp        # The seven floating tool windows
 │   │   ├── dialogs.cpp       # File browser, Map Settings, Preferences
+│   │   ├── file_dialog.h/.cpp  # Native file chooser (Win32/Cocoa via NFDe)
 │   │   ├── context_menu.cpp  # Viewport right-click menus
 │   │   ├── theme.h/.cpp      # ImGui style built from the skin's colors.ini
 │   │   ├── gfx.h/.cpp        # Image and .cur loading, GL upload
@@ -154,6 +155,15 @@ the top, the status bar at the bottom, the map viewport fills the region
 between them, and the tool windows float over it as ImGui windows.  The style
 is built at startup from the skin's `colors.ini`, so the application does not
 look like default ImGui.
+
+The one exception is choosing a file.  Windows and macOS open the operating
+system's own chooser through Native File Dialog Extended (`file_dialog.h`),
+which is what the original's `CommonDialog` control did and what gives the user
+the sidebar, recent places, volumes and -- on macOS -- the file-access prompt a
+self-drawn browser cannot.  Linux keeps the ImGui browser in `dialogs.cpp`,
+because every native backend there needs GTK or a D-Bus portal and neither
+belongs in this dependency graph.  Both paths deliver their answer the same
+way, so no caller knows which one ran.
 
 `Editor` owns everything that is not pixels:
 - The MapDocument and UndoStack

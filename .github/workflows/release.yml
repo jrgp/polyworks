@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps/cache
-          key: deps-${{ runner.os }}-${{ hashFiles('cmake/DearImGui.cmake') }}
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/DearImGui.cmake', 'cmake/NativeFileDialog.cmake') }}
 
       # build_windows.sh owns everything: cross-compiling, checking the
       # executable imports nothing from GTK/X11, and staging the portable ZIP.
@@ -73,7 +73,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps/cache
-          key: deps-macos-${{ runner.arch }}-${{ hashFiles('cmake/DearImGui.cmake') }}
+          key: deps-macos-${{ runner.arch }}-${{ hashFiles('cmake/DearImGui.cmake', 'cmake/NativeFileDialog.cmake') }}
 
       # build-mac.sh owns everything: producing the bundle, auditing every
       # Mach-O in it for references outside the bundle, signing it, and

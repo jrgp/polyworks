@@ -64,6 +64,9 @@ public:
 
     void requestQuit();
 
+    /* The native file dialogs need a parent window to be modal to. */
+    GLFWwindow* window() const { return m_window; }
+
     /* The viewport context menu currently open, if any.  Held by App because
        the popup is raised by the input handler but drawn by the frame loop,
        and ImGui keeps a popup open only while its Begin is reached. */
